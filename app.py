@@ -133,6 +133,11 @@ class VoxtralApp(rumps.App):
             raise
 
     def _on_hotkey_stop(self) -> None:
+        # Log diagnostic temporaire pour tracer le flow release → transcription.
+        print(
+            f"[hotkey] stop fired, is_recording={self.recorder.is_recording}",
+            file=sys.stderr,
+        )
         if not self.recorder.is_recording:
             # on_stop sans on_start effectif : soit busy était déjà pris
             # par une transcription en cours (ce press a été ignoré), soit
@@ -143,6 +148,7 @@ class VoxtralApp(rumps.App):
 
         try:
             wav_path = self.recorder.stop()
+            print(f"[hotkey] wav written to {wav_path}", file=sys.stderr)
             self.feedback.play_stop()
             self._set_state(ICON_TRANSCRIBING, "État : transcription…")
         except Exception:
@@ -176,6 +182,11 @@ class VoxtralApp(rumps.App):
                     message=text[:80] + ("…" if len(text) > 80 else ""),
                 )
         except Exception as exc:
+            # Log diagnostic temporaire : le popup rumps seul masquait la
+            # cause des échecs silencieux. À retirer une fois le flow
+            # dictée stable et les erreurs attendues bien gérées.
+            import traceback
+            traceback.print_exc()
             rumps.notification(
                 title=APP_NAME,
                 subtitle="Erreur de transcription",
