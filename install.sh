@@ -98,9 +98,12 @@ ok "Homebrew présent."
 
 # ---------- 3. Python 3.11+ ----------
 PYTHON_BIN=""
-# Préférence : version installée la plus récente >= 3.11 (minimum projet).
-# Ordre du plus récent au plus ancien, avec 3.11 comme borne basse.
-for v in 3.14 3.13 3.12 3.11; do
+# Préférence : 3.13 d'abord (écosystème ML + pyobjc bien rodés), puis
+# 3.12 et 3.11 (anciens stables), enfin 3.14 en dernier recours. 3.14 est
+# trop récent début 2026 : pyobjc-framework-AppKit n'a pas encore de wheel
+# compatible, ce qui casse l'install. Si seul 3.14 est dispo on l'utilise
+# quand même — l'utilisateur verra l'erreur pip et pourra installer 3.13.
+for v in 3.13 3.12 3.11 3.14; do
   if command -v "python${v}" >/dev/null 2>&1; then
     PYTHON_BIN="python${v}"
     break
