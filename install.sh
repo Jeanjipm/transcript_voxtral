@@ -15,6 +15,17 @@
 #   8. Propose le démarrage automatique
 #   9. Lance l'app
 
+# Self-reexec quand on est piped (curl | bash). Sans ça, des sous-processus
+# comme `brew install` consomment des octets du script depuis le tube, ce
+# qui corrompt l'exécution (lignes qui disparaissent, script qui meurt en
+# silence). On bascule sur un fichier temporaire avec stdin = tty, ce qui
+# permet aussi aux prompts `read -r -p` de fonctionner correctement.
+if [[ ! -t 0 ]]; then
+  TMPSCRIPT=$(mktemp "${TMPDIR:-/tmp}/voxtral-install.XXXXXX.sh")
+  cat > "$TMPSCRIPT"
+  exec bash "$TMPSCRIPT" </dev/tty
+fi
+
 set -euo pipefail
 
 # ---------- Paramètres ----------
