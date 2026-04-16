@@ -102,8 +102,11 @@ class VoxtralTranscriber(Transcriber):
             language=language,
             audio=str(wav_path),
         )
+        # mlx-voxtral 0.0.4 retourne un TranscriptionInputs (objet, pas dict) ;
+        # `**inputs` échoue avec "must be a mapping". On déballe via vars()
+        # qui fonctionne pour les classes ordinaires avec __dict__.
         outputs = self._model.generate(
-            **inputs,
+            **vars(inputs),
             max_new_tokens=max_new_tokens,
             temperature=temperature,
         )
