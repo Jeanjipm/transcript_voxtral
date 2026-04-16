@@ -15,6 +15,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import rumps
@@ -23,6 +24,7 @@ from audio_capture import AudioRecorder
 from audio_feedback import AudioFeedback
 from clipboard import paste_text
 from config import (
+    USER_CONFIG_PATH,
     Config,
     ensure_user_config_exists,
     load_config,
@@ -100,6 +102,73 @@ class VoxtralApp(rumps.App):
         # tournent potentiellement sur 3 threads différents.
         self._busy_lock = threading.Lock()
         self._busy = False
+
+        # 5) Watcher hot-reload : quand settings_ui.py écrit une nouvelle
+        # config utilisateur, on l'applique sans redémarrer l'app (raccourci,
+        # modèle, langue, etc. rechargés à la volée).
+        self._config_mtime = (
+            USER_CONFIG_PATH.stat().st_mtime if USER_CONFIG_PATH.exists() else 0.0
+        )
+        threading.Thread(target=self._watch_config_loop, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Hot-reload config
+    # ------------------------------------------------------------------
+
+    def _watch_config_loop(self) -> None:
+        """Poll toutes les 2s la mtime de ~/.voxtral/config.yaml. Si elle
+        change (typiquement après save depuis Préférences), on recharge."""
+        while True:
+            time.sleep(2)
+            try:
+                if not USER_CONFIG_PATH.exists():
+                    continue
+                mtime = USER_CONFIG_PATH.stat().st_mtime
+                if mtime == self._config_mtime:
+                    continue
+                self._config_mtime = mtime
+                self._reload_config()
+            except Exception:
+                # Le watcher ne doit jamais tuer l'app ; on logge et on
+                # recommence au prochain tick.
+                import traceback
+                traceback.print_exc()
+
+    def _reload_config(self) -> None:
+        """Relit la config et applique les changements nécessaires au
+        runtime (hotkey, modèle, labels menu). Les autres champs (langue,
+        sons, volume, temperature, etc.) sont lus à la demande via self.config
+        donc il suffit de remplacer la référence."""
+        print("[config] rechargement de ~/.voxtral/config.yaml", file=sys.stderr)
+        new_config = load_config()
+
+        # Raccourci : relancer le listener si combo ou mode a changé.
+        if (
+            new_config.hotkey.combo != self.config.hotkey.combo
+            or new_config.hotkey.mode != self.config.hotkey.mode
+        ):
+            self.hotkey.update_binding(
+                new_config.hotkey.combo, new_config.hotkey.mode
+            )
+            self.hotkey_item.title = (
+                f"Raccourci : {display_combo(new_config.hotkey.combo)}"
+            )
+
+        # Modèle : recréer le transcriber (il rechargera le modèle au
+        # prochain transcribe, pas tout de suite — pas de pause pour
+        # l'utilisateur tant qu'il ne dicte pas).
+        if new_config.model.name != self.config.model.name:
+            self.transcriber = make_transcriber(new_config)
+            self.model_item.title = (
+                f"Modèle : {find_model(new_config.model.name).label if find_model(new_config.model.name) else new_config.model.name}"
+            )
+
+        # Feedback audio : recréer pour que le volume / theme / enabled
+        # soient pris en compte immédiatement.
+        self.feedback = AudioFeedback(new_config)
+
+        self.config = new_config
+        self.lang_item.title = f"Langue : {self._language_label()}"
 
     # ------------------------------------------------------------------
     # Gestion du flag "occupé"
