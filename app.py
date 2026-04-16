@@ -15,7 +15,6 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
 import rumps
@@ -104,35 +103,34 @@ class VoxtralApp(rumps.App):
         self._busy = False
 
         # 5) Watcher hot-reload : quand settings_ui.py écrit une nouvelle
-        # config utilisateur, on l'applique sans redémarrer l'app (raccourci,
-        # modèle, langue, etc. rechargés à la volée).
+        # config utilisateur, on l'applique sans redémarrer l'app.
+        # On utilise rumps.Timer (callback sur le thread principal) plutôt
+        # qu'un threading.Thread : AppKit exige que les mises à jour de
+        # menu se fassent sur le main thread, sinon crash silencieux.
         self._config_mtime = (
             USER_CONFIG_PATH.stat().st_mtime if USER_CONFIG_PATH.exists() else 0.0
         )
-        threading.Thread(target=self._watch_config_loop, daemon=True).start()
+        self._config_timer = rumps.Timer(self._check_config_change, 2.0)
+        self._config_timer.start()
 
     # ------------------------------------------------------------------
     # Hot-reload config
     # ------------------------------------------------------------------
 
-    def _watch_config_loop(self) -> None:
-        """Poll toutes les 2s la mtime de ~/.voxtral/config.yaml. Si elle
-        change (typiquement après save depuis Préférences), on recharge."""
-        while True:
-            time.sleep(2)
-            try:
-                if not USER_CONFIG_PATH.exists():
-                    continue
-                mtime = USER_CONFIG_PATH.stat().st_mtime
-                if mtime == self._config_mtime:
-                    continue
-                self._config_mtime = mtime
-                self._reload_config()
-            except Exception:
-                # Le watcher ne doit jamais tuer l'app ; on logge et on
-                # recommence au prochain tick.
-                import traceback
-                traceback.print_exc()
+    def _check_config_change(self, _sender: "rumps.Timer | None" = None) -> None:
+        """Tick du timer : vérifie si ~/.voxtral/config.yaml a été modifié
+        et déclenche un reload si oui. Tourne sur le main thread."""
+        try:
+            if not USER_CONFIG_PATH.exists():
+                return
+            mtime = USER_CONFIG_PATH.stat().st_mtime
+            if mtime == self._config_mtime:
+                return
+            self._config_mtime = mtime
+            self._reload_config()
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
     def _reload_config(self) -> None:
         """Relit la config et applique les changements nécessaires au

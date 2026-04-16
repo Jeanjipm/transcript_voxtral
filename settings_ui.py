@@ -490,9 +490,8 @@ class SettingsWindow:
         save_config(cfg)
         messagebox.showinfo(
             "Préférences enregistrées",
-            "Les paramètres ont été sauvegardés.\n"
-            "Redémarrez Voxtral pour appliquer les changements de modèle "
-            "ou de raccourci.",
+            "Les paramètres ont été sauvegardés. Ils seront appliqués "
+            "automatiquement d'ici 2-3 secondes — pas besoin de redémarrer.",
         )
         self.root.destroy()
 

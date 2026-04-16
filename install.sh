@@ -213,13 +213,20 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+mkdir -p "$(dirname "$LOG_FILE")"
+# On exec Python DIRECTEMENT (pas de passage par voxtral-launcher.sh) pour
+# ne pas perdre l'association Info.plist → process (la chaîne de exec
+# shell → shell → python peut rendre macOS incapable d'attribuer
+# correctement LSUIElement, ce qui masque l'icône menu bar).
+# On redirige stdout/stderr vers un log pour debug sans terminal.
 cat > "$APP_BUNDLE/Contents/MacOS/voxtral" <<EOF
 #!/bin/bash
-exec "$LAUNCHER"
+exec "$VENV_DIR/bin/python" "$INSTALL_DIR/app.py" >> "$LOG_FILE" 2>&1
 EOF
 chmod +x "$APP_BUNDLE/Contents/MacOS/voxtral"
 
 ok "Voxtral.app disponible dans ~/Applications/. Ouvre-le depuis Spotlight (Cmd+Espace → 'Voxtral') ou glisse-le dans le Dock."
+info "Logs runtime : $LOG_FILE (tail -f pour les voir en direct)."
 
 # ---------- 8. Démarrage automatique (optionnel) ----------
 read -r -p "Lancer Voxtral automatiquement au démarrage du Mac ? [y/N] " AUTOSTART
