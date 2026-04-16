@@ -6,7 +6,7 @@
 
 # --- Inférence ML (Apple Silicon) ---
 mlx>=0.18.0                   # Framework ML natif Apple Silicon
-mlx-voxtral>=0.1.0            # Wrapper MLX pour le modèle Voxtral (mzbac)
+mlx-voxtral                   # Wrapper MLX pour le modèle Voxtral (mzbac) — pas de pin : versions 0.0.x évoluent vite chez l'upstream
 mlx-whisper>=0.4.0            # Fallback Whisper si Voxtral indisponible
 
 # --- App menu bar ---

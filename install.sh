@@ -79,16 +79,18 @@ ok "Homebrew présent."
 
 # ---------- 3. Python 3.11+ ----------
 PYTHON_BIN=""
-if command -v python3.11 >/dev/null 2>&1; then
-  PYTHON_BIN="python3.11"
-elif command -v python3.12 >/dev/null 2>&1; then
-  PYTHON_BIN="python3.12"
-elif command -v python3.13 >/dev/null 2>&1; then
+# Préférence : version installée la plus récente >= 3.11 (minimum projet).
+# Ordre du plus récent au plus ancien, avec 3.11 comme borne basse.
+for v in 3.14 3.13 3.12 3.11; do
+  if command -v "python${v}" >/dev/null 2>&1; then
+    PYTHON_BIN="python${v}"
+    break
+  fi
+done
+if [[ -z "$PYTHON_BIN" ]]; then
+  info "Aucun Python 3.11+ trouvé — installation de Python 3.13 via Homebrew..."
+  brew install python@3.13
   PYTHON_BIN="python3.13"
-else
-  info "Installation de Python 3.11 via Homebrew..."
-  brew install python@3.11
-  PYTHON_BIN="python3.11"
 fi
 ok "Python disponible : $($PYTHON_BIN --version)"
 
