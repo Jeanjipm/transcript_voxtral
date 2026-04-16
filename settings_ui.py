@@ -41,6 +41,7 @@ def _validate_combo(combo: str) -> str | None:
 
 # Raccourcis système macOS connus → warning de conflit dans l'UI
 KNOWN_SYSTEM_CONFLICTS: set[str] = {
+    # Système
     "cmd+space",       # Spotlight
     "cmd+h",           # Masquer
     "cmd+option+h",    # Masquer les autres
@@ -49,9 +50,21 @@ KNOWN_SYSTEM_CONFLICTS: set[str] = {
     "cmd+shift+4",     # Capture sélection
     "cmd+shift+5",     # Outils capture
     "cmd+ctrl+space",  # Emoji picker
-    "cmd+shift+space", # Spotlight Réseau (Finder)
+    "cmd+shift+space", # Spotlight Réseau
     "cmd+tab",         # Switch app
     "cmd+q",           # Quitter
+    # Finder — tous ces cmd+shift+LETTRE ouvrent un dossier Finder,
+    # donc volent le focus et font que le paste se fait dans Finder
+    "cmd+shift+h",     # Dossier Départ
+    "cmd+shift+d",     # Bureau
+    "cmd+shift+a",     # Applications
+    "cmd+shift+u",     # Utilitaires
+    "cmd+shift+o",     # Documents
+    "cmd+shift+c",     # Ordinateur
+    "cmd+shift+i",     # iCloud Drive
+    "cmd+shift+f",     # Récents
+    "cmd+shift+g",     # Aller au dossier
+    "cmd+shift+k",     # Réseau
 }
 
 
@@ -231,10 +244,13 @@ class SettingsWindow:
         ttk.Label(frame, text="Combinaison :").grid(
             row=4, column=0, sticky="w", pady=(10, 0)
         )
+        # Défaut proposé pour le champ combo : ctrl+option+space. Choisi
+        # pour ne pas voler le focus (contrairement à cmd+shift+h qui ouvre
+        # le dossier Départ dans Finder et casse le paste automatique).
         combo_default = (
             self.config.hotkey.combo
             if "+" in self.config.hotkey.combo
-            else "cmd+shift+h"
+            else "ctrl+option+space"
         )
         self.combo_var = tk.StringVar(value=combo_default)
         self.combo_entry = ttk.Entry(frame, textvariable=self.combo_var, width=22)
@@ -243,7 +259,7 @@ class SettingsWindow:
         )
         ttk.Label(
             frame,
-            text="Format : 'cmd+shift+h', 'ctrl+alt+space'…",
+            text="Format : 'ctrl+option+space' (recommandé), 'ctrl+alt+d'…",
             foreground="gray",
         ).grid(row=5, column=1, sticky="w", padx=(10, 0))
 
