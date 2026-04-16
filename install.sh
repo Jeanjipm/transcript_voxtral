@@ -18,12 +18,20 @@
 # Self-reexec quand on est piped (curl | bash). Sans ça, des sous-processus
 # comme `brew install` consomment des octets du script depuis le tube, ce
 # qui corrompt l'exécution (lignes qui disparaissent, script qui meurt en
-# silence). On bascule sur un fichier temporaire avec stdin = tty, ce qui
-# permet aussi aux prompts `read -r -p` de fonctionner correctement.
+# silence).
+#
+# On bascule sur un fichier temporaire avec stdin = /dev/tty si dispo
+# (permet aussi aux prompts 'read -r -p' de fonctionner), sinon /dev/null
+# (les prompts prendront leur valeur par défaut — c'est OK, les défauts
+# sont pensés pour un install non-interactive).
 if [[ ! -t 0 ]]; then
-  TMPSCRIPT=$(mktemp "${TMPDIR:-/tmp}/voxtral-install.XXXXXX.sh")
+  TMPSCRIPT=$(mktemp "${TMPDIR:-/tmp}/voxtral-install.XXXXXX")
   cat > "$TMPSCRIPT"
-  exec bash "$TMPSCRIPT" </dev/tty
+  if bash -c ": </dev/tty" >/dev/null 2>&1; then
+    exec bash "$TMPSCRIPT" </dev/tty
+  else
+    exec bash "$TMPSCRIPT" </dev/null
+  fi
 fi
 
 set -euo pipefail
