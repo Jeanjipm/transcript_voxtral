@@ -1,0 +1,55 @@
+# Configuration par défaut Voxtral Dictée
+# Ce fichier est copié dans ~/.voxtral/config.yaml au premier lancement.
+# Toute modification depuis l'UI Préférences est sauvegardée là-bas,
+# pas ici.
+
+model:
+  # Modèle de transcription par défaut (3.2 Go, qualité/vitesse optimal).
+  # Alternatives :
+  #   mzbac/voxtral-mini-3b-8bit       (5.3 Go, qualité supérieure)
+  #   mistralai/Voxtral-Mini-3B-2507   (~8 Go, full précision)
+  #   mlx-community/whisper-large-v3-turbo  (fallback libre de droits)
+  name: "mzbac/voxtral-mini-3b-4bit-mixed"
+  path: "~/.voxtral/models/"
+
+hotkey:
+  # "alt_r" = touche Option DROITE, mode talkie-walkie (push-to-talk).
+  # Aucune collision avec un raccourci système macOS.
+  # Alternatives possibles dans l'UI :
+  #   "cmd+shift+h"   (combinaison ergonomique, libre dans la plupart des apps)
+  #   "ctrl+alt+space" (combinaison ultra-safe, jamais prise par le système)
+  combo: "alt_r"
+  # "push_to_talk" : enregistre tant que la touche est tenue
+  # "toggle"       : appui pour démarrer, appui pour arrêter
+  # NB : les touches uniques (alt_r, etc.) forcent push_to_talk.
+  mode: "push_to_talk"
+
+transcription:
+  # Langue : "auto" pour détection automatique, ou code ISO-639 :
+  # fr, en, de, es, it, pt, nl, hi, ...
+  language: "auto"
+  # "transcribe" : audio → texte dans la langue parlée
+  # "translate"  : audio → texte traduit en anglais
+  task: "transcribe"
+  # 0.0 = transcription la plus fidèle (déterministe).
+  # > 0.0 = créatif (déconseillé pour de la dictée).
+  temperature: 0.0
+  max_new_tokens: 1024
+  # Activer pour les dictées longues (> 30 s).
+  streaming: false
+
+sounds:
+  enabled: true
+  volume: 0.5            # 0.0 à 1.0
+  # "system" = sons système macOS (Tink.aiff / Pop.aiff) — recommandé
+  # "soft" / "subtle" / "custom" : réservé pour versions futures
+  theme: "system"
+  # Chemins utilisés si theme != "system" (sons custom).
+  start_sound: "sounds/start.wav"
+  stop_sound: "sounds/stop.wav"
+
+ui:
+  # Notification système quand le texte est collé (intrusif, off par défaut).
+  notification_on_paste: false
+  # Si true : copie + colle automatiquement. Si false : copie uniquement.
+  auto_paste: true
