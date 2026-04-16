@@ -103,7 +103,6 @@ def download_model(
     local_path = snapshot_download(
         repo_id=repo_id,
         local_dir=str(dest),
-        local_dir_use_symlinks=False,
     )
     if progress_callback is not None:
         # Best-effort : on signale juste la fin (100%).

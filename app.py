@@ -134,8 +134,11 @@ class VoxtralApp(rumps.App):
 
     def _on_hotkey_stop(self) -> None:
         if not self.recorder.is_recording:
-            # Cas où on_stop arrive sans on_start préalable (paranoïa)
-            self._end_busy()
+            # on_stop sans on_start effectif : soit busy était déjà pris
+            # par une transcription en cours (ce press a été ignoré), soit
+            # start() a levé et a déjà libéré busy. Dans les deux cas on
+            # ne possède pas le flag — ne pas le libérer, sinon on écrase
+            # une session concurrente.
             return
 
         try:
