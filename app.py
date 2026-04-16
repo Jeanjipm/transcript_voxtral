@@ -149,6 +149,26 @@ class VoxtralApp(rumps.App):
         try:
             wav_path = self.recorder.stop()
             print(f"[hotkey] wav written to {wav_path}", file=sys.stderr)
+
+            # Skip les appuis quasi-instantanés : en-dessous d'un demi-seconde,
+            # l'audio contient surtout le son Tink de feedback + silence, et
+            # mlx-voxtral hallucine une phrase typique (ex. "Thank you"). On
+            # supprime silencieusement — pas de Pop, pas de notification.
+            import soundfile as sf
+            duration = sf.info(str(wav_path)).duration
+            if duration < 0.5:
+                print(
+                    f"[hotkey] wav trop court ({duration:.2f}s), skip transcription",
+                    file=sys.stderr,
+                )
+                try:
+                    wav_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                self._set_state(ICON_IDLE, "État : prêt")
+                self._end_busy()
+                return
+
             self.feedback.play_stop()
             self._set_state(ICON_TRANSCRIBING, "État : transcription…")
         except Exception:
