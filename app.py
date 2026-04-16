@@ -93,30 +93,49 @@ class VoxtralApp(rumps.App):
         )
         self.hotkey.start()
 
-        # Lock pour éviter qu'une 2e dictée démarre pendant qu'une
-        # transcription tourne encore.
-        self._busy = threading.Lock()
+        # Flag "occupé" pour éviter qu'une 2e dictée démarre pendant qu'une
+        # transcription tourne encore. On utilise un bool + Lock plutôt que
+        # threading.Lock tout seul : release() d'un Lock non détenu lève
+        # RuntimeError, ce qui est dangereux quand start/stop/transcribe
+        # tournent potentiellement sur 3 threads différents.
+        self._busy_lock = threading.Lock()
+        self._busy = False
+
+    # ------------------------------------------------------------------
+    # Gestion du flag "occupé"
+    # ------------------------------------------------------------------
+
+    def _try_begin_busy(self) -> bool:
+        """Passe busy=True de façon atomique. Retourne False si déjà busy."""
+        with self._busy_lock:
+            if self._busy:
+                return False
+            self._busy = True
+            return True
+
+    def _end_busy(self) -> None:
+        with self._busy_lock:
+            self._busy = False
 
     # ------------------------------------------------------------------
     # Callbacks raccourci clavier
     # ------------------------------------------------------------------
 
     def _on_hotkey_start(self) -> None:
-        if not self._busy.acquire(blocking=False):
+        if not self._try_begin_busy():
             return
         try:
             self.feedback.play_start()
             self.recorder.start()
             self._set_state(ICON_RECORDING, "État : écoute en cours…")
         except Exception:
-            self._busy.release()
+            self._end_busy()
             raise
 
     def _on_hotkey_stop(self) -> None:
         if not self.recorder.is_recording:
             # Cas où on_stop arrive sans on_start préalable (paranoïa)
-            if self._busy.locked():
-                self._busy.release()
+            self._end_busy()
             return
 
         try:
@@ -125,7 +144,7 @@ class VoxtralApp(rumps.App):
             self._set_state(ICON_TRANSCRIBING, "État : transcription…")
         except Exception:
             self._set_state(ICON_IDLE, "État : prêt")
-            self._busy.release()
+            self._end_busy()
             raise
 
         # Transcription dans un thread pour ne pas geler la menu bar
@@ -165,8 +184,7 @@ class VoxtralApp(rumps.App):
             except OSError:
                 pass
             self._set_state(ICON_IDLE, "État : prêt")
-            if self._busy.locked():
-                self._busy.release()
+            self._end_busy()
 
     # ------------------------------------------------------------------
     # Items de menu

@@ -21,8 +21,26 @@ set -euo pipefail
 REPO_URL="https://github.com/Jeanjipm/transcript_voxtral.git"
 INSTALL_DIR="$HOME/.voxtral/app"
 VENV_DIR="$HOME/.voxtral/venv"
-BIN_DIR="/usr/local/bin"
+LOG_FILE="$HOME/.voxtral/voxtral.log"
 LAUNCH_AGENT_PLIST="$HOME/Library/LaunchAgents/com.voxtral.dictee.plist"
+
+# Sélection du dossier pour la commande `voxtral`. Sur Apple Silicon, le
+# chemin historique /usr/local/bin n'existe pas par défaut et Homebrew
+# utilise /opt/homebrew/bin. On privilégie un dossier déjà présent dans
+# le PATH utilisateur pour éviter de demander une élévation de droits.
+pick_bin_dir() {
+  # Déjà dans le PATH ? On regarde dans l'ordre de préférence.
+  for candidate in "$HOME/.local/bin" "/opt/homebrew/bin" "/usr/local/bin"; do
+    if [[ -d "$candidate" && -w "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  # Aucun candidat existant : on crée ~/.local/bin (standard XDG).
+  mkdir -p "$HOME/.local/bin"
+  echo "$HOME/.local/bin"
+}
+BIN_DIR="$(pick_bin_dir)"
 
 # ---------- Couleurs (TTY) ----------
 if [[ -t 1 ]]; then
@@ -111,18 +129,21 @@ exec "$VENV_DIR/bin/python" "$INSTALL_DIR/app.py" "\$@"
 EOF
 chmod +x "$LAUNCHER"
 
-if [[ -w "$BIN_DIR" ]]; then
-  ln -sf "$LAUNCHER" "$BIN_DIR/voxtral"
-  ok "Commande 'voxtral' installée dans $BIN_DIR."
-else
-  warn "$BIN_DIR non accessible en écriture. Ajoute cet alias à ton ~/.zshrc :"
-  echo "    alias voxtral=\"$LAUNCHER\""
-fi
+ln -sf "$LAUNCHER" "$BIN_DIR/voxtral"
+ok "Commande 'voxtral' installée dans $BIN_DIR."
+# Avertir si ce dossier n'est pas dans le PATH (~/.local/bin par défaut
+# hors zsh récent, par exemple).
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *) warn "Ajoute cette ligne à ton ~/.zshrc pour taper 'voxtral' partout :"
+     echo "    export PATH=\"$BIN_DIR:\$PATH\"" ;;
+esac
 
 # ---------- 8. Démarrage automatique (optionnel) ----------
 read -r -p "Lancer Voxtral automatiquement au démarrage du Mac ? [y/N] " AUTOSTART
 if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
   mkdir -p "$(dirname "$LAUNCH_AGENT_PLIST")"
+  mkdir -p "$(dirname "$LOG_FILE")"
   cat > "$LAUNCH_AGENT_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -138,12 +159,16 @@ if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
     <true/>
     <key>KeepAlive</key>
     <false/>
+    <key>StandardOutPath</key>
+    <string>$LOG_FILE</string>
+    <key>StandardErrorPath</key>
+    <string>$LOG_FILE</string>
 </dict>
 </plist>
 EOF
   launchctl unload "$LAUNCH_AGENT_PLIST" 2>/dev/null || true
   launchctl load "$LAUNCH_AGENT_PLIST"
-  ok "Démarrage automatique activé."
+  ok "Démarrage automatique activé. Logs : $LOG_FILE"
 fi
 
 # ---------- 9. Lancement ----------

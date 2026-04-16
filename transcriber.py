@@ -14,10 +14,15 @@ mlx-voxtral est en panne, on swap d'une seule ligne (`make_transcriber`).
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 from config import Config
+
+
+# Repo HuggingFace utilisé quand Voxtral est indisponible (paquet MLX absent).
+WHISPER_FALLBACK_REPO = "mlx-community/whisper-large-v3-turbo"
 
 
 class Transcriber(ABC):
@@ -143,6 +148,11 @@ def make_transcriber(config: Config) -> Transcriber:
     """
     Factory : choisit le backend selon le nom du modèle dans la config.
     Tombe en fallback sur Whisper si Voxtral indisponible.
+
+    Si un modèle Voxtral est configuré mais que `mlx_voxtral` n'est pas
+    importable, on bascule sur Whisper Turbo et on log un avertissement
+    explicite sur stderr (sinon l'utilisateur ne comprend pas pourquoi sa
+    config est ignorée).
     """
     model_name = config.model.name
 
@@ -153,6 +163,11 @@ def make_transcriber(config: Config) -> Transcriber:
     if voxtral.is_available():
         return voxtral
 
-    # Fallback structuré : Voxtral indisponible → Whisper Turbo
-    fallback_repo = "mlx-community/whisper-large-v3-turbo"
-    return WhisperTranscriber(fallback_repo)
+    print(
+        f"[transcriber] AVERTISSEMENT : paquet 'mlx_voxtral' introuvable, "
+        f"modèle '{model_name}' non utilisable. "
+        f"Fallback sur Whisper ({WHISPER_FALLBACK_REPO}). "
+        f"Installe mlx-voxtral ou choisis un modèle Whisper dans Préférences.",
+        file=sys.stderr,
+    )
+    return WhisperTranscriber(WHISPER_FALLBACK_REPO)
