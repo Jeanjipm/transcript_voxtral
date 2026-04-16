@@ -13,7 +13,6 @@ from __future__ import annotations
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
-from typing import Callable
 
 from config import Config, load_config, save_config
 from hotkey_manager import _parse_key, display_combo
@@ -488,11 +487,8 @@ class SettingsWindow:
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
 
         save_config(cfg)
-        messagebox.showinfo(
-            "Préférences enregistrées",
-            "Les paramètres ont été sauvegardés. Ils seront appliqués "
-            "automatiquement d'ici 2-3 secondes — pas besoin de redémarrer.",
-        )
+        # Pas de popup de confirmation : le hot-reload applique les
+        # changements d'ici 2-3s sans intervention de l'utilisateur.
         self.root.destroy()
 
 

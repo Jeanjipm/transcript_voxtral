@@ -215,12 +215,16 @@ EOF
 
 mkdir -p "$(dirname "$LOG_FILE")"
 # On exec Python DIRECTEMENT (pas de passage par voxtral-launcher.sh) pour
-# ne pas perdre l'association Info.plist → process (la chaîne de exec
-# shell → shell → python peut rendre macOS incapable d'attribuer
-# correctement LSUIElement, ce qui masque l'icône menu bar).
-# On redirige stdout/stderr vers un log pour debug sans terminal.
+# ne pas perdre l'association Info.plist → process.
+# `brew shellenv` restaure PATH + HOMEBREW_PREFIX comme un shell user, ce
+# qui est nécessaire pour que Python trouve les dylibs Tcl/Tk (_tkinter)
+# depuis /opt/homebrew — sans ça, Préférences crashe avec
+# ModuleNotFoundError au lancement via .app (mais marche depuis Terminal
+# où le shell a déjà chargé brew shellenv dans ~/.zshrc).
+# stdout/stderr → log pour debug sans terminal.
 cat > "$APP_BUNDLE/Contents/MacOS/voxtral" <<EOF
 #!/bin/bash
+eval "\$(/opt/homebrew/bin/brew shellenv)"
 exec "$VENV_DIR/bin/python" "$INSTALL_DIR/app.py" >> "$LOG_FILE" 2>&1
 EOF
 chmod +x "$APP_BUNDLE/Contents/MacOS/voxtral"
@@ -269,8 +273,16 @@ echo "  Réglages Système → Confidentialité et sécurité"
 echo
 echo "Raccourci par défaut : maintenir ⌥ Option DROITE pour parler."
 echo
-read -r -p "Lancer Voxtral maintenant ? [Y/n] " LAUNCH
-if [[ ! "$LAUNCH" =~ ^[Nn]$ ]]; then
-  nohup "$LAUNCHER" >/dev/null 2>&1 &
-  ok "Voxtral lancé (icône 🎤 dans la barre de menu)."
+
+# Évite le double-lancement : si Voxtral tourne déjà (instance Terminal
+# précédente, LaunchAgent du step 8, ou lancé via Voxtral.app), on ne
+# relance pas, sinon on aurait deux icônes 🎤 dans la menu bar.
+if pgrep -f "voxtral/app/app.py" >/dev/null 2>&1; then
+  ok "Voxtral est déjà en cours d'exécution (icône 🎤 visible dans la menu bar)."
+else
+  read -r -p "Lancer Voxtral maintenant ? [Y/n] " LAUNCH
+  if [[ ! "$LAUNCH" =~ ^[Nn]$ ]]; then
+    nohup "$LAUNCHER" >/dev/null 2>&1 &
+    ok "Voxtral lancé (icône 🎤 dans la barre de menu)."
+  fi
 fi
