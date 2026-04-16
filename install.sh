@@ -159,8 +159,13 @@ ok "Modèle prêt."
 
 # ---------- 7. Commande `voxtral` ----------
 LAUNCHER="$INSTALL_DIR/voxtral-launcher.sh"
+# Idem que le launcher du bundle Voxtral.app : on doit charger brew shellenv
+# (PATH + HOMEBREW_PREFIX) sinon Python ne trouve pas les dylibs Tcl/Tk
+# de python-tk@3.13 quand l'app est lancée hors shell interactif (ex.
+# depuis un LaunchAgent, qui a un environnement minimal).
 cat > "$LAUNCHER" <<EOF
 #!/bin/bash
+eval "\$(/opt/homebrew/bin/brew shellenv)"
 exec "$VENV_DIR/bin/python" "$INSTALL_DIR/app.py" "\$@"
 EOF
 chmod +x "$LAUNCHER"
@@ -233,10 +238,23 @@ ok "Voxtral.app disponible dans ~/Applications/. Ouvre-le depuis Spotlight (Cmd+
 info "Logs runtime : $LOG_FILE (tail -f pour les voir en direct)."
 
 # ---------- 8. Démarrage automatique (optionnel) ----------
+# Toujours unload + rm l'ancien plist s'il existe → état propre à chaque
+# install, et on profite des éventuels correctifs appris depuis.
+if [[ -f "$LAUNCH_AGENT_PLIST" ]]; then
+  launchctl unload "$LAUNCH_AGENT_PLIST" 2>/dev/null || true
+  rm -f "$LAUNCH_AGENT_PLIST"
+  info "LaunchAgent précédent retiré (sera re-créé si tu réactives l'autostart)."
+fi
+
 read -r -p "Lancer Voxtral automatiquement au démarrage du Mac ? [y/N] " AUTOSTART
 if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
   mkdir -p "$(dirname "$LAUNCH_AGENT_PLIST")"
   mkdir -p "$(dirname "$LOG_FILE")"
+  # On lance le bundle Voxtral.app via /usr/bin/open plutôt que le script
+  # directement : ça donne au process une identité de bundle macOS correcte,
+  # nécessaire pour que l'icône menu bar (NSStatusItem) s'affiche quand
+  # lancée par launchd (sinon rumps crée l'icône mais macOS la cache car
+  # le process est traité comme un daemon sans UI).
   cat > "$LAUNCH_AGENT_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -246,7 +264,8 @@ if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
     <string>com.voxtral.dictee</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$LAUNCHER</string>
+        <string>/usr/bin/open</string>
+        <string>$APP_BUNDLE</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -259,7 +278,6 @@ if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
 </dict>
 </plist>
 EOF
-  launchctl unload "$LAUNCH_AGENT_PLIST" 2>/dev/null || true
   launchctl load "$LAUNCH_AGENT_PLIST"
   ok "Démarrage automatique activé. Logs : $LOG_FILE"
 fi
