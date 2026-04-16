@@ -89,10 +89,18 @@ class VoxtralTranscriber(Transcriber):
         # mlx-voxtral attend un code langue type "fr"/"en" ; "auto" est
         # géré côté processor sur les versions récentes — on passe tel quel.
         # NB : la méthode upstream s'écrit bien "transcrition" (typo du package mzbac).
+        # L'argument task n'est PAS supporté par mlx-voxtral 0.0.4 ; pour la
+        # traduction, bascule sur Whisper dans Préférences (cf. task != "transcribe").
+        if task != "transcribe":
+            print(
+                f"[transcriber] task={task!r} non supporté par mlx-voxtral 0.0.4, "
+                f"fallback sur transcribe. Bascule sur un modèle Whisper dans "
+                f"Préférences pour activer la traduction.",
+                file=sys.stderr,
+            )
         inputs = self._processor.apply_transcrition_request(
             language=language,
             audio=str(wav_path),
-            task=task,
         )
         outputs = self._model.generate(
             **inputs,
