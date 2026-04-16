@@ -1,0 +1,29 @@
+# Voxtral Dictée - Dépendances Python
+# Cible : macOS 13+ Apple Silicon (M1+), Python 3.11+
+#
+# Note pour utilisateur non-dev : ce fichier liste les "briques" Python
+# que l'app utilise. install.sh les installe automatiquement.
+
+# --- Inférence ML (Apple Silicon) ---
+mlx>=0.18.0                   # Framework ML natif Apple Silicon
+mlx-voxtral>=0.1.0            # Wrapper MLX pour le modèle Voxtral (mzbac)
+mlx-whisper>=0.4.0            # Fallback Whisper si Voxtral indisponible
+
+# --- App menu bar ---
+rumps>=0.4.0                  # Menu bar macOS natif (ultra-léger)
+
+# --- Audio ---
+sounddevice>=0.4.6            # Capture micro (cross-platform, simple)
+numpy>=1.26.0                 # Buffers audio + traitement signal
+soundfile>=0.12.1             # Écriture WAV depuis numpy
+
+# --- OS / Permissions ---
+pynput>=1.7.6                 # Raccourci clavier global + paste simulé
+pyobjc-framework-AppKit>=10.0 # NSSound, NSPasteboard (intégration native macOS)
+
+# --- Config & téléchargement modèles ---
+pyyaml>=6.0                   # Lecture/écriture config.yaml
+huggingface_hub>=0.24.0       # Téléchargement des modèles depuis HF
+
+# --- UI Préférences ---
+# tkinter : inclus dans la stdlib Python (pas besoin de l'installer)
