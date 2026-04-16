@@ -175,6 +175,52 @@ case ":$PATH:" in
      echo "    export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
 
+# ---------- 7b. Voxtral.app (launcher clic depuis Finder / Spotlight / Dock) ----------
+# Bundle minimal : Info.plist + executable qui exec voxtral-launcher.sh.
+# LSUIElement=true → pas d'icône Dock ni de menu dans la barre (l'app est
+# déjà représentée par son icône 🎤 dans la menu bar via rumps).
+# Placement dans ~/Applications : indexé par Spotlight, pas de sudo requis.
+APP_BUNDLE="$HOME/Applications/Voxtral.app"
+info "Création de $APP_BUNDLE..."
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+
+cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>voxtral</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.voxtral.dictee</string>
+    <key>CFBundleName</key>
+    <string>Voxtral</string>
+    <key>CFBundleDisplayName</key>
+    <string>Voxtral Dictée</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>0.2.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Voxtral utilise le micro pour la dictée vocale locale (aucune donnée ne quitte votre Mac).</string>
+</dict>
+</plist>
+EOF
+
+cat > "$APP_BUNDLE/Contents/MacOS/voxtral" <<EOF
+#!/bin/bash
+exec "$LAUNCHER"
+EOF
+chmod +x "$APP_BUNDLE/Contents/MacOS/voxtral"
+
+ok "Voxtral.app disponible dans ~/Applications/. Ouvre-le depuis Spotlight (Cmd+Espace → 'Voxtral') ou glisse-le dans le Dock."
+
 # ---------- 8. Démarrage automatique (optionnel) ----------
 read -r -p "Lancer Voxtral automatiquement au démarrage du Mac ? [y/N] " AUTOSTART
 if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
