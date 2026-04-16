@@ -116,6 +116,18 @@ if [[ -z "$PYTHON_BIN" ]]; then
 fi
 ok "Python disponible : $($PYTHON_BIN --version)"
 
+# tkinter n'est pas livré par défaut avec les python@X.Y de Homebrew —
+# nécessaire pour la fenêtre Préférences (settings_ui.py). On installe
+# le paquet python-tk correspondant à la version Python choisie.
+PY_VERSION="${PYTHON_BIN#python}"
+TK_FORMULA="python-tk@${PY_VERSION}"
+if brew list "$TK_FORMULA" >/dev/null 2>&1; then
+  ok "$TK_FORMULA déjà installé."
+else
+  info "Installation de $TK_FORMULA (tkinter pour la fenêtre Préférences)..."
+  brew install "$TK_FORMULA" || warn "Échec install $TK_FORMULA — Préférences indisponible tant que ce n'est pas corrigé."
+fi
+
 # ---------- 4. Clone / pull du repo ----------
 mkdir -p "$(dirname "$INSTALL_DIR")"
 if [[ -d "$INSTALL_DIR/.git" ]]; then
