@@ -22,7 +22,7 @@ from pynput.keyboard import Controller, Key
 
 # Tentative d'import pyobjc pour pasteboard natif
 try:
-    from AppKit import NSPasteboard, NSStringPboardType  # type: ignore[import-not-found]
+    from AppKit import NSPasteboard, NSPasteboardTypeString  # type: ignore[import-not-found]
 
     _HAS_NSPASTEBOARD = True
 except ImportError:  # pragma: no cover (macOS+pyobjc only)
@@ -37,7 +37,7 @@ def copy_to_clipboard(text: str) -> None:
     if _HAS_NSPASTEBOARD:
         pb = NSPasteboard.generalPasteboard()
         pb.clearContents()
-        pb.setString_forType_(text, NSStringPboardType)
+        pb.setString_forType_(text, NSPasteboardTypeString)
     else:
         # Fallback CLI macOS (toujours présent sur Mac)
         proc = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)

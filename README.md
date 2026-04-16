@@ -116,8 +116,11 @@ tail -f ~/.voxtral/voxtral.log
 launchctl unload ~/Library/LaunchAgents/com.voxtral.dictee.plist
 rm ~/Library/LaunchAgents/com.voxtral.dictee.plist
 
-# Tout supprimer
-sudo rm /usr/local/bin/voxtral
+# Supprimer la commande `voxtral` (peut être dans l'un de ces 3 dossiers,
+# selon ce que install.sh avait choisi) — les chemins absents sont ignorés
+rm -f ~/.local/bin/voxtral /opt/homebrew/bin/voxtral /usr/local/bin/voxtral 2>/dev/null
+
+# Supprimer l'app + venv + modèles + config
 rm -rf ~/.voxtral
 ```
 
