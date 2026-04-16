@@ -44,19 +44,41 @@ def copy_to_clipboard(text: str) -> None:
         proc.communicate(text.encode("utf-8"))
 
 
+def _read_clipboard_text() -> str | None:
+    """Retourne le contenu texte actuel du presse-papier, ou None si vide /
+    si pyobjc est absent (dans ce cas on ne préserve pas)."""
+    if not _HAS_NSPASTEBOARD:
+        return None
+    pb = NSPasteboard.generalPasteboard()
+    return pb.stringForType_(NSPasteboardTypeString)
+
+
 def simulate_paste() -> None:
     """Simule Cmd+V (paste) à la position du curseur."""
-    # Petit délai pour laisser l'OS enregistrer le clipboard avant de coller
-    time.sleep(0.05)
+    # 200 ms (vs 50 ms initialement) laisse le temps à l'utilisateur de
+    # relâcher physiquement son raccourci en mode toggle (ex. cmd+shift+h
+    # pour arrêter). Sans ça, macOS interprétait notre Cmd+V injecté comme
+    # Cmd+Shift+V parce que shift était encore tenu — paste échouait
+    # silencieusement. Imperceptible pour l'utilisateur à l'œil nu.
+    time.sleep(0.2)
     with _keyboard.pressed(Key.cmd):
         _keyboard.press("v")
         _keyboard.release("v")
 
 
-def paste_text(text: str, auto_paste: bool = True) -> None:
+def paste_text(
+    text: str,
+    auto_paste: bool = True,
+    preserve_clipboard: bool = True,
+) -> None:
     """
     Écrit `text` dans le presse-papier ; si auto_paste, colle aussi
     immédiatement à la position du curseur.
+
+    Si `preserve_clipboard` (et `auto_paste`), le contenu texte
+    précédent du presse-papier est restauré après le paste. Utile pour
+    ne pas écraser ce que l'utilisateur avait copié avant la dictée.
+    Limite v0 : préservation texte uniquement (images/fichiers perdus).
 
     Si `text` est vide ou ne contient que des espaces, ne fait rien
     (évite de coller du vide à la place du texte de l'utilisateur).
@@ -64,6 +86,16 @@ def paste_text(text: str, auto_paste: bool = True) -> None:
     if not text or not text.strip():
         return
 
+    # On ne préserve que si on va réellement paster — en mode copy-only
+    # l'utilisateur veut que son clipboard reste sur le nouveau texte.
+    saved = _read_clipboard_text() if (auto_paste and preserve_clipboard) else None
+
     copy_to_clipboard(text)
+
     if auto_paste:
         simulate_paste()
+        if saved is not None:
+            # Laisse macOS finir de traiter le Cmd+V avant de remplacer
+            # le clipboard, sinon on écraserait notre propre paste.
+            time.sleep(0.3)
+            copy_to_clipboard(saved)
