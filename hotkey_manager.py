@@ -93,13 +93,22 @@ class HotkeyManager:
         on_start: Callable[[], None],
         on_stop: Callable[[], None],
     ) -> None:
-        self.combo = combo.lower().strip()
-        self.mode = mode
         self.on_start = on_start
         self.on_stop = on_stop
-
         self._listener: keyboard.Listener | None = None
         self._active = False  # True pendant qu'on enregistre
+        self._pressed: set[keyboard.Key | str] = set()
+        self._configure(combo, mode)
+
+    def _configure(self, combo: str, mode: str) -> None:
+        """(Re)calcule les structures internes pour un couple (combo, mode).
+
+        Extrait du `__init__` pour pouvoir être rappelé par `update_binding`
+        sans le danger d'un `self.__init__` manuel (fragile en présence
+        d'héritage ou si `__init__` prend plus d'arguments un jour).
+        """
+        self.combo = combo.lower().strip()
+        self.mode = mode
 
         if _is_single_key(self.combo):
             self._target_key: keyboard.Key | str = _parse_key(self.combo)
@@ -112,7 +121,7 @@ class HotkeyManager:
             self._modifier_keys = {_parse_key(t) for t in modifiers}
             self._final_key = _parse_key(final)
 
-        self._pressed: set[keyboard.Key | str] = set()
+        self._pressed.clear()
 
     # ---- Lifecycle ----
 
@@ -138,7 +147,8 @@ class HotkeyManager:
     def update_binding(self, combo: str, mode: str) -> None:
         """Reconfigure le raccourci sans redémarrer l'app."""
         self.stop()
-        self.__init__(combo, mode, self.on_start, self.on_stop)
+        self._active = False
+        self._configure(combo, mode)
         self.start()
 
     # ---- Callbacks pynput ----

@@ -12,6 +12,7 @@ vocale identique).
 
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 from pathlib import Path
@@ -57,10 +58,11 @@ class AudioRecorder:
     def start(self) -> None:
         """Démarre la capture. Idempotent : un appel start() pendant un
         enregistrement déjà en cours est ignoré."""
-        if self._recording:
-            return
-        self._chunks = []
-        self._recording = True
+        with self._lock:
+            if self._recording:
+                return
+            self._chunks = []
+            self._recording = True
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=self.channels,
@@ -74,10 +76,11 @@ class AudioRecorder:
         Arrête la capture, écrit un WAV temporaire et retourne son chemin.
         Lève RuntimeError si aucun enregistrement n'est en cours.
         """
-        if not self._recording:
-            raise RuntimeError("stop() appelé sans start() préalable")
+        with self._lock:
+            if not self._recording:
+                raise RuntimeError("stop() appelé sans start() préalable")
+            self._recording = False
 
-        self._recording = False
         assert self._stream is not None
         self._stream.stop()
         self._stream.close()
@@ -94,13 +97,19 @@ class AudioRecorder:
         else:
             audio = np.concatenate(chunks, axis=0)
 
-        wav_path = Path(tempfile.mkstemp(suffix=".wav", prefix="voxtral_")[1])
+        # mkstemp renvoie (fd, path) : on ferme le fd immédiatement pour
+        # éviter une fuite de descripteur à chaque dictée (soundfile
+        # rouvre le fichier en écriture indépendamment).
+        fd, path_str = tempfile.mkstemp(suffix=".wav", prefix="voxtral_")
+        os.close(fd)
+        wav_path = Path(path_str)
         sf.write(wav_path, audio, self.sample_rate, subtype="PCM_16")
         return wav_path
 
     @property
     def is_recording(self) -> bool:
-        return self._recording
+        with self._lock:
+            return self._recording
 
     # ---- Callback sounddevice ----
 

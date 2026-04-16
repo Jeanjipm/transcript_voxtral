@@ -49,6 +49,10 @@ class AudioFeedback:
     def __init__(self, config: Config, project_root: Path | None = None) -> None:
         self.config = config
         self.project_root = project_root or Path(__file__).resolve().parent
+        # Cache des NSSound pré-chargées. Indispensable : sans référence
+        # conservée, Python peut collecter l'objet avant que Cocoa ait fini
+        # de jouer, et le son est coupé. On garde une NSSound par chemin.
+        self._sound_cache: dict[str, "NSSound"] = {}
 
     # ---- API publique ----
 
@@ -90,13 +94,20 @@ class AudioFeedback:
             self._play_via_afplay(sound_path)
 
     def _play_via_nssound(self, sound_path: Path) -> None:
-        sound = NSSound.alloc().initWithContentsOfFile_byReference_(
-            str(sound_path), True
-        )
+        key = str(sound_path)
+        sound = self._sound_cache.get(key)
         if sound is None:
-            self._play_via_afplay(sound_path)
-            return
+            sound = NSSound.alloc().initWithContentsOfFile_byReference_(
+                key, True
+            )
+            if sound is None:
+                self._play_via_afplay(sound_path)
+                return
+            self._sound_cache[key] = sound
         sound.setVolume_(self.config.sounds.volume)
+        # stop() avant play() permet de rejouer le son si l'utilisateur
+        # enchaîne les dictées sans attendre la fin du Pop précédent.
+        sound.stop()
         sound.play()
 
     def _play_via_afplay(self, sound_path: Path) -> None:

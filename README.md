@@ -100,10 +100,12 @@ python ~/.voxtral/app/download_model.py --list
 L'app écrit ses erreurs sur `stderr`. Pour voir ce qui se passe :
 
 ```bash
+# Lancement en premier plan (logs directement dans le terminal)
 ~/.voxtral/app/voxtral-launcher.sh
-```
 
-(au lieu de `voxtral` qui est silencieux en arrière-plan).
+# Si Voxtral est lancé via le démarrage auto (LaunchAgent)
+tail -f ~/.voxtral/voxtral.log
+```
 
 ---
 

@@ -16,11 +16,27 @@ from tkinter import messagebox, ttk
 from typing import Callable
 
 from config import Config, load_config, save_config
-from hotkey_manager import display_combo
+from hotkey_manager import _parse_key, display_combo
 from model_manager import (
     AVAILABLE_MODELS,
     is_downloaded,
 )
+
+
+def _validate_combo(combo: str) -> str | None:
+    """Retourne None si le combo est valide, sinon un message d'erreur."""
+    combo = combo.strip()
+    if not combo:
+        return "Raccourci vide."
+    tokens = [t.strip() for t in combo.split("+")]
+    if any(not t for t in tokens):
+        return f"Jetons vides dans '{combo}'."
+    try:
+        for t in tokens:
+            _parse_key(t)
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 # Raccourcis système macOS connus → warning de conflit dans l'UI
@@ -425,6 +441,20 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _save(self) -> None:
+        # Valide le raccourci AVANT tout : un combo invalide sauvegardé
+        # ferait planter l'app au prochain démarrage dans _parse_key.
+        combo = self._current_combo()
+        error = _validate_combo(combo)
+        if error is not None:
+            messagebox.showerror(
+                "Raccourci invalide",
+                f"{error}\n\nFormat attendu : 'alt_r', 'cmd+shift+h', "
+                "'ctrl+alt+space'. Jetons valides : cmd, alt, ctrl, shift, "
+                "space, enter, tab, esc, f13-f19, ou une lettre.",
+            )
+            self.notebook.select(2)  # onglet Raccourci
+            return
+
         # Reconstitue Config depuis les widgets
         cfg = self.config
         cfg.model.name = self.model_var.get()
@@ -433,7 +463,7 @@ class SettingsWindow:
         cfg.transcription.temperature = float(self.temp_var.get())
         cfg.transcription.max_new_tokens = int(self.tokens_var.get())
         cfg.transcription.streaming = bool(self.streaming_var.get())
-        cfg.hotkey.combo = self._current_combo()
+        cfg.hotkey.combo = combo
         cfg.hotkey.mode = self.mode_var.get()
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
