@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+build/
+dist/
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Modèles ML (lourds, téléchargés via download_model.py)
+models/
+*.gguf
+*.safetensors
+
+# Audio temporaire
+*.wav
+*.mp3
+*.m4a
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Config locale (secrets éventuels)
+.env
+config.local.yaml
+
+# Claude Code (réglages locaux uniquement)
+.claude/settings.local.json
