@@ -19,7 +19,7 @@ soundfile>=0.12.1             # Écriture WAV depuis numpy
 
 # --- OS / Permissions ---
 pynput>=1.7.6                 # Raccourci clavier global + paste simulé
-pyobjc-framework-AppKit>=10.0 # NSSound, NSPasteboard (intégration native macOS)
+pyobjc-framework-Cocoa>=10.0  # NSSound, NSPasteboard, AppKit (le paquet 'pyobjc-framework-AppKit' n'existe plus sur PyPI, AppKit est fourni par Cocoa)
 
 # --- Config & téléchargement modèles ---
 pyyaml>=6.0                   # Lecture/écriture config.yaml
