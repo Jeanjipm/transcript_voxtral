@@ -469,9 +469,21 @@ class VoxtralApp(rumps.App):
         else:
             img.setTemplate_(True)
         img.setSize_(NSMakeSize(18, 18))
+
+        # Padding horizontal : sans ça l'icône colle aux voisines de la
+        # menu bar (heure, batterie…). On dessine l'icône dans un canvas
+        # plus large avec 4 px transparents de chaque côté — métrique qui
+        # s'aligne avec les icônes système natives.
+        pad = 4
+        canvas = NSImage.alloc().initWithSize_(NSMakeSize(18 + 2 * pad, 18))
+        canvas.lockFocus()
+        img.drawInRect_(((pad, 0), (18, 18)))
+        canvas.unlockFocus()
+        canvas.setTemplate_(img.isTemplate())
+
         btn = nsapp.nsstatusitem.button()
         if btn is not None:
-            btn.setImage_(img)
+            btn.setImage_(canvas)
 
     def _on_first_tick(self, _sender: "rumps.Timer | None" = None) -> None:
         self._init_icon_timer.stop()
