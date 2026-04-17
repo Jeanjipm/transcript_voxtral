@@ -472,9 +472,9 @@ class VoxtralApp(rumps.App):
 
         # Padding horizontal : sans ça l'icône colle aux voisines de la
         # menu bar (heure, batterie…). On dessine l'icône dans un canvas
-        # plus large avec 4 px transparents de chaque côté — métrique qui
-        # s'aligne avec les icônes système natives.
-        pad = 4
+        # plus large avec 8 px transparents de chaque côté — largeur
+        # retenue après itération UX.
+        pad = 8
         canvas = NSImage.alloc().initWithSize_(NSMakeSize(18 + 2 * pad, 18))
         canvas.lockFocus()
         img.drawInRect_(((pad, 0), (18, 18)))
