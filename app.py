@@ -18,6 +18,7 @@ import threading
 from pathlib import Path
 
 import rumps
+import soundfile as sf
 from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyAccessory,
@@ -41,9 +42,7 @@ from model_manager import find_model
 from transcriber import Transcriber, make_transcriber
 
 
-# Menu bar only, pas de Dock. Équivalent pyobjc de LSUIElement=true dans
-# Info.plist, mais qui marche AUSSI hors bundle (terminal, LaunchAgent,
-# ou bundle dont l'identité est perdue après exec Python).
+# Menu bar only, pas de Dock.
 NSApplication.sharedApplication().setActivationPolicy_(
     NSApplicationActivationPolicyAccessory
 )
@@ -52,31 +51,16 @@ NSApplication.sharedApplication().setActivationPolicy_(
 APP_NAME = "Voxtral"
 APP_VERSION = "0.1.0"
 
-# SF Symbols affichés dans la menu bar (rendus via NSImage sur le
-# NSStatusItem de rumps). Template monochrome pour idle/transcribing
-# (teinte auto light/dark). Recording = rond rouge fixe, signal fort.
 SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
 SYMBOL_TRANSCRIBING = "hourglass"
 
-# Fallback emoji par état : utilisé comme title rumps si le NSStatusItem
-# ne peut pas afficher le SF Symbol (button pas prêt, image nil, etc.).
-# Garantit qu'on voit TOUJOURS quelque chose dans la menu bar, au pire.
-_SYMBOL_TO_EMOJI = {
-    SYMBOL_IDLE: "🎤",
-    SYMBOL_RECORDING: "🔴",
-    SYMBOL_TRANSCRIBING: "⏳",
-}
-
 
 class VoxtralApp(rumps.App):
     def __init__(self) -> None:
-        # title=emoji micro à l'init : le NSStatusItem de rumps est créé avec
-        # NSVariableStatusItemLength (-1) — si ni title ni image à la
-        # création, la largeur calculée reste 0 et l'item est INVISIBLE
-        # (reproduit en cold-start bundle .app). L'emoji garantit width > 0
-        # dès le début ; il sera remplacé par le SF Symbol dans _on_first_tick
-        # dès que le button du status item est prêt.
+        # title=🎤 garantit une largeur > 0 au NSStatusItem au moment de sa
+        # création par rumps. L'emoji est remplacé par le SF Symbol dans
+        # _on_first_tick, une fois que self._nsapp existe.
         super().__init__(APP_NAME, title="🎤", quit_button=None)
 
         # 1) Config
@@ -126,29 +110,21 @@ class VoxtralApp(rumps.App):
         )
         self.hotkey.start()
 
-        # Flag "occupé" pour éviter qu'une 2e dictée démarre pendant qu'une
-        # transcription tourne encore. On utilise un bool + Lock plutôt que
-        # threading.Lock tout seul : release() d'un Lock non détenu lève
-        # RuntimeError, ce qui est dangereux quand start/stop/transcribe
-        # tournent potentiellement sur 3 threads différents.
+        # bool + Lock pour check-and-set atomique sur 3 threads (start/stop/
+        # transcribe) : un threading.Lock seul ne marche pas car release()
+        # sans acquire lève RuntimeError.
         self._busy_lock = threading.Lock()
         self._busy = False
 
-        # 5) Watcher hot-reload : quand settings_ui.py écrit une nouvelle
-        # config utilisateur, on l'applique sans redémarrer l'app.
-        # On utilise rumps.Timer (callback sur le thread principal) plutôt
-        # qu'un threading.Thread : AppKit exige que les mises à jour de
-        # menu se fassent sur le main thread, sinon crash silencieux.
+        # Hot-reload config : rumps.Timer exige le main thread pour toute
+        # mutation de menu — un threading.Thread crasherait silencieusement.
         self._config_mtime = (
             USER_CONFIG_PATH.stat().st_mtime if USER_CONFIG_PATH.exists() else 0.0
         )
         self._config_timer = rumps.Timer(self._check_config_change, 2.0)
         self._config_timer.start()
 
-        # 6) Timer one-shot pour poser l'icône initiale. On ne peut pas la
-        # setter dans __init__ car rumps ne crée le NSStatusItem qu'à l'entrée
-        # dans .run(). Un Timer qui tire 0.1s après le démarrage du main loop
-        # garantit que self._nsapp.nsstatusitem existe.
+        # Icône initiale posée après .run() (_nsapp n'existe pas avant).
         self._init_icon_timer = rumps.Timer(self._on_first_tick, 0.1)
         self._init_icon_timer.start()
 
@@ -157,32 +133,23 @@ class VoxtralApp(rumps.App):
     # ------------------------------------------------------------------
 
     def _check_config_change(self, _sender: "rumps.Timer | None" = None) -> None:
-        """Tick du timer : vérifie si ~/.voxtral/config.yaml a été modifié
-        et déclenche un reload si oui. Tourne sur le main thread."""
         try:
-            if not USER_CONFIG_PATH.exists():
-                return
             mtime = USER_CONFIG_PATH.stat().st_mtime
-            if mtime == self._config_mtime:
-                return
-            self._config_mtime = mtime
-            self._reload_config()
-        except Exception:
-            import traceback
-            traceback.print_exc()
+        except FileNotFoundError:
+            return
+        if mtime == self._config_mtime:
+            return
+        self._config_mtime = mtime
+        self._reload_config()
 
     def _reload_config(self) -> None:
-        """Relit la config et applique les changements nécessaires au
-        runtime (hotkey, modèle, labels menu). Les autres champs (langue,
-        sons, volume, temperature, etc.) sont lus à la demande via self.config
-        donc il suffit de remplacer la référence."""
-        print("[config] rechargement de ~/.voxtral/config.yaml", file=sys.stderr)
+        old = self.config
         new_config = load_config()
+        self.config = new_config
 
-        # Raccourci : relancer le listener si combo ou mode a changé.
         if (
-            new_config.hotkey.combo != self.config.hotkey.combo
-            or new_config.hotkey.mode != self.config.hotkey.mode
+            new_config.hotkey.combo != old.hotkey.combo
+            or new_config.hotkey.mode != old.hotkey.mode
         ):
             self.hotkey.update_binding(
                 new_config.hotkey.combo, new_config.hotkey.mode
@@ -191,21 +158,18 @@ class VoxtralApp(rumps.App):
                 f"Raccourci : {display_combo(new_config.hotkey.combo)}"
             )
 
-        # Modèle : recréer le transcriber (il rechargera le modèle au
-        # prochain transcribe, pas tout de suite — pas de pause pour
-        # l'utilisateur tant qu'il ne dicte pas).
-        if new_config.model.name != self.config.model.name:
+        if new_config.model.name != old.model.name:
+            # transcriber recharge le modèle au prochain transcribe, pas
+            # tout de suite : pas de pause UX tant qu'on ne dicte pas.
             self.transcriber = make_transcriber(new_config)
-            self.model_item.title = (
-                f"Modèle : {find_model(new_config.model.name).label if find_model(new_config.model.name) else new_config.model.name}"
-            )
+            self.model_item.title = f"Modèle : {self._model_label()}"
 
-        # Feedback audio : recréer pour que le volume / theme / enabled
-        # soient pris en compte immédiatement.
+        if new_config.transcription.language != old.transcription.language:
+            self.lang_item.title = f"Langue : {self._language_label()}"
+
+        # feedback recréé inconditionnellement : volume/theme/enabled peuvent
+        # avoir changé et il n'y a pas d'équivalent __eq__ sur la sous-config.
         self.feedback = AudioFeedback(new_config)
-
-        self.config = new_config
-        self.lang_item.title = f"Langue : {self._language_label()}"
 
     # ------------------------------------------------------------------
     # Gestion du flag "occupé"
@@ -223,6 +187,10 @@ class VoxtralApp(rumps.App):
         with self._busy_lock:
             self._busy = False
 
+    def _reset_idle(self) -> None:
+        self._set_state(SYMBOL_IDLE, "État : prêt")
+        self._end_busy()
+
     # ------------------------------------------------------------------
     # Callbacks raccourci clavier
     # ------------------------------------------------------------------
@@ -239,47 +207,31 @@ class VoxtralApp(rumps.App):
             raise
 
     def _on_hotkey_stop(self) -> None:
-        # Log diagnostic temporaire pour tracer le flow release → transcription.
-        print(
-            f"[hotkey] stop fired, is_recording={self.recorder.is_recording}",
-            file=sys.stderr,
-        )
         if not self.recorder.is_recording:
-            # on_stop sans on_start effectif : soit busy était déjà pris
-            # par une transcription en cours (ce press a été ignoré), soit
-            # start() a levé et a déjà libéré busy. Dans les deux cas on
-            # ne possède pas le flag — ne pas le libérer, sinon on écrase
-            # une session concurrente.
+            # on_stop sans on_start effectif : busy était déjà pris par une
+            # transcription concurrente, ou start() a levé et libéré busy.
+            # Dans les deux cas on ne possède pas le flag — ne pas libérer.
             return
 
         try:
             wav_path = self.recorder.stop()
-            print(f"[hotkey] wav written to {wav_path}", file=sys.stderr)
 
-            # Skip les appuis quasi-instantanés : en-dessous d'un demi-seconde,
-            # l'audio contient surtout le son Tink de feedback + silence, et
-            # mlx-voxtral hallucine une phrase typique (ex. "Thank you"). On
-            # supprime silencieusement — pas de Pop, pas de notification.
-            import soundfile as sf
+            # En dessous de 0.5s l'audio est surtout du silence + son Tink,
+            # et mlx-voxtral hallucine une phrase ("Thank you"). Skip sans
+            # notification.
             duration = sf.info(str(wav_path)).duration
             if duration < 0.5:
-                print(
-                    f"[hotkey] wav trop court ({duration:.2f}s), skip transcription",
-                    file=sys.stderr,
-                )
                 try:
                     wav_path.unlink(missing_ok=True)
                 except OSError:
                     pass
-                self._set_state(SYMBOL_IDLE, "État : prêt")
-                self._end_busy()
+                self._reset_idle()
                 return
 
             self.feedback.play_stop()
             self._set_state(SYMBOL_TRANSCRIBING, "État : transcription…")
         except Exception:
-            self._set_state(SYMBOL_IDLE, "État : prêt")
-            self._end_busy()
+            self._reset_idle()
             raise
 
         # Transcription dans un thread pour ne pas geler la menu bar
@@ -308,11 +260,6 @@ class VoxtralApp(rumps.App):
                     message=text[:80] + ("…" if len(text) > 80 else ""),
                 )
         except Exception as exc:
-            # Log diagnostic temporaire : le popup rumps seul masquait la
-            # cause des échecs silencieux. À retirer une fois le flow
-            # dictée stable et les erreurs attendues bien gérées.
-            import traceback
-            traceback.print_exc()
             rumps.notification(
                 title=APP_NAME,
                 subtitle="Erreur de transcription",
@@ -323,8 +270,7 @@ class VoxtralApp(rumps.App):
                 wav_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            self._set_state(SYMBOL_IDLE, "État : prêt")
-            self._end_busy()
+            self._reset_idle()
 
     # ------------------------------------------------------------------
     # Items de menu
@@ -375,99 +321,49 @@ class VoxtralApp(rumps.App):
     # Helpers UI
     # ------------------------------------------------------------------
 
-    def _set_state(
-        self, symbol: str, status_text: str, red: bool = False
-    ) -> None:
-        # Tente le SF Symbol ; si échec, fallback sur l'emoji correspondant.
-        # Sans ce fallback, on se retrouve avec rien dans la menu bar quand
-        # le bundle démarre à froid (bug observé).
-        ok = self._set_status_icon(symbol, red=red)
-        if ok:
-            self.title = ""
-        else:
-            self.title = _SYMBOL_TO_EMOJI.get(symbol, "🎤")
+    def _set_state(self, symbol: str, status_text: str, red: bool = False) -> None:
+        self._set_status_icon(symbol, red=red)
         self.status_item.title = status_text
 
-    def _set_status_icon(self, symbol_name: str, red: bool = False) -> bool:
-        """Pose un SF Symbol dans la menu bar via le NSStatusItem de rumps.
+    def _set_status_icon(self, symbol_name: str, red: bool = False) -> None:
+        """Pose un SF Symbol sur le NSStatusItem de rumps.
 
-        Retourne True si l'image a bien été posée, False sinon (l'appelant
-        doit alors afficher un fallback, ex. emoji dans self.title).
-
-        red=True : teinte rouge fixe (non-template). Utilisé pour l'état
-        recording — garde un rond rouge visible en light et dark mode.
-        red=False : image template → macOS teinte auto (blanc en dark mode,
-        noir en light mode)."""
+        red=True : rouge fixe (non-template), visible en light et dark mode —
+        utilisé pour l'état recording comme signal visuel fort.
+        red=False : template, teinté auto par macOS selon le thème.
+        """
         nsapp = getattr(self, "_nsapp", None)
         if nsapp is None:
-            # Main loop rumps pas encore démarré (appel depuis __init__ avant
-            # .run()). Icône initiale posée plus tard par _on_first_tick.
-            return False
+            return
         img = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
             symbol_name, None
         )
         if img is None:
-            print(
-                f"[statusbar] SF Symbol '{symbol_name}' nil — fallback emoji",
-                file=sys.stderr, flush=True,
-            )
-            return False
-        # Configure la taille du symbole — sans ça, NSImage revient à 0×0
-        # dans certains contextes (notamment bundle), ce qui explique le
-        # rendu invisible dans la menu bar malgré setImage_ sans erreur.
-        # pointSize 16 + setSize_(18×18) = ratio standard des icônes
-        # natives de la menu bar macOS (mic, wifi, etc.).
-        size_config = NSImageSymbolConfiguration.configurationWithPointSize_weight_(
-            16.0, 5  # 5 = NSFontWeightRegular
+            return
+        # pointSize 16 + setSize_(18×18) = métriques des icônes natives
+        # (wifi, son, etc.). Sans ça, la NSImage d'un SF Symbol peut être
+        # rendue à 0×0 et ne rien afficher.
+        img = img.imageWithSymbolConfiguration_(
+            NSImageSymbolConfiguration.configurationWithPointSize_weight_(16.0, 5)
         )
-        img = img.imageWithSymbolConfiguration_(size_config)
         if red:
-            color_config = NSImageSymbolConfiguration.configurationWithPaletteColors_(
-                [NSColor.systemRedColor()]
+            img = img.imageWithSymbolConfiguration_(
+                NSImageSymbolConfiguration.configurationWithPaletteColors_(
+                    [NSColor.systemRedColor()]
+                )
             )
-            img = img.imageWithSymbolConfiguration_(color_config)
             img.setTemplate_(False)
         else:
             img.setTemplate_(True)
         img.setSize_(NSMakeSize(18, 18))
         btn = nsapp.nsstatusitem.button()
-        if btn is None:
-            return False
-        btn.setImage_(img)
-        # Force l'item à être visible — contourne le cas bundle où l'item
-        # existe mais a été masqué/collapsed par AppKit au cold-start.
-        try:
-            nsapp.nsstatusitem.setVisible_(True)
-        except Exception:
-            pass
-        return True
+        if btn is not None:
+            btn.setImage_(img)
 
     def _on_first_tick(self, _sender: "rumps.Timer | None" = None) -> None:
-        """Premier tick du timer one-shot : pose l'icône initiale. Si le
-        button du NSStatusItem n'est pas encore prêt (cold-start bundle),
-        on replanifie une fois 0.3s plus tard."""
         self._init_icon_timer.stop()
-        nsapp = getattr(self, "_nsapp", None)
-        si = nsapp.nsstatusitem if nsapp else None
-        btn = si.button() if si else None
-        print(
-            f"[statusbar] first_tick nsapp={nsapp is not None} "
-            f"statusitem={si is not None} button={btn is not None} "
-            f"length={si.length() if si else 'n/a'}",
-            file=sys.stderr, flush=True,
-        )
-        if btn is None:
-            # Button pas prêt — replanifie une seule fois 0.3s plus tard.
-            if getattr(self, "_icon_retry_done", False):
-                print("[statusbar] button still None after retry — emoji fallback", file=sys.stderr, flush=True)
-                return
-            self._icon_retry_done = True
-            self._init_icon_timer = rumps.Timer(self._on_first_tick, 0.3)
-            self._init_icon_timer.start()
-            return
-        # Button prêt : tenter le SF Symbol. Si succès, clear emoji title.
-        if self._set_status_icon(SYMBOL_IDLE):
-            self.title = ""
+        self._set_status_icon(SYMBOL_IDLE)
+        self.title = ""
 
     def _language_label(self) -> str:
         lang = self.config.transcription.language
