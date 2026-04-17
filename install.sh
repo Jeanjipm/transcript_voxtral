@@ -214,25 +214,56 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
     <string>13.0</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Voxtral utilise le micro pour la dictée vocale locale (aucune donnée ne quitte votre Mac).</string>
+    <key>ISGraphicIconConfiguration</key>
+    <dict>
+        <key>ISEnclosureColor</key>
+        <string>blue</string>
+        <key>ISSymbolColor</key>
+        <string>white</string>
+        <key>ISSymbolName</key>
+        <string>mic.fill</string>
+    </dict>
 </dict>
 </plist>
 EOF
 
 mkdir -p "$(dirname "$LOG_FILE")"
-# On exec Python DIRECTEMENT (pas de passage par voxtral-launcher.sh) pour
-# ne pas perdre l'association Info.plist → process.
-# `brew shellenv` restaure PATH + HOMEBREW_PREFIX comme un shell user, ce
-# qui est nécessaire pour que Python trouve les dylibs Tcl/Tk (_tkinter)
-# depuis /opt/homebrew — sans ça, Préférences crashe avec
-# ModuleNotFoundError au lancement via .app (mais marche depuis Terminal
-# où le shell a déjà chargé brew shellenv dans ~/.zshrc).
-# stdout/stderr → log pour debug sans terminal.
+# CFBundleExecutable = script Python direct (shebang sur le python3 du venv)
+# plutôt qu'un trampoline bash qui fait `exec python`. Le trampoline avec
+# exec() casse l'enregistrement NSStatusItem quand l'app est lancée depuis
+# Spotlight/Finder (bug macOS confirmé par Apple DTS, FB21015611 —
+# reproduit aussi sur Plover avec trampoline C). Le shebang garde un seul
+# exec en chaîne, LaunchServices → python3 direct, bundle identity préservée.
+# Remplit l'équivalent de `brew shellenv` (PATH + HOMEBREW_PREFIX) via
+# os.environ pour que Python trouve les dylibs Tcl/Tk (_tkinter).
 cat > "$APP_BUNDLE/Contents/MacOS/voxtral" <<EOF
-#!/bin/bash
-eval "\$(/opt/homebrew/bin/brew shellenv)"
-exec "$VENV_DIR/bin/python" "$INSTALL_DIR/app.py" >> "$LOG_FILE" 2>&1
+#!$VENV_DIR/bin/python3
+# -*- coding: utf-8 -*-
+"""CFBundleExecutable de Voxtral.app — Python direct, sans trampoline bash."""
+import os
+import sys
+
+os.environ.setdefault("HOMEBREW_PREFIX", "/opt/homebrew")
+os.environ.setdefault("HOMEBREW_CELLAR", "/opt/homebrew/Cellar")
+os.environ["PATH"] = "/opt/homebrew/bin:/opt/homebrew/sbin:" + os.environ.get("PATH", "")
+
+_log = open("$LOG_FILE", "a", buffering=1)
+sys.stdout = _log
+sys.stderr = _log
+
+sys.path.insert(0, "$INSTALL_DIR")
+import app
+app.main()
 EOF
 chmod +x "$APP_BUNDLE/Contents/MacOS/voxtral"
+
+# Rafraîchit le cache LaunchServices pour que macOS relise Info.plist —
+# indispensable pour que ISGraphicIconConfiguration génère la nouvelle
+# icône micro. Sans ça, Finder/Spotlight continuent d'afficher l'ancienne.
+touch "$APP_BUNDLE"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+[[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || true
+killall Dock 2>/dev/null || true
 
 ok "Voxtral.app disponible dans ~/Applications/. Ouvre-le depuis Spotlight (Cmd+Espace → 'Voxtral') ou glisse-le dans le Dock."
 info "Logs runtime : $LOG_FILE (tail -f pour les voir en direct)."
