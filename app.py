@@ -66,13 +66,15 @@ from AppKit import (
 
 from audio_capture import AudioRecorder
 from audio_feedback import AudioFeedback
-from clipboard import paste_text
+from clipboard import copy_to_clipboard, paste_text
 from config import (
     USER_CONFIG_PATH,
     Config,
     ensure_user_config_exists,
     load_config,
 )
+from cursor_popup import show_near_cursor
+from focus_detector import is_editable_field_focused
 from hotkey_manager import HotkeyManager, display_combo
 from model_manager import find_model
 from transcriber import Transcriber, make_transcriber
@@ -298,7 +300,17 @@ class VoxtralApp(rumps.App):
                 temperature=self.config.transcription.temperature,
                 max_new_tokens=self.config.transcription.max_new_tokens,
             )
-            paste_text(text, auto_paste=self.config.ui.auto_paste)
+            if self.config.ui.auto_paste and not is_editable_field_focused():
+                # Pas de champ éditable au focus : on copie sans coller et
+                # on affiche un popup près de la souris. L'utilisateur
+                # pourra coller manuellement (Cmd+V) une fois le curseur
+                # placé dans un éditeur.
+                copy_to_clipboard(text)
+                show_near_cursor(
+                    "✎  Place le curseur dans un champ de saisie"
+                )
+            else:
+                paste_text(text, auto_paste=self.config.ui.auto_paste)
 
             if self.config.ui.notification_on_paste:
                 rumps.notification(
