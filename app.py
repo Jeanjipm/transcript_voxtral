@@ -22,6 +22,27 @@ from pathlib import Path
 
 import rumps
 import soundfile as sf
+from AppKit import (
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSColor,
+    NSImage,
+    NSImageSymbolConfiguration,
+    NSMakeSize,
+)
+
+from audio_capture import AudioRecorder
+from audio_feedback import AudioFeedback
+from clipboard import paste_text
+from config import (
+    USER_CONFIG_PATH,
+    Config,
+    ensure_user_config_exists,
+    load_config,
+)
+from hotkey_manager import HotkeyManager, display_combo
+from model_manager import find_model
+from transcriber import Transcriber, make_transcriber
 
 
 # Capture les crashs natifs (segfault MLX/pyobjc, OOM soft, etc.) en écrivant
@@ -55,27 +76,6 @@ def _log_signal(signum, frame) -> None:
 # logout, rotation logs) si. On logue avant de mourir.
 for _sig in (signal.SIGTERM, signal.SIGHUP):
     signal.signal(_sig, _log_signal)
-from AppKit import (
-    NSApplication,
-    NSApplicationActivationPolicyAccessory,
-    NSColor,
-    NSImage,
-    NSImageSymbolConfiguration,
-    NSMakeSize,
-)
-
-from audio_capture import AudioRecorder
-from audio_feedback import AudioFeedback
-from clipboard import paste_text
-from config import (
-    USER_CONFIG_PATH,
-    Config,
-    ensure_user_config_exists,
-    load_config,
-)
-from hotkey_manager import HotkeyManager, display_combo
-from model_manager import find_model
-from transcriber import Transcriber, make_transcriber
 
 
 # Menu bar only, pas de Dock.
@@ -106,7 +106,10 @@ class VoxtralApp(rumps.App):
         # 2) Composants audio + transcription
         self.recorder = AudioRecorder()
         self.feedback = AudioFeedback(self.config)
-        self.transcriber: Transcriber = make_transcriber(self.config)
+        self.transcriber: Transcriber = make_transcriber(
+            self.config,
+            on_model_download=self._notify_model_download,
+        )
 
         # 3) Menu
         self.status_item = rumps.MenuItem("État : prêt")
@@ -189,9 +192,16 @@ class VoxtralApp(rumps.App):
         # Ops qui peuvent lever (model load, audio resources) d'abord, dans
         # des variables temporaires. Si une d'elles échoue, self.config reste
         # old et l'état global stable (pas de config/transcriber incohérents).
-        new_feedback = AudioFeedback(new_config)
+        if new_config.sounds != old.sounds:
+            new_feedback = AudioFeedback(new_config)
+        else:
+            # Réutiliser l'instance préserve le cache NSSound pré-chargé.
+            new_feedback = self.feedback
         if new_config.model.name != old.model.name:
-            new_transcriber = make_transcriber(new_config)
+            new_transcriber = make_transcriber(
+                new_config,
+                on_model_download=self._notify_model_download,
+            )
         else:
             new_transcriber = self.transcriber
 
@@ -282,6 +292,29 @@ class VoxtralApp(rumps.App):
             daemon=True,
         )
         thread.start()
+
+    def _notify_model_download(self, repo_id: str) -> None:
+        """Informe l'utilisateur qu'un modèle va être téléchargé depuis HF.
+
+        Appelé par le transcriber quand un modèle (Voxtral, Whisper fallback,
+        ou Whisper traduction) n'est pas en cache local. Le téléchargement
+        qui suit est synchrone et bloquant — la notif laisse l'utilisateur
+        comprendre pourquoi la transcription prend plusieurs minutes.
+        """
+        info = find_model(repo_id)
+        if info is not None:
+            label = f"{info.label} (~{info.size_gb:.1f} Go)"
+        else:
+            # Modèle hors catalogue (ex. whisper large-v3 pour la traduction).
+            label = repo_id.split("/")[-1]
+        rumps.notification(
+            title=APP_NAME,
+            subtitle="Téléchargement du modèle…",
+            message=(
+                f"{label}. Quelques minutes selon la connexion — "
+                "le texte arrivera dès que c'est prêt."
+            ),
+        )
 
     def _transcribe_and_paste(self, wav_path: Path) -> None:
         try:

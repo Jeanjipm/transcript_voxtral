@@ -23,8 +23,8 @@ T = TypeVar("T")
 def _build(cls: type[T], data: dict[str, Any]) -> T:
     """Instancie une dataclass en ignorant les clés inconnues du dict.
 
-    Permet de tolérer les anciens config.yaml qui contiennent des champs
-    supprimés (ex. `temperature`, `streaming`) sans lever TypeError.
+    Tolère les anciens config.yaml qui contiennent des champs retirés
+    depuis — sans ça, TypeError bloque le démarrage de l'app.
     """
     valid = {f.name for f in dc_fields(cls)}
     return cls(**{k: v for k, v in data.items() if k in valid})
@@ -99,7 +99,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 def _dict_to_config(data: dict[str, Any]) -> Config:
     """Convertit un dict YAML en `Config` typé. Tolère les clés manquantes
-    ET les clés obsolètes (ex. `temperature` dans un ancien config)."""
+    ET les clés obsolètes (cf. `_build`)."""
     return Config(
         model=_build(ModelConfig, data.get("model", {})),
         hotkey=_build(HotkeyConfig, data.get("hotkey", {})),

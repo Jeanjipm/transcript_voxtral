@@ -55,11 +55,10 @@ def _read_clipboard_text() -> str | None:
 
 def simulate_paste() -> None:
     """Simule Cmd+V (paste) à la position du curseur."""
-    # 200 ms (vs 50 ms initialement) laisse le temps à l'utilisateur de
-    # relâcher physiquement son raccourci en mode toggle (ex. cmd+shift+h
-    # pour arrêter). Sans ça, macOS interprétait notre Cmd+V injecté comme
-    # Cmd+Shift+V parce que shift était encore tenu — paste échouait
-    # silencieusement. Imperceptible pour l'utilisateur à l'œil nu.
+    # 200 ms laisse le temps de relâcher physiquement les modificateurs du
+    # raccourci (ex. shift d'un cmd+shift+h). Sans ça, macOS interprète
+    # notre Cmd+V injecté comme Cmd+Shift+V si shift est encore tenu, et
+    # le paste échoue silencieusement.
     time.sleep(0.2)
     with _keyboard.pressed(Key.cmd):
         _keyboard.press("v")

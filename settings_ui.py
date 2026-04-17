@@ -15,27 +15,11 @@ import webbrowser
 from tkinter import messagebox, ttk
 
 from config import Config, load_config, save_config
-from hotkey_manager import _parse_key, display_combo
+from hotkey_manager import display_combo, validate_combo
 from model_manager import (
     AVAILABLE_MODELS,
     is_downloaded,
 )
-
-
-def _validate_combo(combo: str) -> str | None:
-    """Retourne None si le combo est valide, sinon un message d'erreur."""
-    combo = combo.strip()
-    if not combo:
-        return "Raccourci vide."
-    tokens = [t.strip() for t in combo.split("+")]
-    if any(not t for t in tokens):
-        return f"Jetons vides dans '{combo}'."
-    try:
-        for t in tokens:
-            _parse_key(t)
-    except ValueError as exc:
-        return str(exc)
-    return None
 
 
 # Raccourcis système macOS connus → warning de conflit dans l'UI
@@ -396,7 +380,7 @@ class SettingsWindow:
         # Valide le raccourci AVANT tout : un combo invalide sauvegardé
         # ferait planter l'app au prochain démarrage dans _parse_key.
         combo = self._current_combo()
-        error = _validate_combo(combo)
+        error = validate_combo(combo)
         if error is not None:
             messagebox.showerror(
                 "Raccourci invalide",

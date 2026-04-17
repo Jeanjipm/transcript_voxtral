@@ -53,19 +53,41 @@ _NAMED_KEYS: dict[str, keyboard.Key] = {
 }
 
 
-def _parse_key(token: str) -> keyboard.Key | str:
+def parse_key(token: str) -> keyboard.Key | str:
     """Convertit un token ('alt_r', 'h', 'space') en clé pynput."""
     token = token.lower().strip()
     if token in _NAMED_KEYS:
         return _NAMED_KEYS[token]
-    if len(token) == 1:
+    if len(token) == 1 and token != "+":
         return token  # caractère ASCII (ex. "h")
     raise ValueError(f"Touche inconnue : {token!r}")
 
 
 def _is_single_key(combo: str) -> bool:
-    """True si le combo désigne une touche unique (ex. 'alt_r')."""
-    return "+" not in combo
+    """True si le combo désigne une touche unique (ex. 'alt_r', 'h').
+
+    On vérifie strictement via le registre des touches connues plutôt que
+    via `"+" not in combo` : ça évite d'accepter un combo mal formé
+    ("xy", "+") comme single-key, puis d'échouer plus tard dans parse.
+    """
+    t = combo.lower().strip()
+    return t in _NAMED_KEYS or (len(t) == 1 and t != "+")
+
+
+def validate_combo(combo: str) -> str | None:
+    """Retourne None si le combo est valide, sinon un message d'erreur."""
+    combo = combo.strip()
+    if not combo:
+        return "Raccourci vide."
+    tokens = [t.strip() for t in combo.split("+")]
+    if any(not t for t in tokens):
+        return f"Jetons vides dans '{combo}'."
+    try:
+        for t in tokens:
+            parse_key(t)
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 class HotkeyManager:
@@ -100,15 +122,15 @@ class HotkeyManager:
         self.combo = combo.lower().strip()
 
         if _is_single_key(self.combo):
-            self._target_key: keyboard.Key | str = _parse_key(self.combo)
+            self._target_key: keyboard.Key | str = parse_key(self.combo)
             self._modifier_keys: set[keyboard.Key | str] = set()
             self._final_key: keyboard.Key | str | None = None
         else:
             tokens = [t.strip() for t in self.combo.split("+")]
             *modifiers, final = tokens
             self._target_key = None  # type: ignore[assignment]
-            self._modifier_keys = {_parse_key(t) for t in modifiers}
-            self._final_key = _parse_key(final)
+            self._modifier_keys = {parse_key(t) for t in modifiers}
+            self._final_key = parse_key(final)
 
         self._pressed.clear()
 

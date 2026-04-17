@@ -48,7 +48,6 @@ def main(argv: list[str] | None = None) -> int:
         args.wav,
         language=language,
         task=task,
-        temperature=cfg.transcription.temperature,
         max_new_tokens=cfg.transcription.max_new_tokens,
     )
     print(text)
