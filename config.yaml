@@ -13,12 +13,10 @@ model:
   path: "~/.voxtral/models/"
 
 hotkey:
-  # "alt_r" = touche Option DROITE.
+  # "alt_r" = touche Option DROITE. Mode push-to-talk : maintenir pour
+  # enregistrer, relâcher pour transcrire.
   # Alternatives possibles dans l'UI : "alt+space", "cmd+shift+h"…
   combo: "alt_r"
-  # "push_to_talk" : enregistre tant que la touche est tenue
-  # "toggle"       : appui pour démarrer, appui pour arrêter
-  mode: "push_to_talk"
 
 transcription:
   # Langue : "auto" pour détection automatique, ou code ISO-639 :

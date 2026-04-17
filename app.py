@@ -140,7 +140,6 @@ class VoxtralApp(rumps.App):
         # 4) Raccourci global
         self.hotkey = HotkeyManager(
             combo=self.config.hotkey.combo,
-            mode=self.config.hotkey.mode,
             on_start=self._on_hotkey_start,
             on_stop=self._on_hotkey_stop,
         )
@@ -201,13 +200,8 @@ class VoxtralApp(rumps.App):
         self.feedback = new_feedback
         self.transcriber = new_transcriber
 
-        if (
-            new_config.hotkey.combo != old.hotkey.combo
-            or new_config.hotkey.mode != old.hotkey.mode
-        ):
-            self.hotkey.update_binding(
-                new_config.hotkey.combo, new_config.hotkey.mode
-            )
+        if new_config.hotkey.combo != old.hotkey.combo:
+            self.hotkey.update_binding(new_config.hotkey.combo)
             self.hotkey_item.title = (
                 f"Raccourci : {display_combo(new_config.hotkey.combo)}"
             )
@@ -346,8 +340,7 @@ class VoxtralApp(rumps.App):
             message=(
                 "Dictée vocale 100% locale via MLX.\n"
                 f"Modèle : {self.config.model.name}\n"
-                f"Raccourci : {display_combo(self.config.hotkey.combo)}\n"
-                f"Mode : {self.config.hotkey.mode}\n\n"
+                f"Raccourci : {display_combo(self.config.hotkey.combo)}\n\n"
                 "Aucune donnée ne quitte votre Mac."
             ),
         )

@@ -262,29 +262,15 @@ class SettingsWindow:
             foreground="gray",
         ).grid(row=5, column=1, sticky="w", padx=(10, 0))
 
-        # Mode
-        ttk.Label(frame, text="Mode :").grid(
-            row=6, column=0, sticky="w", pady=(15, 0)
-        )
-        self.mode_var = tk.StringVar(value=self.config.hotkey.mode)
-        self.mode_radio_ptt = ttk.Radiobutton(
+        ttk.Label(
             frame,
-            text="Push-to-talk (maintenir = enregistrer)",
-            variable=self.mode_var,
-            value="push_to_talk",
-        )
-        self.mode_radio_ptt.grid(row=7, column=0, columnspan=2, sticky="w")
-        self.mode_radio_toggle = ttk.Radiobutton(
-            frame,
-            text="Toggle (appuyer pour démarrer / arrêter)",
-            variable=self.mode_var,
-            value="toggle",
-        )
-        self.mode_radio_toggle.grid(row=8, column=0, columnspan=2, sticky="w")
+            text="Mode push-to-talk : maintenir pour enregistrer, relâcher pour transcrire.",
+            foreground="gray",
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(15, 0))
 
         self.hotkey_warning = ttk.Label(frame, text="", foreground="orange")
         self.hotkey_warning.grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(15, 0)
+            row=7, column=0, columnspan=2, sticky="w", pady=(15, 0)
         )
 
         # Watchers
@@ -428,7 +414,6 @@ class SettingsWindow:
         cfg.transcription.task = self.task_var.get()
         cfg.transcription.max_new_tokens = int(self.tokens_var.get())
         cfg.hotkey.combo = combo
-        cfg.hotkey.mode = self.mode_var.get()
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())

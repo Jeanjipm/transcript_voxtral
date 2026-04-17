@@ -50,7 +50,6 @@ class ModelConfig:
 @dataclass
 class HotkeyConfig:
     combo: str = "alt_r"
-    mode: str = "push_to_talk"  # ou "toggle"
 
 
 @dataclass

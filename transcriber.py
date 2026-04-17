@@ -44,12 +44,20 @@ class Transcriber(ABC):
 
 
 class VoxtralTranscriber(Transcriber):
-    """Backend Voxtral via le package `mlx_voxtral` (mzbac)."""
+    """Backend Voxtral via le package `mlx_voxtral` (mzbac).
+
+    mlx-voxtral 0.0.4 ne supporte PAS `task="translate"` — la signature de
+    `apply_transcrition_request()` ne prend que `audio`, `language`, et
+    `sampling_rate`, et le code émet toujours un token `[TRANSCRIBE]`. On
+    délègue donc à Whisper (qui supporte la traduction→anglais nativement)
+    quand l'utilisateur choisit translate.
+    """
 
     def __init__(self, model_repo: str) -> None:
         self.model_repo = model_repo
         self._model = None
         self._processor = None
+        self._whisper_for_translate: "WhisperTranscriber | None" = None
 
     def is_available(self) -> bool:
         try:
@@ -79,15 +87,24 @@ class VoxtralTranscriber(Transcriber):
         task: str = "transcribe",
         max_new_tokens: int = 1024,
     ) -> str:
+        if task == "translate":
+            # Voxtral Mini ne sait pas traduire via mlx-voxtral 0.0.4.
+            # Whisper (fallback, déjà configuré) le fait nativement.
+            if self._whisper_for_translate is None:
+                self._whisper_for_translate = WhisperTranscriber(WHISPER_FALLBACK_REPO)
+            return self._whisper_for_translate.transcribe(
+                wav_path, language=language, task="translate",
+                max_new_tokens=max_new_tokens,
+            )
+
         self._ensure_loaded()
         assert self._model is not None and self._processor is not None
 
         # NB : la méthode upstream s'écrit bien "transcrition" (typo du
-        # package mzbac). task="translate" traduit vers l'anglais.
+        # package mzbac).
         inputs = self._processor.apply_transcrition_request(
             language=language,
             audio=str(wav_path),
-            task=task,
         )
         # mlx-voxtral retourne un TranscriptionInputs (objet, pas dict) ;
         # `**inputs` échoue avec "must be a mapping". vars() déballe le
