@@ -26,6 +26,53 @@ Utilisateur = non-développeur. Toujours expliquer les choix techniques.
 - Rappeler le commit git en fin de tâche
 - Après implémentation, relire le code pour vérifier la cohérence
 
+## Communication fin de sprint
+
+À la fin de chaque sprint (PR ouverte ou changements pushés), TOUJOURS envoyer
+à l'utilisateur :
+
+1. **Commandes terminal de déploiement** (copier-coller prêt) — par défaut
+   git pull suffit, voir section "Déploiement" ci-dessous.
+2. **Protocole de test** structuré, en précisant pour chaque feature :
+   - Les prérequis de config (ex. "ouvrir Préférences → Langue → cocher
+     Traduction") — les fixes sont souvent conditionnels aux settings
+   - L'action concrète à effectuer
+   - Le résultat attendu
+3. **Si `install.sh` a été modifié** : signaler explicitement qu'il faut
+   réinstaller (et pas juste git pull).
+
+## Déploiement chez l'utilisateur
+
+### Cas par défaut — git pull (99% des sprints)
+
+Quand SEULS des fichiers `.py` / `.yaml` / `.md` ont changé :
+```bash
+pkill -f voxtral
+cd ~/.voxtral/app && git fetch --all && git checkout <branch> && git pull
+# Double-clic sur ~/Desktop/Voxtral.command
+```
+
+⚠️ Ordre important : `pkill` AVANT `git checkout`, sinon le process vivant
+continue de tourner avec l'ancien code en RAM.
+
+### Réinstallation nécessaire quand
+
+- `install.sh` a été modifié (nouveau launcher, bundle, LaunchAgent)
+- `requirements.txt` a changé (nouvelle dep pip)
+- État local corrompu (dernier recours)
+
+```bash
+cd ~
+pkill -f voxtral 2>/dev/null
+launchctl unload ~/Library/LaunchAgents/com.voxtral.dictee.plist 2>/dev/null
+rm -rf ~/Applications/Voxtral.app ~/.voxtral ~/Library/LaunchAgents/com.voxtral.dictee.plist ~/Desktop/Voxtral.command
+rm -f ~/.local/bin/voxtral /opt/homebrew/bin/voxtral /usr/local/bin/voxtral
+curl -fsSL https://raw.githubusercontent.com/Jeanjipm/transcript_voxtral/<branch>/install.sh | bash
+```
+
+⚠️ Supprime le modèle (~3 Go) → re-téléchargement à la réinstall, compter
+10+ min selon la connexion. À ne proposer que si strictement nécessaire.
+
 ## Style
 - Python typé (type hints partout)
 - Un fichier = une responsabilité

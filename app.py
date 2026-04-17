@@ -22,6 +22,27 @@ from pathlib import Path
 
 import rumps
 import soundfile as sf
+from AppKit import (
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSColor,
+    NSImage,
+    NSImageSymbolConfiguration,
+    NSMakeSize,
+)
+
+from audio_capture import AudioRecorder
+from audio_feedback import AudioFeedback
+from clipboard import paste_text
+from config import (
+    USER_CONFIG_PATH,
+    Config,
+    ensure_user_config_exists,
+    load_config,
+)
+from hotkey_manager import HotkeyManager, display_combo
+from model_manager import find_model
+from transcriber import Transcriber, make_transcriber
 
 
 # Capture les crashs natifs (segfault MLX/pyobjc, OOM soft, etc.) en écrivant
@@ -55,27 +76,6 @@ def _log_signal(signum, frame) -> None:
 # logout, rotation logs) si. On logue avant de mourir.
 for _sig in (signal.SIGTERM, signal.SIGHUP):
     signal.signal(_sig, _log_signal)
-from AppKit import (
-    NSApplication,
-    NSApplicationActivationPolicyAccessory,
-    NSColor,
-    NSImage,
-    NSImageSymbolConfiguration,
-    NSMakeSize,
-)
-
-from audio_capture import AudioRecorder
-from audio_feedback import AudioFeedback
-from clipboard import paste_text
-from config import (
-    USER_CONFIG_PATH,
-    Config,
-    ensure_user_config_exists,
-    load_config,
-)
-from hotkey_manager import HotkeyManager, display_combo
-from model_manager import find_model
-from transcriber import Transcriber, make_transcriber
 
 
 # Menu bar only, pas de Dock.
@@ -89,7 +89,14 @@ APP_VERSION = "0.1.0"
 
 SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
-SYMBOL_TRANSCRIBING = "hourglass"
+# Sablier animé : alterne entre les 2 frames → sable qui coule.
+SYMBOL_TRANSCRIBING_FRAMES = ("hourglass.tophalf.filled", "hourglass.bottomhalf.filled")
+# Téléchargement : alternance de 2 SF Symbols de formes très distinctes
+# (box+arrow ↔ arrow seule). Le rendu template macOS en menu bar aplatit
+# les variantes `.fill` vs outline du même symbole → blink invisible.
+# Prendre 2 glyphes à silhouette nettement différente rend l'alternance
+# clairement lisible.
+SYMBOL_DOWNLOADING_FRAMES = ("square.and.arrow.down.fill", "arrow.down")
 
 
 class VoxtralApp(rumps.App):
@@ -140,7 +147,6 @@ class VoxtralApp(rumps.App):
         # 4) Raccourci global
         self.hotkey = HotkeyManager(
             combo=self.config.hotkey.combo,
-            mode=self.config.hotkey.mode,
             on_start=self._on_hotkey_start,
             on_stop=self._on_hotkey_stop,
         )
@@ -151,6 +157,12 @@ class VoxtralApp(rumps.App):
         # sans acquire lève RuntimeError.
         self._busy_lock = threading.Lock()
         self._busy = False
+
+        # Animation icône menu bar (sablier, download). rumps.Timer tourne
+        # sur le main thread → safe pour muter l'icône NSStatusItem.
+        self._anim_timer: "rumps.Timer | None" = None
+        self._anim_frames: tuple[str, ...] = ()
+        self._anim_idx = 0
 
         # Hot-reload config : rumps.Timer exige le main thread pour toute
         # mutation de menu — un threading.Thread crasherait silencieusement.
@@ -190,7 +202,11 @@ class VoxtralApp(rumps.App):
         # Ops qui peuvent lever (model load, audio resources) d'abord, dans
         # des variables temporaires. Si une d'elles échoue, self.config reste
         # old et l'état global stable (pas de config/transcriber incohérents).
-        new_feedback = AudioFeedback(new_config)
+        if new_config.sounds != old.sounds:
+            new_feedback = AudioFeedback(new_config)
+        else:
+            # Réutiliser l'instance préserve le cache NSSound pré-chargé.
+            new_feedback = self.feedback
         if new_config.model.name != old.model.name:
             new_transcriber = make_transcriber(new_config)
         else:
@@ -201,13 +217,8 @@ class VoxtralApp(rumps.App):
         self.feedback = new_feedback
         self.transcriber = new_transcriber
 
-        if (
-            new_config.hotkey.combo != old.hotkey.combo
-            or new_config.hotkey.mode != old.hotkey.mode
-        ):
-            self.hotkey.update_binding(
-                new_config.hotkey.combo, new_config.hotkey.mode
-            )
+        if new_config.hotkey.combo != old.hotkey.combo:
+            self.hotkey.update_binding(new_config.hotkey.combo)
             self.hotkey_item.title = (
                 f"Raccourci : {display_combo(new_config.hotkey.combo)}"
             )
@@ -235,8 +246,44 @@ class VoxtralApp(rumps.App):
             self._busy = False
 
     def _reset_idle(self) -> None:
+        self._stop_animation()
         self._set_state(SYMBOL_IDLE, "État : prêt")
         self._end_busy()
+
+    # ------------------------------------------------------------------
+    # Animation icône menu bar
+    # ------------------------------------------------------------------
+
+    def _start_animation(self, frames: tuple[str, ...], interval: float) -> None:
+        """Alterne l'icône de la menu bar entre `frames` toutes `interval` s.
+
+        Idempotent sur les frames identiques (on compare à l'animation
+        courante). On stoppe toute animation précédente pour éviter les
+        timers orphelins.
+        """
+        if self._anim_frames == frames and self._anim_timer is not None:
+            return
+        self._stop_animation()
+        self._anim_frames = frames
+        self._anim_idx = 0
+        # Pose la 1re frame immédiatement (sinon on voit l'icône idle
+        # pendant `interval` avant que le timer ne tick).
+        self._set_status_icon(frames[0])
+        self._anim_timer = rumps.Timer(self._on_anim_tick, interval)
+        self._anim_timer.start()
+
+    def _stop_animation(self) -> None:
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+            self._anim_timer = None
+        self._anim_frames = ()
+        self._anim_idx = 0
+
+    def _on_anim_tick(self, _sender: "rumps.Timer | None" = None) -> None:
+        if not self._anim_frames:
+            return
+        self._anim_idx = (self._anim_idx + 1) % len(self._anim_frames)
+        self._set_status_icon(self._anim_frames[self._anim_idx])
 
     # ------------------------------------------------------------------
     # Callbacks raccourci clavier
@@ -276,7 +323,8 @@ class VoxtralApp(rumps.App):
                 return
 
             self.feedback.play_stop()
-            self._set_state(SYMBOL_TRANSCRIBING, "État : transcription…")
+            self._start_animation(SYMBOL_TRANSCRIBING_FRAMES, 0.4)
+            self.status_item.title = "État : transcription…"
         except Exception:
             self._reset_idle()
             raise
@@ -289,23 +337,38 @@ class VoxtralApp(rumps.App):
         )
         thread.start()
 
+    def _model_needs_download(self) -> bool:
+        """True si le modèle courant n'est PAS dans le cache HF local.
+
+        Permet d'afficher l'icône de téléchargement avant que
+        `from_pretrained` / `mlx_whisper` ne bloquent pendant plusieurs
+        minutes. Best-effort : si huggingface_hub est trop vieux pour
+        exposer l'API, on suppose cached (pas d'animation → pas de faux
+        signal).
+        """
+        try:
+            from huggingface_hub import try_to_load_from_cache
+        except ImportError:
+            return False
+        # `config.json` est présent dans à peu près tous les repos MLX /
+        # transformers — sentinelle fiable pour "le repo est en cache".
+        result = try_to_load_from_cache(
+            repo_id=self.config.model.name, filename="config.json"
+        )
+        return not isinstance(result, (str, bytes))
+
     def _transcribe_and_paste(self, wav_path: Path) -> None:
         try:
+            if self._model_needs_download():
+                self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
+                self.status_item.title = "État : téléchargement du modèle…"
             text = self.transcriber.transcribe(
                 wav_path,
                 language=self.config.transcription.language,
                 task=self.config.transcription.task,
-                temperature=self.config.transcription.temperature,
                 max_new_tokens=self.config.transcription.max_new_tokens,
             )
             paste_text(text, auto_paste=self.config.ui.auto_paste)
-
-            if self.config.ui.notification_on_paste:
-                rumps.notification(
-                    title=APP_NAME,
-                    subtitle="Transcription collée",
-                    message=text[:80] + ("…" if len(text) > 80 else ""),
-                )
         except Exception as exc:
             rumps.notification(
                 title=APP_NAME,
@@ -352,10 +415,10 @@ class VoxtralApp(rumps.App):
         rumps.alert(
             title=f"{APP_NAME} {APP_VERSION}",
             message=(
-                "Dictée vocale 100% locale via MLX.\n"
+                "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
+                "Développé par Jeanjipm.\n\n"
                 f"Modèle : {self.config.model.name}\n"
-                f"Raccourci : {display_combo(self.config.hotkey.combo)}\n"
-                f"Mode : {self.config.hotkey.mode}\n\n"
+                f"Raccourci : {display_combo(self.config.hotkey.combo)}\n\n"
                 "Aucune donnée ne quitte votre Mac."
             ),
         )
@@ -369,6 +432,9 @@ class VoxtralApp(rumps.App):
     # ------------------------------------------------------------------
 
     def _set_state(self, symbol: str, status_text: str, red: bool = False) -> None:
+        # Poser une icône fixe annule toute animation en cours (sinon le
+        # prochain tick du timer écraserait l'icône qu'on vient de poser).
+        self._stop_animation()
         self._set_status_icon(symbol, red=red)
         self.status_item.title = status_text
 
@@ -403,9 +469,21 @@ class VoxtralApp(rumps.App):
         else:
             img.setTemplate_(True)
         img.setSize_(NSMakeSize(18, 18))
+
+        # Padding horizontal : sans ça l'icône colle aux voisines de la
+        # menu bar (heure, batterie…). On dessine l'icône dans un canvas
+        # plus large avec 8 px transparents de chaque côté — largeur
+        # retenue après itération UX.
+        pad = 8
+        canvas = NSImage.alloc().initWithSize_(NSMakeSize(18 + 2 * pad, 18))
+        canvas.lockFocus()
+        img.drawInRect_(((pad, 0), (18, 18)))
+        canvas.unlockFocus()
+        canvas.setTemplate_(img.isTemplate())
+
         btn = nsapp.nsstatusitem.button()
         if btn is not None:
-            btn.setImage_(img)
+            btn.setImage_(canvas)
 
     def _on_first_tick(self, _sender: "rumps.Timer | None" = None) -> None:
         self._init_icon_timer.stop()

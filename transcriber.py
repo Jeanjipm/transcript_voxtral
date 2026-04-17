@@ -24,6 +24,12 @@ from config import Config
 # Repo HuggingFace utilisé quand Voxtral est indisponible (paquet MLX absent).
 WHISPER_FALLBACK_REPO = "mlx-community/whisper-large-v3-turbo"
 
+# Modèle utilisé pour la traduction (via Voxtral → délégation) : turbo est
+# distillé pour la transcription uniquement et retourne la langue source
+# au lieu d'anglais. large-v3 (non-turbo) supporte le vrai task="translate".
+# ~3 Go au premier usage translate, téléchargé lazy.
+WHISPER_TRANSLATE_REPO = "mlx-community/whisper-large-v3-mlx"
+
 
 class Transcriber(ABC):
     """Interface commune à tous les backends de transcription."""
@@ -34,7 +40,6 @@ class Transcriber(ABC):
         wav_path: Path,
         language: str = "auto",
         task: str = "transcribe",
-        temperature: float = 0.0,
         max_new_tokens: int = 1024,
     ) -> str:
         """Retourne le texte transcrit (chaîne UTF-8, espaces nettoyés)."""
@@ -45,14 +50,20 @@ class Transcriber(ABC):
 
 
 class VoxtralTranscriber(Transcriber):
-    """
-    Backend Voxtral via le package `mlx_voxtral` (mzbac).
+    """Backend Voxtral via le package `mlx_voxtral` (mzbac).
+
+    mlx-voxtral 0.0.4 ne supporte PAS `task="translate"` — la signature de
+    `apply_transcrition_request()` ne prend que `audio`, `language`, et
+    `sampling_rate`, et le code émet toujours un token `[TRANSCRIBE]`. On
+    délègue donc à Whisper (qui supporte la traduction→anglais nativement)
+    quand l'utilisateur choisit translate.
     """
 
     def __init__(self, model_repo: str) -> None:
         self.model_repo = model_repo
         self._model = None
         self._processor = None
+        self._whisper_for_translate: "WhisperTranscriber | None" = None
 
     def is_available(self) -> bool:
         try:
@@ -80,35 +91,36 @@ class VoxtralTranscriber(Transcriber):
         wav_path: Path,
         language: str = "auto",
         task: str = "transcribe",
-        temperature: float = 0.0,
         max_new_tokens: int = 1024,
     ) -> str:
+        if task == "translate":
+            # Voxtral Mini ne sait pas traduire via mlx-voxtral 0.0.4.
+            # On délègue à Whisper large-v3 (le turbo est distillé pour la
+            # transcription uniquement et retourne la langue source).
+            if self._whisper_for_translate is None:
+                self._whisper_for_translate = WhisperTranscriber(
+                    WHISPER_TRANSLATE_REPO
+                )
+            return self._whisper_for_translate.transcribe(
+                wav_path, language=language, task="translate",
+                max_new_tokens=max_new_tokens,
+            )
+
         self._ensure_loaded()
         assert self._model is not None and self._processor is not None
 
-        # mlx-voxtral attend un code langue type "fr"/"en" ; "auto" est
-        # géré côté processor sur les versions récentes — on passe tel quel.
-        # NB : la méthode upstream s'écrit bien "transcrition" (typo du package mzbac).
-        # L'argument task n'est PAS supporté par mlx-voxtral 0.0.4 ; pour la
-        # traduction, bascule sur Whisper dans Préférences (cf. task != "transcribe").
-        if task != "transcribe":
-            print(
-                f"[transcriber] task={task!r} non supporté par mlx-voxtral 0.0.4, "
-                f"fallback sur transcribe. Bascule sur un modèle Whisper dans "
-                f"Préférences pour activer la traduction.",
-                file=sys.stderr,
-            )
+        # NB : la méthode upstream s'écrit bien "transcrition" (typo du
+        # package mzbac).
         inputs = self._processor.apply_transcrition_request(
             language=language,
             audio=str(wav_path),
         )
-        # mlx-voxtral 0.0.4 retourne un TranscriptionInputs (objet, pas dict) ;
-        # `**inputs` échoue avec "must be a mapping". On déballe via vars()
-        # qui fonctionne pour les classes ordinaires avec __dict__.
+        # mlx-voxtral retourne un TranscriptionInputs (objet, pas dict) ;
+        # `**inputs` échoue avec "must be a mapping". vars() déballe le
+        # __dict__ de l'objet.
         outputs = self._model.generate(
             **vars(inputs),
             max_new_tokens=max_new_tokens,
-            temperature=temperature,
         )
         text = self._processor.decode(
             outputs[0][inputs.input_ids.shape[1]:],
@@ -137,20 +149,28 @@ class WhisperTranscriber(Transcriber):
         wav_path: Path,
         language: str = "auto",
         task: str = "transcribe",
-        temperature: float = 0.0,
         max_new_tokens: int = 1024,  # noqa: ARG002 — non utilisé par Whisper
     ) -> str:
         import mlx_whisper  # type: ignore[import-not-found]
+        import soundfile as sf
+
+        # mlx-whisper utilise ffmpeg pour décoder un fichier audio depuis un
+        # chemin. Pour éviter cette dep système, on charge le WAV via
+        # soundfile et on passe un numpy array (AudioRecorder enregistre
+        # déjà en 16 kHz mono, exactement ce qu'attend Whisper).
+        audio, sr = sf.read(str(wav_path), dtype="float32")
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        assert sr == 16_000, f"Whisper attend 16 kHz, pas {sr} Hz"
 
         # Whisper utilise None pour la détection automatique
         whisper_lang = None if language == "auto" else language
 
         result = mlx_whisper.transcribe(
-            str(wav_path),
+            audio,
             path_or_hf_repo=self.model_repo,
             language=whisper_lang,
             task=task,
-            temperature=temperature,
         )
         return str(result.get("text", "")).strip()
 

@@ -15,27 +15,11 @@ import webbrowser
 from tkinter import messagebox, ttk
 
 from config import Config, load_config, save_config
-from hotkey_manager import _parse_key, display_combo
+from hotkey_manager import display_combo, validate_combo
 from model_manager import (
     AVAILABLE_MODELS,
     is_downloaded,
 )
-
-
-def _validate_combo(combo: str) -> str | None:
-    """Retourne None si le combo est valide, sinon un message d'erreur."""
-    combo = combo.strip()
-    if not combo:
-        return "Raccourci vide."
-    tokens = [t.strip() for t in combo.split("+")]
-    if any(not t for t in tokens):
-        return f"Jetons vides dans '{combo}'."
-    try:
-        for t in tokens:
-            _parse_key(t)
-    except ValueError as exc:
-        return str(exc)
-    return None
 
 
 # Raccourcis système macOS connus → warning de conflit dans l'UI
@@ -141,7 +125,7 @@ class SettingsWindow:
         self.model_var = tk.StringVar(value=self.config.model.name)
         for i, m in enumerate(AVAILABLE_MODELS, start=1):
             downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
-            tag = " ✓ téléchargé" if downloaded else ""
+            tag = "   📥 téléchargé" if downloaded else ""
             label = f"{m.label} — {m.size_gb:.1f} Go{tag}\n   {m.description}"
             ttk.Radiobutton(
                 frame,
@@ -262,29 +246,15 @@ class SettingsWindow:
             foreground="gray",
         ).grid(row=5, column=1, sticky="w", padx=(10, 0))
 
-        # Mode
-        ttk.Label(frame, text="Mode :").grid(
-            row=6, column=0, sticky="w", pady=(15, 0)
-        )
-        self.mode_var = tk.StringVar(value=self.config.hotkey.mode)
-        self.mode_radio_ptt = ttk.Radiobutton(
+        ttk.Label(
             frame,
-            text="Push-to-talk (maintenir = enregistrer)",
-            variable=self.mode_var,
-            value="push_to_talk",
-        )
-        self.mode_radio_ptt.grid(row=7, column=0, columnspan=2, sticky="w")
-        self.mode_radio_toggle = ttk.Radiobutton(
-            frame,
-            text="Toggle (appuyer pour démarrer / arrêter)",
-            variable=self.mode_var,
-            value="toggle",
-        )
-        self.mode_radio_toggle.grid(row=8, column=0, columnspan=2, sticky="w")
+            text="Mode push-to-talk : maintenir pour enregistrer, relâcher pour transcrire.",
+            foreground="gray",
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(15, 0))
 
         self.hotkey_warning = ttk.Label(frame, text="", foreground="orange")
         self.hotkey_warning.grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(15, 0)
+            row=7, column=0, columnspan=2, sticky="w", pady=(15, 0)
         )
 
         # Watchers
@@ -300,13 +270,9 @@ class SettingsWindow:
         if is_single:
             self.single_combo.configure(state="readonly")
             self.combo_entry.configure(state="disabled")
-            # Single-key force push-to-talk
-            self.mode_var.set("push_to_talk")
-            self.mode_radio_toggle.configure(state="disabled")
         else:
             self.single_combo.configure(state="disabled")
             self.combo_entry.configure(state="normal")
-            self.mode_radio_toggle.configure(state="normal")
 
     def _update_hotkey_warning(self) -> None:
         combo = self._current_combo()
@@ -330,7 +296,7 @@ class SettingsWindow:
         self.sounds_enabled_var = tk.BooleanVar(value=self.config.sounds.enabled)
         ttk.Checkbutton(
             frame,
-            text="Activer les sons d'activation / désactivation",
+            text="Activer les sons (Tink au début, Pop à la fin)",
             variable=self.sounds_enabled_var,
         ).grid(row=0, column=0, columnspan=2, sticky="w")
 
@@ -347,48 +313,12 @@ class SettingsWindow:
             length=300,
         ).grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(15, 0))
 
-        ttk.Label(frame, text="Thème :").grid(
-            row=2, column=0, sticky="w", pady=(15, 0)
-        )
-        self.theme_var = tk.StringVar(value=self.config.sounds.theme)
-        ttk.Combobox(
-            frame,
-            textvariable=self.theme_var,
-            values=["system", "soft", "subtle", "custom"],
-            state="readonly",
-            width=15,
-        ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(15, 0))
-
-        ttk.Label(
-            frame,
-            text="Thème 'system' = sons macOS (Tink/Pop). Recommandé.",
-            foreground="gray",
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 0))
-
     def _build_advanced_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(frame, text="Avancé")
 
-        ttk.Label(frame, text="Température de génération :").grid(
+        ttk.Label(frame, text="Longueur max (tokens) :").grid(
             row=0, column=0, sticky="w"
-        )
-        self.temp_var = tk.DoubleVar(value=self.config.transcription.temperature)
-        ttk.Spinbox(
-            frame,
-            from_=0.0,
-            to=1.0,
-            increment=0.1,
-            textvariable=self.temp_var,
-            width=8,
-        ).grid(row=0, column=1, sticky="w", padx=(10, 0))
-        ttk.Label(
-            frame,
-            text="0.0 = transcription la plus fidèle. > 0 déconseillé.",
-            foreground="gray",
-        ).grid(row=1, column=0, columnspan=2, sticky="w")
-
-        ttk.Label(frame, text="max_new_tokens :").grid(
-            row=2, column=0, sticky="w", pady=(15, 0)
         )
         self.tokens_var = tk.IntVar(value=self.config.transcription.max_new_tokens)
         ttk.Spinbox(
@@ -398,28 +328,19 @@ class SettingsWindow:
             increment=128,
             textvariable=self.tokens_var,
             width=8,
-        ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(15, 0))
-
-        self.streaming_var = tk.BooleanVar(value=self.config.transcription.streaming)
-        ttk.Checkbutton(
+        ).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
             frame,
-            text="Mode streaming (audio > 30 s)",
-            variable=self.streaming_var,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(15, 0))
-
-        self.notif_var = tk.BooleanVar(value=self.config.ui.notification_on_paste)
-        ttk.Checkbutton(
-            frame,
-            text="Notification après collage",
-            variable=self.notif_var,
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
+            text="Tronque la transcription si elle dépasse. 1024 ≈ 12 min de parole.",
+            foreground="gray",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 15))
 
         self.autopaste_var = tk.BooleanVar(value=self.config.ui.auto_paste)
         ttk.Checkbutton(
             frame,
             text="Coller automatiquement à la position du curseur",
             variable=self.autopaste_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w")
+        ).grid(row=2, column=0, columnspan=2, sticky="w")
 
     def _build_about_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
@@ -431,10 +352,11 @@ class SettingsWindow:
             font=("Helvetica", 16, "bold"),
         ).pack(anchor="w")
         ttk.Label(frame, text="Version 0.1.0").pack(anchor="w", pady=(5, 0))
+        ttk.Label(frame, text="Développé par Jeanjipm").pack(anchor="w")
         ttk.Label(
             frame,
             text=(
-                "Dictée vocale 100% locale via MLX sur Apple Silicon.\n"
+                "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
                 "Aucune donnée ne quitte votre Mac."
             ),
             justify=tk.LEFT,
@@ -459,7 +381,7 @@ class SettingsWindow:
         # Valide le raccourci AVANT tout : un combo invalide sauvegardé
         # ferait planter l'app au prochain démarrage dans _parse_key.
         combo = self._current_combo()
-        error = _validate_combo(combo)
+        error = validate_combo(combo)
         if error is not None:
             messagebox.showerror(
                 "Raccourci invalide",
@@ -475,15 +397,10 @@ class SettingsWindow:
         cfg.model.name = self.model_var.get()
         cfg.transcription.language = self.lang_var.get()
         cfg.transcription.task = self.task_var.get()
-        cfg.transcription.temperature = float(self.temp_var.get())
         cfg.transcription.max_new_tokens = int(self.tokens_var.get())
-        cfg.transcription.streaming = bool(self.streaming_var.get())
         cfg.hotkey.combo = combo
-        cfg.hotkey.mode = self.mode_var.get()
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
-        cfg.sounds.theme = self.theme_var.get()
-        cfg.ui.notification_on_paste = bool(self.notif_var.get())
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
 
         save_config(cfg)

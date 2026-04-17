@@ -57,14 +57,15 @@ Clique l'icône 🎤 → **Préférences…**
 
 Onglets :
 - **Modèle** : choisir entre Voxtral 3B (4-bit, 8-bit, full) ou Whisper.
-- **Langue** : auto-détection ou langue forcée (fr, en, de, es, …).
+- **Langue** : auto-détection ou langue forcée (fr, en, de, es, …) ;
+  tâche transcription ou traduction vers anglais.
 - **Raccourci** : touche unique tenue (talkie-walkie) ou combinaison
-  (ex. `cmd+shift+h`). Mode push-to-talk ou toggle.
+  (ex. `alt+space`). Mode push-to-talk — maintenir pour enregistrer.
 - **Sons** : activer/désactiver, volume.
-- **Avancé** : température, max_new_tokens, streaming, notifications.
+- **Avancé** : longueur max de transcription, collage auto.
 
-Après changement, **redémarrer Voxtral** depuis le menu (Quitter, puis
-relancer la commande `voxtral`).
+Les changements sont appliqués automatiquement en quelques secondes
+(hot-reload) — pas besoin de redémarrer l'app.
 
 ---
 

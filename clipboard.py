@@ -55,11 +55,10 @@ def _read_clipboard_text() -> str | None:
 
 def simulate_paste() -> None:
     """Simule Cmd+V (paste) à la position du curseur."""
-    # 200 ms (vs 50 ms initialement) laisse le temps à l'utilisateur de
-    # relâcher physiquement son raccourci en mode toggle (ex. cmd+shift+h
-    # pour arrêter). Sans ça, macOS interprétait notre Cmd+V injecté comme
-    # Cmd+Shift+V parce que shift était encore tenu — paste échouait
-    # silencieusement. Imperceptible pour l'utilisateur à l'œil nu.
+    # 200 ms laisse le temps de relâcher physiquement les modificateurs du
+    # raccourci (ex. shift d'un cmd+shift+h). Sans ça, macOS interprète
+    # notre Cmd+V injecté comme Cmd+Shift+V si shift est encore tenu, et
+    # le paste échoue silencieusement.
     time.sleep(0.2)
     with _keyboard.pressed(Key.cmd):
         _keyboard.press("v")
@@ -85,6 +84,12 @@ def paste_text(
     """
     if not text or not text.strip():
         return
+
+    # Suffixe un espace : la prochaine dictée sera collée après cet espace,
+    # sans coller contre la ponctuation du texte précédent. Et pas d'espace
+    # parasite en début si la dictée est la 1re frappe du champ.
+    # rstrip d'abord pour ne pas doubler l'espace si Voxtral en a déjà mis.
+    text = text.rstrip() + " "
 
     # On ne préserve que si on va réellement paster — en mode copy-only
     # l'utilisateur veut que son clipboard reste sur le nouveau texte.

@@ -1,14 +1,7 @@
 """
-Écoute du raccourci clavier global.
+Écoute du raccourci clavier global en mode push-to-talk.
 
-Deux modes de raccourci supportés :
-
-1. **Single-key tenue** (ex. `alt_r` = Option droite). Mode talkie-walkie :
-   on appuie → on_start ; on relâche → on_stop. C'est le défaut Voxtral.
-
-2. **Combinaison** (ex. `cmd+shift+h`). Deux sous-modes :
-   - `push_to_talk` : maintenir la combinaison enregistre
-   - `toggle`       : un appui démarre, le suivant arrête
+Maintenir la touche/combinaison → enregistre ; relâcher → transcrit.
 
 Implémentation : `pynput.keyboard.Listener` non-suppressif. Ne bloque
 PAS la propagation de la touche au système, donc Right Option continue
@@ -60,41 +53,60 @@ _NAMED_KEYS: dict[str, keyboard.Key] = {
 }
 
 
-def _parse_key(token: str) -> keyboard.Key | str:
+def parse_key(token: str) -> keyboard.Key | str:
     """Convertit un token ('alt_r', 'h', 'space') en clé pynput."""
     token = token.lower().strip()
     if token in _NAMED_KEYS:
         return _NAMED_KEYS[token]
-    if len(token) == 1:
+    if len(token) == 1 and token != "+":
         return token  # caractère ASCII (ex. "h")
     raise ValueError(f"Touche inconnue : {token!r}")
 
 
 def _is_single_key(combo: str) -> bool:
-    """True si le combo désigne une touche unique (ex. 'alt_r')."""
-    return "+" not in combo
+    """True si le combo désigne une touche unique (ex. 'alt_r', 'h').
+
+    On vérifie strictement via le registre des touches connues plutôt que
+    via `"+" not in combo` : ça évite d'accepter un combo mal formé
+    ("xy", "+") comme single-key, puis d'échouer plus tard dans parse.
+    """
+    t = combo.lower().strip()
+    return t in _NAMED_KEYS or (len(t) == 1 and t != "+")
+
+
+def validate_combo(combo: str) -> str | None:
+    """Retourne None si le combo est valide, sinon un message d'erreur."""
+    combo = combo.strip()
+    if not combo:
+        return "Raccourci vide."
+    tokens = [t.strip() for t in combo.split("+")]
+    if any(not t for t in tokens):
+        return f"Jetons vides dans '{combo}'."
+    try:
+        for t in tokens:
+            parse_key(t)
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 class HotkeyManager:
-    """
-    Gestionnaire de raccourci global.
+    """Gestionnaire de raccourci global, mode push-to-talk uniquement.
 
     Usage :
         mgr = HotkeyManager(
             combo="alt_r",
-            mode="push_to_talk",
             on_start=lambda: ...,
             on_stop=lambda: ...,
         )
-        mgr.start()       # lance le listener (non-bloquant)
+        mgr.start()
         ...
-        mgr.stop()        # arrête le listener
+        mgr.stop()
     """
 
     def __init__(
         self,
         combo: str,
-        mode: str,
         on_start: Callable[[], None],
         on_stop: Callable[[], None],
     ) -> None:
@@ -103,32 +115,24 @@ class HotkeyManager:
         self._listener: keyboard.Listener | None = None
         self._active = False  # True pendant qu'on enregistre
         self._pressed: set[keyboard.Key | str] = set()
-        self._configure(combo, mode)
+        self._configure(combo)
 
-    def _configure(self, combo: str, mode: str) -> None:
-        """(Re)calcule les structures internes pour un couple (combo, mode).
-
-        Extrait du `__init__` pour pouvoir être rappelé par `update_binding`
-        sans le danger d'un `self.__init__` manuel (fragile en présence
-        d'héritage ou si `__init__` prend plus d'arguments un jour).
-        """
+    def _configure(self, combo: str) -> None:
+        """(Re)calcule les structures internes pour un combo donné."""
         self.combo = combo.lower().strip()
-        self.mode = mode
 
         if _is_single_key(self.combo):
-            self._target_key: keyboard.Key | str = _parse_key(self.combo)
+            self._target_key: keyboard.Key | str = parse_key(self.combo)
             self._modifier_keys: set[keyboard.Key | str] = set()
             self._final_key: keyboard.Key | str | None = None
         else:
             tokens = [t.strip() for t in self.combo.split("+")]
             *modifiers, final = tokens
             self._target_key = None  # type: ignore[assignment]
-            self._modifier_keys = {_parse_key(t) for t in modifiers}
-            self._final_key = _parse_key(final)
+            self._modifier_keys = {parse_key(t) for t in modifiers}
+            self._final_key = parse_key(final)
 
         self._pressed.clear()
-
-    # ---- Lifecycle ----
 
     def start(self) -> None:
         if self._listener is not None:
@@ -146,17 +150,13 @@ class HotkeyManager:
         self._listener.stop()
         self._listener = None
         self._pressed.clear()
-        if self._active:
-            self._active = False
+        self._active = False
 
-    def update_binding(self, combo: str, mode: str) -> None:
+    def update_binding(self, combo: str) -> None:
         """Reconfigure le raccourci sans redémarrer l'app."""
         self.stop()
-        self._active = False
-        self._configure(combo, mode)
+        self._configure(combo)
         self.start()
-
-    # ---- Callbacks pynput ----
 
     def _normalize(self, key: object) -> keyboard.Key | str | None:
         """Normalise key (KeyCode → char str, Key → Key, autre → None)."""
@@ -178,29 +178,18 @@ class HotkeyManager:
             return
 
         if _is_single_key(self.combo):
-            # Single-key : push-to-talk forcé
-            if norm == self._target_key and not self._active:
-                self._active = True
-                self._safe_call(self.on_start)
-            return
+            if norm != self._target_key:
+                return
+        else:
+            # Combinaison : tous les modifs ET la touche finale doivent être pressés
+            if not self._modifier_keys.issubset(self._pressed):
+                return
+            if norm != self._final_key:
+                return
 
-        # Combinaison : faut que tous les modifs ET la touche finale soient pressés
-        if not self._modifier_keys.issubset(self._pressed):
-            return
-        if norm != self._final_key:
-            return
-
-        if self.mode == "push_to_talk":
-            if not self._active:
-                self._active = True
-                self._safe_call(self.on_start)
-        else:  # toggle
-            if self._active:
-                self._active = False
-                self._safe_call(self.on_stop)
-            else:
-                self._active = True
-                self._safe_call(self.on_start)
+        if not self._active:
+            self._active = True
+            self._safe_call(self.on_start)
 
     def _on_release(self, key: object) -> None:
         norm = self._normalize(key)
@@ -217,23 +206,18 @@ class HotkeyManager:
                 self._safe_call(self.on_stop)
             return
 
-        # Combinaison push-to-talk : on stoppe dès qu'on relâche la touche
-        # finale OU n'importe quel modificateur (sinon l'utilisateur reste
-        # bloqué en "écoute" si le timing est imparfait).
-        if self.mode == "push_to_talk":
-            if norm == self._final_key or norm in self._modifier_keys:
-                self._active = False
-                self._safe_call(self.on_stop)
-
-    # ---- Robustesse ----
+        # Combinaison : on stoppe dès qu'on relâche la touche finale OU
+        # n'importe quel modificateur (sinon on reste bloqué en "écoute"
+        # si le timing du release est imparfait).
+        if norm == self._final_key or norm in self._modifier_keys:
+            self._active = False
+            self._safe_call(self.on_stop)
 
     @staticmethod
     def _safe_call(fn: Callable[[], None]) -> None:
-        """
-        Encapsule l'appel callback : une exception dans on_start/on_stop
-        ne doit PAS tuer le listener clavier (sinon le raccourci ne
-        marchera plus jusqu'au redémarrage de l'app).
-        """
+        """Encapsule l'appel callback : une exception dans on_start/on_stop
+        ne doit PAS tuer le listener clavier (sinon le raccourci ne marche
+        plus jusqu'au redémarrage de l'app)."""
         try:
             fn()
         except Exception as exc:  # noqa: BLE001
