@@ -58,14 +58,25 @@ SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
 SYMBOL_TRANSCRIBING = "hourglass"
 
+# Fallback emoji par état : utilisé comme title rumps si le NSStatusItem
+# ne peut pas afficher le SF Symbol (button pas prêt, image nil, etc.).
+# Garantit qu'on voit TOUJOURS quelque chose dans la menu bar, au pire.
+_SYMBOL_TO_EMOJI = {
+    SYMBOL_IDLE: "🎤",
+    SYMBOL_RECORDING: "🔴",
+    SYMBOL_TRANSCRIBING: "⏳",
+}
+
 
 class VoxtralApp(rumps.App):
     def __init__(self) -> None:
-        # title="" : pas de texte dans la menu bar, seulement l'icône (posée
-        # via NSStatusItem après le lancement du main loop rumps — voir
-        # _on_first_tick). Le NSStatusItem n'existe pas encore à ce stade
-        # (rumps le crée dans .run()), on ne peut donc pas setter l'image ici.
-        super().__init__(APP_NAME, title="", quit_button=None)
+        # title=emoji micro à l'init : le NSStatusItem de rumps est créé avec
+        # NSVariableStatusItemLength (-1) — si ni title ni image à la
+        # création, la largeur calculée reste 0 et l'item est INVISIBLE
+        # (reproduit en cold-start bundle .app). L'emoji garantit width > 0
+        # dès le début ; il sera remplacé par le SF Symbol dans _on_first_tick
+        # dès que le button du status item est prêt.
+        super().__init__(APP_NAME, title="🎤", quit_button=None)
 
         # 1) Config
         ensure_user_config_exists()
@@ -366,11 +377,21 @@ class VoxtralApp(rumps.App):
     def _set_state(
         self, symbol: str, status_text: str, red: bool = False
     ) -> None:
-        self._set_status_icon(symbol, red=red)
+        # Tente le SF Symbol ; si échec, fallback sur l'emoji correspondant.
+        # Sans ce fallback, on se retrouve avec rien dans la menu bar quand
+        # le bundle démarre à froid (bug observé).
+        ok = self._set_status_icon(symbol, red=red)
+        if ok:
+            self.title = ""
+        else:
+            self.title = _SYMBOL_TO_EMOJI.get(symbol, "🎤")
         self.status_item.title = status_text
 
-    def _set_status_icon(self, symbol_name: str, red: bool = False) -> None:
+    def _set_status_icon(self, symbol_name: str, red: bool = False) -> bool:
         """Pose un SF Symbol dans la menu bar via le NSStatusItem de rumps.
+
+        Retourne True si l'image a bien été posée, False sinon (l'appelant
+        doit alors afficher un fallback, ex. emoji dans self.title).
 
         red=True : teinte rouge fixe (non-template). Utilisé pour l'état
         recording — garde un rond rouge visible en light et dark mode.
@@ -378,14 +399,18 @@ class VoxtralApp(rumps.App):
         noir en light mode)."""
         nsapp = getattr(self, "_nsapp", None)
         if nsapp is None:
-            # Main loop rumps pas encore démarré (on est appelé depuis __init__
-            # avant .run()). Icône initiale posée plus tard par _on_first_tick.
-            return
+            # Main loop rumps pas encore démarré (appel depuis __init__ avant
+            # .run()). Icône initiale posée plus tard par _on_first_tick.
+            return False
         img = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
             symbol_name, None
         )
         if img is None:
-            return
+            print(
+                f"[statusbar] SF Symbol '{symbol_name}' nil — fallback emoji",
+                file=sys.stderr, flush=True,
+            )
+            return False
         if red:
             config = NSImageSymbolConfiguration.configurationWithPaletteColors_(
                 [NSColor.systemRedColor()]
@@ -394,13 +419,44 @@ class VoxtralApp(rumps.App):
             img.setTemplate_(False)
         else:
             img.setTemplate_(True)
-        nsapp.nsstatusitem.button().setImage_(img)
+        btn = nsapp.nsstatusitem.button()
+        if btn is None:
+            return False
+        btn.setImage_(img)
+        # Force l'item à être visible — contourne le cas bundle où l'item
+        # existe mais a été masqué/collapsed par AppKit au cold-start.
+        try:
+            nsapp.nsstatusitem.setVisible_(True)
+        except Exception:
+            pass
+        return True
 
     def _on_first_tick(self, _sender: "rumps.Timer | None" = None) -> None:
-        """Premier tick du timer one-shot : pose l'icône initiale et arrête
-        le timer (le NSStatusItem existe maintenant, rumps est dans .run())."""
+        """Premier tick du timer one-shot : pose l'icône initiale. Si le
+        button du NSStatusItem n'est pas encore prêt (cold-start bundle),
+        on replanifie une fois 0.3s plus tard."""
         self._init_icon_timer.stop()
-        self._set_status_icon(SYMBOL_IDLE)
+        nsapp = getattr(self, "_nsapp", None)
+        si = nsapp.nsstatusitem if nsapp else None
+        btn = si.button() if si else None
+        print(
+            f"[statusbar] first_tick nsapp={nsapp is not None} "
+            f"statusitem={si is not None} button={btn is not None} "
+            f"length={si.length() if si else 'n/a'}",
+            file=sys.stderr, flush=True,
+        )
+        if btn is None:
+            # Button pas prêt — replanifie une seule fois 0.3s plus tard.
+            if getattr(self, "_icon_retry_done", False):
+                print("[statusbar] button still None after retry — emoji fallback", file=sys.stderr, flush=True)
+                return
+            self._icon_retry_done = True
+            self._init_icon_timer = rumps.Timer(self._on_first_tick, 0.3)
+            self._init_icon_timer.start()
+            return
+        # Button prêt : tenter le SF Symbol. Si succès, clear emoji title.
+        if self._set_status_icon(SYMBOL_IDLE):
+            self.title = ""
 
     def _language_label(self) -> str:
         lang = self.config.transcription.language
