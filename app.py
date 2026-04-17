@@ -91,8 +91,12 @@ SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
 # Sablier animé : alterne entre les 2 frames → sable qui coule.
 SYMBOL_TRANSCRIBING_FRAMES = ("hourglass.tophalf.filled", "hourglass.bottomhalf.filled")
-# Téléchargement : pulsation fill/outline toutes les 500 ms.
-SYMBOL_DOWNLOADING_FRAMES = ("arrow.down.circle.fill", "arrow.down.circle")
+# Téléchargement : alternance de 2 SF Symbols de formes très distinctes
+# (box+arrow ↔ arrow seule). Le rendu template macOS en menu bar aplatit
+# les variantes `.fill` vs outline du même symbole → blink invisible.
+# Prendre 2 glyphes à silhouette nettement différente rend l'alternance
+# clairement lisible.
+SYMBOL_DOWNLOADING_FRAMES = ("square.and.arrow.down.fill", "arrow.down")
 
 
 class VoxtralApp(rumps.App):
