@@ -20,13 +20,17 @@ from AppKit import (
     NSWindow,
     NSWindowStyleMaskBorderless,
 )
-from Foundation import NSMakeRect, NSTimer
+from Foundation import NSMakeRect
 from PyObjCTools import AppHelper
 
 
-# Cocoa détient des références faibles aux NSWindow créées dynamiquement —
-# sans cette liste d'ancrage, la fenêtre serait collectée avant d'être vue.
+# NSWindow se libère d'elle-même sur close() par défaut (setReleasedWhenClosed=YES)
+# ce qui laisserait des références Python dangling. On maintient les popups
+# récentes vivantes dans cette liste et on orderOut: sans jamais close(),
+# les fenêtres sont libérées proprement par Python GC quand elles sortent
+# de la liste.
 _live_windows: list = []
+_MAX_LIVE = 3
 
 
 def show_near_cursor(message: str, duration: float = 2.0) -> None:
@@ -45,6 +49,9 @@ def _show(message: str, duration: float) -> None:
         NSBackingStoreBuffered,
         False,
     )
+    # CRITIQUE : sinon close() libère NSWindow et toute référence ultérieure
+    # (ex. _live_windows.remove via __eq__) segfault sur la mémoire freed.
+    win.setReleasedWhenClosed_(False)
     win.setLevel_(24)  # NSPopUpMenuWindowLevel : au-dessus des apps
     win.setOpaque_(False)
     win.setBackgroundColor_(NSColor.colorWithCalibratedWhite_alpha_(0.1, 0.92))
@@ -65,13 +72,14 @@ def _show(message: str, duration: float) -> None:
     win.orderFrontRegardless()
     _live_windows.append(win)
 
-    def _dismiss(_timer) -> None:
-        win.close()
-        try:
-            _live_windows.remove(win)
-        except ValueError:
-            pass
+    # Éviction LRU : borne la mémoire si l'utilisateur déclenche beaucoup
+    # de popups. Les anciennes sortent de la liste → Python GC les libère.
+    while len(_live_windows) > _MAX_LIVE:
+        _live_windows.pop(0).orderOut_(None)
 
-    NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
-        duration, False, _dismiss
-    )
+    # performSelector:withObject:afterDelay: planifie un appel Objective-C
+    # pur sur le main run loop — pas de closure Python à gérer (qui était
+    # la source du segfault avec NSTimer+bloc sur les popups successives).
+    # orderOut: cache la fenêtre sans la libérer, nickel avec
+    # setReleasedWhenClosed_(False) ci-dessus.
+    win.performSelector_withObject_afterDelay_("orderOut:", None, duration)
