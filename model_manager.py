@@ -46,10 +46,10 @@ AVAILABLE_MODELS: list[ModelInfo] = [
         description="Qualité maximale, nécessite plus de RAM.",
     ),
     ModelInfo(
-        repo_id="mlx-community/whisper-large-v3-turbo",
-        label="Whisper Large V3 Turbo",
-        size_gb=1.6,
-        description="Fallback libre de droits (MIT).",
+        repo_id="mlx-community/whisper-large-v3-mlx",
+        label="Whisper Large V3",
+        size_gb=3.0,
+        description="MIT, transcrit + traduit.",
     ),
 ]
 
