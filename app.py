@@ -18,6 +18,13 @@ import threading
 from pathlib import Path
 
 import rumps
+from AppKit import (
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSColor,
+    NSImage,
+    NSImageSymbolConfiguration,
+)
 
 from audio_capture import AudioRecorder
 from audio_feedback import AudioFeedback
@@ -33,19 +40,32 @@ from model_manager import find_model
 from transcriber import Transcriber, make_transcriber
 
 
+# Menu bar only, pas de Dock. Équivalent pyobjc de LSUIElement=true dans
+# Info.plist, mais qui marche AUSSI hors bundle (terminal, LaunchAgent,
+# ou bundle dont l'identité est perdue après exec Python).
+NSApplication.sharedApplication().setActivationPolicy_(
+    NSApplicationActivationPolicyAccessory
+)
+
+
 APP_NAME = "Voxtral"
 APP_VERSION = "0.1.0"
 
-# Caractères utilisés comme "icône" dans la menu bar (rumps title).
-# Discret car en monochrome, et lisible dans la barre.
-ICON_IDLE = "🎤"
-ICON_RECORDING = "🔴"
-ICON_TRANSCRIBING = "⏳"
+# SF Symbols affichés dans la menu bar (rendus via NSImage sur le
+# NSStatusItem de rumps). Template monochrome pour idle/transcribing
+# (teinte auto light/dark). Recording = rond rouge fixe, signal fort.
+SYMBOL_IDLE = "mic.fill"
+SYMBOL_RECORDING = "circle.fill"
+SYMBOL_TRANSCRIBING = "hourglass"
 
 
 class VoxtralApp(rumps.App):
     def __init__(self) -> None:
-        super().__init__(APP_NAME, title=ICON_IDLE, quit_button=None)
+        # title="" : pas de texte dans la menu bar, seulement l'icône (posée
+        # via NSStatusItem après le lancement du main loop rumps — voir
+        # _on_first_tick). Le NSStatusItem n'existe pas encore à ce stade
+        # (rumps le crée dans .run()), on ne peut donc pas setter l'image ici.
+        super().__init__(APP_NAME, title="", quit_button=None)
 
         # 1) Config
         ensure_user_config_exists()
@@ -112,6 +132,13 @@ class VoxtralApp(rumps.App):
         )
         self._config_timer = rumps.Timer(self._check_config_change, 2.0)
         self._config_timer.start()
+
+        # 6) Timer one-shot pour poser l'icône initiale. On ne peut pas la
+        # setter dans __init__ car rumps ne crée le NSStatusItem qu'à l'entrée
+        # dans .run(). Un Timer qui tire 0.1s après le démarrage du main loop
+        # garantit que self._nsapp.nsstatusitem existe.
+        self._init_icon_timer = rumps.Timer(self._on_first_tick, 0.1)
+        self._init_icon_timer.start()
 
     # ------------------------------------------------------------------
     # Hot-reload config
@@ -194,7 +221,7 @@ class VoxtralApp(rumps.App):
         try:
             self.feedback.play_start()
             self.recorder.start()
-            self._set_state(ICON_RECORDING, "État : écoute en cours…")
+            self._set_state(SYMBOL_RECORDING, "État : écoute en cours…", red=True)
         except Exception:
             self._end_busy()
             raise
@@ -232,14 +259,14 @@ class VoxtralApp(rumps.App):
                     wav_path.unlink(missing_ok=True)
                 except OSError:
                     pass
-                self._set_state(ICON_IDLE, "État : prêt")
+                self._set_state(SYMBOL_IDLE, "État : prêt")
                 self._end_busy()
                 return
 
             self.feedback.play_stop()
-            self._set_state(ICON_TRANSCRIBING, "État : transcription…")
+            self._set_state(SYMBOL_TRANSCRIBING, "État : transcription…")
         except Exception:
-            self._set_state(ICON_IDLE, "État : prêt")
+            self._set_state(SYMBOL_IDLE, "État : prêt")
             self._end_busy()
             raise
 
@@ -284,7 +311,7 @@ class VoxtralApp(rumps.App):
                 wav_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            self._set_state(ICON_IDLE, "État : prêt")
+            self._set_state(SYMBOL_IDLE, "État : prêt")
             self._end_busy()
 
     # ------------------------------------------------------------------
@@ -336,10 +363,44 @@ class VoxtralApp(rumps.App):
     # Helpers UI
     # ------------------------------------------------------------------
 
-    def _set_state(self, icon: str, status_text: str) -> None:
-        # rumps est thread-safe pour title/menu update
-        self.title = icon
+    def _set_state(
+        self, symbol: str, status_text: str, red: bool = False
+    ) -> None:
+        self._set_status_icon(symbol, red=red)
         self.status_item.title = status_text
+
+    def _set_status_icon(self, symbol_name: str, red: bool = False) -> None:
+        """Pose un SF Symbol dans la menu bar via le NSStatusItem de rumps.
+
+        red=True : teinte rouge fixe (non-template). Utilisé pour l'état
+        recording — garde un rond rouge visible en light et dark mode.
+        red=False : image template → macOS teinte auto (blanc en dark mode,
+        noir en light mode)."""
+        nsapp = getattr(self, "_nsapp", None)
+        if nsapp is None:
+            # Main loop rumps pas encore démarré (on est appelé depuis __init__
+            # avant .run()). Icône initiale posée plus tard par _on_first_tick.
+            return
+        img = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+            symbol_name, None
+        )
+        if img is None:
+            return
+        if red:
+            config = NSImageSymbolConfiguration.configurationWithPaletteColors_(
+                [NSColor.systemRedColor()]
+            )
+            img = img.imageWithSymbolConfiguration_(config)
+            img.setTemplate_(False)
+        else:
+            img.setTemplate_(True)
+        nsapp.nsstatusitem.button().setImage_(img)
+
+    def _on_first_tick(self, _sender: "rumps.Timer | None" = None) -> None:
+        """Premier tick du timer one-shot : pose l'icône initiale et arrête
+        le timer (le NSStatusItem existe maintenant, rumps est dans .run())."""
+        self._init_icon_timer.stop()
+        self._set_status_icon(SYMBOL_IDLE)
 
     def _language_label(self) -> str:
         lang = self.config.transcription.language
