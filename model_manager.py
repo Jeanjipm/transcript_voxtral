@@ -72,14 +72,28 @@ def model_local_path(repo_id: str, models_root: Path) -> Path:
 
 
 def is_downloaded(repo_id: str, models_root: Path) -> bool:
+    """True si le modèle est présent localement (soit dans ~/.voxtral/models,
+    soit dans le cache HF global ~/.cache/huggingface/hub).
+
+    Les deux chemins coexistent : `download_model.py` et `install.sh`
+    écrivent dans `models_root`, alors que les `from_pretrained` lazy
+    (changement de modèle via Préférences → 1re transcription) atterrissent
+    dans le cache HF global. Un seul des deux suffit pour considérer le
+    modèle utilisable.
+    """
+    # 1) Dossier custom Voxtral
     path = model_local_path(repo_id, models_root)
-    if not path.exists():
+    if path.exists():
+        for p in path.rglob("*"):
+            if p.is_file() and p.stat().st_size > 0:
+                return True
+    # 2) Cache HF global
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
         return False
-    # Heuristique simple : au moins un fichier non vide dans le dossier.
-    for p in path.rglob("*"):
-        if p.is_file() and p.stat().st_size > 0:
-            return True
-    return False
+    result = try_to_load_from_cache(repo_id=repo_id, filename="config.json")
+    return isinstance(result, (str, bytes))
 
 
 def download_model(

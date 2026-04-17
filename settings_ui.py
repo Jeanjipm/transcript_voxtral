@@ -125,7 +125,7 @@ class SettingsWindow:
         self.model_var = tk.StringVar(value=self.config.model.name)
         for i, m in enumerate(AVAILABLE_MODELS, start=1):
             downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
-            tag = " ✓ téléchargé" if downloaded else ""
+            tag = "   📥 téléchargé" if downloaded else ""
             label = f"{m.label} — {m.size_gb:.1f} Go{tag}\n   {m.description}"
             ttk.Radiobutton(
                 frame,
@@ -352,10 +352,11 @@ class SettingsWindow:
             font=("Helvetica", 16, "bold"),
         ).pack(anchor="w")
         ttk.Label(frame, text="Version 0.1.0").pack(anchor="w", pady=(5, 0))
+        ttk.Label(frame, text="Développé par Jeanjipm").pack(anchor="w")
         ttk.Label(
             frame,
             text=(
-                "Dictée vocale 100% locale via MLX sur Apple Silicon.\n"
+                "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
                 "Aucune donnée ne quitte votre Mac."
             ),
             justify=tk.LEFT,

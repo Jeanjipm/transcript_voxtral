@@ -89,7 +89,10 @@ APP_VERSION = "0.1.0"
 
 SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
-SYMBOL_TRANSCRIBING = "hourglass"
+# Sablier animé : alterne entre les 2 frames → sable qui coule.
+SYMBOL_TRANSCRIBING_FRAMES = ("hourglass.tophalf.filled", "hourglass.bottomhalf.filled")
+# Téléchargement : pulsation fill/outline toutes les 500 ms.
+SYMBOL_DOWNLOADING_FRAMES = ("arrow.down.circle.fill", "arrow.down.circle")
 
 
 class VoxtralApp(rumps.App):
@@ -106,10 +109,7 @@ class VoxtralApp(rumps.App):
         # 2) Composants audio + transcription
         self.recorder = AudioRecorder()
         self.feedback = AudioFeedback(self.config)
-        self.transcriber: Transcriber = make_transcriber(
-            self.config,
-            on_model_download=self._notify_model_download,
-        )
+        self.transcriber: Transcriber = make_transcriber(self.config)
 
         # 3) Menu
         self.status_item = rumps.MenuItem("État : prêt")
@@ -153,6 +153,12 @@ class VoxtralApp(rumps.App):
         # sans acquire lève RuntimeError.
         self._busy_lock = threading.Lock()
         self._busy = False
+
+        # Animation icône menu bar (sablier, download). rumps.Timer tourne
+        # sur le main thread → safe pour muter l'icône NSStatusItem.
+        self._anim_timer: "rumps.Timer | None" = None
+        self._anim_frames: tuple[str, ...] = ()
+        self._anim_idx = 0
 
         # Hot-reload config : rumps.Timer exige le main thread pour toute
         # mutation de menu — un threading.Thread crasherait silencieusement.
@@ -198,10 +204,7 @@ class VoxtralApp(rumps.App):
             # Réutiliser l'instance préserve le cache NSSound pré-chargé.
             new_feedback = self.feedback
         if new_config.model.name != old.model.name:
-            new_transcriber = make_transcriber(
-                new_config,
-                on_model_download=self._notify_model_download,
-            )
+            new_transcriber = make_transcriber(new_config)
         else:
             new_transcriber = self.transcriber
 
@@ -239,8 +242,44 @@ class VoxtralApp(rumps.App):
             self._busy = False
 
     def _reset_idle(self) -> None:
+        self._stop_animation()
         self._set_state(SYMBOL_IDLE, "État : prêt")
         self._end_busy()
+
+    # ------------------------------------------------------------------
+    # Animation icône menu bar
+    # ------------------------------------------------------------------
+
+    def _start_animation(self, frames: tuple[str, ...], interval: float) -> None:
+        """Alterne l'icône de la menu bar entre `frames` toutes `interval` s.
+
+        Idempotent sur les frames identiques (on compare à l'animation
+        courante). On stoppe toute animation précédente pour éviter les
+        timers orphelins.
+        """
+        if self._anim_frames == frames and self._anim_timer is not None:
+            return
+        self._stop_animation()
+        self._anim_frames = frames
+        self._anim_idx = 0
+        # Pose la 1re frame immédiatement (sinon on voit l'icône idle
+        # pendant `interval` avant que le timer ne tick).
+        self._set_status_icon(frames[0])
+        self._anim_timer = rumps.Timer(self._on_anim_tick, interval)
+        self._anim_timer.start()
+
+    def _stop_animation(self) -> None:
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+            self._anim_timer = None
+        self._anim_frames = ()
+        self._anim_idx = 0
+
+    def _on_anim_tick(self, _sender: "rumps.Timer | None" = None) -> None:
+        if not self._anim_frames:
+            return
+        self._anim_idx = (self._anim_idx + 1) % len(self._anim_frames)
+        self._set_status_icon(self._anim_frames[self._anim_idx])
 
     # ------------------------------------------------------------------
     # Callbacks raccourci clavier
@@ -280,7 +319,8 @@ class VoxtralApp(rumps.App):
                 return
 
             self.feedback.play_stop()
-            self._set_state(SYMBOL_TRANSCRIBING, "État : transcription…")
+            self._start_animation(SYMBOL_TRANSCRIBING_FRAMES, 0.4)
+            self.status_item.title = "État : transcription…"
         except Exception:
             self._reset_idle()
             raise
@@ -293,31 +333,31 @@ class VoxtralApp(rumps.App):
         )
         thread.start()
 
-    def _notify_model_download(self, repo_id: str) -> None:
-        """Informe l'utilisateur qu'un modèle va être téléchargé depuis HF.
+    def _model_needs_download(self) -> bool:
+        """True si le modèle courant n'est PAS dans le cache HF local.
 
-        Appelé par le transcriber quand un modèle (Voxtral, Whisper fallback,
-        ou Whisper traduction) n'est pas en cache local. Le téléchargement
-        qui suit est synchrone et bloquant — la notif laisse l'utilisateur
-        comprendre pourquoi la transcription prend plusieurs minutes.
+        Permet d'afficher l'icône de téléchargement avant que
+        `from_pretrained` / `mlx_whisper` ne bloquent pendant plusieurs
+        minutes. Best-effort : si huggingface_hub est trop vieux pour
+        exposer l'API, on suppose cached (pas d'animation → pas de faux
+        signal).
         """
-        info = find_model(repo_id)
-        if info is not None:
-            label = f"{info.label} (~{info.size_gb:.1f} Go)"
-        else:
-            # Modèle hors catalogue (ex. whisper large-v3 pour la traduction).
-            label = repo_id.split("/")[-1]
-        rumps.notification(
-            title=APP_NAME,
-            subtitle="Téléchargement du modèle…",
-            message=(
-                f"{label}. Quelques minutes selon la connexion — "
-                "le texte arrivera dès que c'est prêt."
-            ),
+        try:
+            from huggingface_hub import try_to_load_from_cache
+        except ImportError:
+            return False
+        # `config.json` est présent dans à peu près tous les repos MLX /
+        # transformers — sentinelle fiable pour "le repo est en cache".
+        result = try_to_load_from_cache(
+            repo_id=self.config.model.name, filename="config.json"
         )
+        return not isinstance(result, (str, bytes))
 
     def _transcribe_and_paste(self, wav_path: Path) -> None:
         try:
+            if self._model_needs_download():
+                self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
+                self.status_item.title = "État : téléchargement du modèle…"
             text = self.transcriber.transcribe(
                 wav_path,
                 language=self.config.transcription.language,
@@ -371,7 +411,8 @@ class VoxtralApp(rumps.App):
         rumps.alert(
             title=f"{APP_NAME} {APP_VERSION}",
             message=(
-                "Dictée vocale 100% locale via MLX.\n"
+                "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
+                "Développé par Jeanjipm.\n\n"
                 f"Modèle : {self.config.model.name}\n"
                 f"Raccourci : {display_combo(self.config.hotkey.combo)}\n\n"
                 "Aucune donnée ne quitte votre Mac."
@@ -387,6 +428,9 @@ class VoxtralApp(rumps.App):
     # ------------------------------------------------------------------
 
     def _set_state(self, symbol: str, status_text: str, red: bool = False) -> None:
+        # Poser une icône fixe annule toute animation en cours (sinon le
+        # prochain tick du timer écraserait l'icône qu'on vient de poser).
+        self._stop_animation()
         self._set_status_icon(symbol, red=red)
         self.status_item.title = status_text
 
