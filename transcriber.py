@@ -21,14 +21,15 @@ from pathlib import Path
 from config import Config
 
 
-# Repo HuggingFace utilisé quand Voxtral est indisponible (paquet MLX absent).
-WHISPER_FALLBACK_REPO = "mlx-community/whisper-large-v3-turbo"
-
-# Modèle utilisé pour la traduction (via Voxtral → délégation) : turbo est
-# distillé pour la transcription uniquement et retourne la langue source
-# au lieu d'anglais. large-v3 (non-turbo) supporte le vrai task="translate".
-# ~3 Go au premier usage translate, téléchargé lazy.
-WHISPER_TRANSLATE_REPO = "mlx-community/whisper-large-v3-mlx"
+# Modèle Whisper utilisé pour :
+#   1. fallback quand mlx-voxtral est introuvable (paquet MLX absent)
+#   2. délégation de traduction depuis Voxtral (mlx-voxtral 0.0.4 ne
+#      supporte pas task="translate")
+#   3. choix explicite utilisateur dans Préférences → Modèle
+# On prend le large-v3 non-distillé (≠ turbo) car turbo est distillé pour
+# la transcription uniquement et retourne la langue source au lieu
+# d'anglais pour task="translate".
+WHISPER_REPO = "mlx-community/whisper-large-v3-mlx"
 
 
 class Transcriber(ABC):
@@ -98,9 +99,7 @@ class VoxtralTranscriber(Transcriber):
             # On délègue à Whisper large-v3 (le turbo est distillé pour la
             # transcription uniquement et retourne la langue source).
             if self._whisper_for_translate is None:
-                self._whisper_for_translate = WhisperTranscriber(
-                    WHISPER_TRANSLATE_REPO
-                )
+                self._whisper_for_translate = WhisperTranscriber(WHISPER_REPO)
             return self._whisper_for_translate.transcribe(
                 wav_path, language=language, task="translate",
                 max_new_tokens=max_new_tokens,
@@ -197,8 +196,8 @@ def make_transcriber(config: Config) -> Transcriber:
     print(
         f"[transcriber] AVERTISSEMENT : paquet 'mlx_voxtral' introuvable, "
         f"modèle '{model_name}' non utilisable. "
-        f"Fallback sur Whisper ({WHISPER_FALLBACK_REPO}). "
+        f"Fallback sur Whisper ({WHISPER_REPO}). "
         f"Installe mlx-voxtral ou choisis un modèle Whisper dans Préférences.",
         file=sys.stderr,
     )
-    return WhisperTranscriber(WHISPER_FALLBACK_REPO)
+    return WhisperTranscriber(WHISPER_REPO)

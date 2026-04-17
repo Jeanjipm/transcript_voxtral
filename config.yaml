@@ -8,7 +8,7 @@ model:
   # Alternatives :
   #   mzbac/voxtral-mini-3b-8bit       (5.3 Go, qualité supérieure)
   #   mistralai/Voxtral-Mini-3B-2507   (~8 Go, full précision)
-  #   mlx-community/whisper-large-v3-turbo  (fallback libre de droits)
+  #   mlx-community/whisper-large-v3-mlx    (libre de droits MIT, transcription + traduction)
   name: "mzbac/voxtral-mini-3b-4bit-mixed"
   path: "~/.voxtral/models/"
 

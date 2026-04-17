@@ -149,6 +149,7 @@ Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
 
 - **Code Voxtral Dictée** : MIT.
 - **Modèle Voxtral Mini 3B** : CC BY-NC 4.0 (usage **non commercial**
-  uniquement). Pour un usage commercial, utilise le fallback Whisper
-  Large V3 Turbo (MIT) dans Préférences → Modèle.
-- **Whisper Large V3 Turbo** : MIT (OpenAI).
+  uniquement). Pour un usage commercial, bascule sur Whisper Large V3
+  (MIT) dans Préférences → Modèle.
+- **Whisper Large V3** : MIT (OpenAI). Supporte transcription et
+  traduction vers l'anglais.
