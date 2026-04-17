@@ -49,7 +49,7 @@ AVAILABLE_MODELS: list[ModelInfo] = [
         repo_id="mlx-community/whisper-large-v3-mlx",
         label="Whisper Large V3",
         size_gb=3.0,
-        description="Alternative libre de droits (MIT), supporte transcription ET traduction → anglais.",
+        description="MIT, transcrit + traduit.",
     ),
 ]
 
