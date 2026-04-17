@@ -15,6 +15,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+import traceback
 from pathlib import Path
 
 import rumps
@@ -140,12 +141,30 @@ class VoxtralApp(rumps.App):
         if mtime == self._config_mtime:
             return
         self._config_mtime = mtime
-        self._reload_config()
+        # YAML invalide ou modèle introuvable : on veut logger mais pas tuer
+        # le timer — sinon le hot-reload reste muet jusqu'au prochain redémarrage.
+        try:
+            self._reload_config()
+        except Exception:
+            traceback.print_exc()
 
     def _reload_config(self) -> None:
         old = self.config
         new_config = load_config()
+
+        # Ops qui peuvent lever (model load, audio resources) d'abord, dans
+        # des variables temporaires. Si une d'elles échoue, self.config reste
+        # old et l'état global stable (pas de config/transcriber incohérents).
+        new_feedback = AudioFeedback(new_config)
+        if new_config.model.name != old.model.name:
+            new_transcriber = make_transcriber(new_config)
+        else:
+            new_transcriber = self.transcriber
+
+        # Swap atomique une fois que tout a réussi.
         self.config = new_config
+        self.feedback = new_feedback
+        self.transcriber = new_transcriber
 
         if (
             new_config.hotkey.combo != old.hotkey.combo
@@ -159,17 +178,10 @@ class VoxtralApp(rumps.App):
             )
 
         if new_config.model.name != old.model.name:
-            # transcriber recharge le modèle au prochain transcribe, pas
-            # tout de suite : pas de pause UX tant qu'on ne dicte pas.
-            self.transcriber = make_transcriber(new_config)
             self.model_item.title = f"Modèle : {self._model_label()}"
 
         if new_config.transcription.language != old.transcription.language:
             self.lang_item.title = f"Langue : {self._language_label()}"
-
-        # feedback recréé inconditionnellement : volume/theme/enabled peuvent
-        # avoir changé et il n'y a pas d'équivalent __eq__ sur la sous-config.
-        self.feedback = AudioFeedback(new_config)
 
     # ------------------------------------------------------------------
     # Gestion du flag "occupé"
