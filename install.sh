@@ -180,168 +180,39 @@ case ":$PATH:" in
      echo "    export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
 
-# ---------- 7b. Voxtral.app (launcher clic depuis Finder / Spotlight / Dock) ----------
-# Bundle minimal : Info.plist + executable qui exec voxtral-launcher.sh.
-# LSUIElement=true → pas d'icône Dock ni de menu dans la barre (l'app est
-# déjà représentée par son icône 🎤 dans la menu bar via rumps).
-# Placement dans ~/Applications : indexé par Spotlight, pas de sudo requis.
-APP_BUNDLE="$HOME/Applications/Voxtral.app"
-info "Création de $APP_BUNDLE..."
-mkdir -p "$APP_BUNDLE/Contents/MacOS"
-
-cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>voxtral</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.voxtral.dictee</string>
-    <key>CFBundleName</key>
-    <string>Voxtral</string>
-    <key>CFBundleDisplayName</key>
-    <string>Voxtral Dictée</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>0.2.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Voxtral utilise le micro pour la dictée vocale locale (aucune donnée ne quitte votre Mac).</string>
-    <key>CFBundleIconFile</key>
-    <string>Voxtral</string>
-    <key>ISGraphicIconConfiguration</key>
-    <dict>
-        <key>ISEnclosureColor</key>
-        <string>blue</string>
-        <key>ISSymbolColor</key>
-        <string>white</string>
-        <key>ISSymbolName</key>
-        <string>mic.fill</string>
-    </dict>
-</dict>
-</plist>
-EOF
-
+# ---------- 7b. Voxtral.command (launcher double-cliquable sur le Bureau) ----------
+# Un .app bundle ne fonctionne pas avec une app Python lancée via trampoline
+# bash (bug macOS FB21015611 : NSStatusItem invisible depuis Spotlight).
+# Un .command est lancé par Terminal.app, pas par LaunchServices, donc
+# passe à côté du bug.
 mkdir -p "$(dirname "$LOG_FILE")"
-# CFBundleExecutable = script Python direct (shebang sur le python3 du venv)
-# plutôt qu'un trampoline bash qui fait `exec python`. Le trampoline avec
-# exec() casse l'enregistrement NSStatusItem quand l'app est lancée depuis
-# Spotlight/Finder (bug macOS confirmé par Apple DTS, FB21015611 —
-# reproduit aussi sur Plover avec trampoline C). Le shebang garde un seul
-# exec en chaîne, LaunchServices → python3 direct, bundle identity préservée.
-# Remplit l'équivalent de `brew shellenv` (PATH + HOMEBREW_PREFIX) via
-# os.environ pour que Python trouve les dylibs Tcl/Tk (_tkinter).
-cat > "$APP_BUNDLE/Contents/MacOS/voxtral" <<EOF
-#!$VENV_DIR/bin/python3
-# -*- coding: utf-8 -*-
-"""CFBundleExecutable de Voxtral.app — Python direct, sans trampoline bash."""
-import os
-import sys
-
-os.environ.setdefault("HOMEBREW_PREFIX", "/opt/homebrew")
-os.environ.setdefault("HOMEBREW_CELLAR", "/opt/homebrew/Cellar")
-os.environ["PATH"] = "/opt/homebrew/bin:/opt/homebrew/sbin:" + os.environ.get("PATH", "")
-
-_log = open("$LOG_FILE", "a", buffering=1)
-sys.stdout = _log
-sys.stderr = _log
-
-sys.path.insert(0, "$INSTALL_DIR")
-import app
-app.main()
-EOF
-chmod +x "$APP_BUNDLE/Contents/MacOS/voxtral"
-
-# Génère Voxtral.icns depuis le SF Symbol mic.fill rendu sur fond bleu.
-# Plus fiable que ISGraphicIconConfiguration qui n'est pas garanti sur
-# les .app tiers. iconutil est livré avec macOS, pas de dépendance.
-info "Génération de l'icône du bundle (Voxtral.icns)..."
-mkdir -p "$APP_BUNDLE/Contents/Resources"
-ICONSET_DIR=$(mktemp -d)/voxtral.iconset
-mkdir -p "$ICONSET_DIR"
-"$VENV_DIR/bin/python3" - "$ICONSET_DIR" <<'PYEOF'
-import sys
-import os
-from AppKit import (
-    NSImage,
-    NSImageSymbolConfiguration,
-    NSBitmapImageRep,
-    NSMakeSize,
-    NSMakeRect,
-    NSColor,
-    NSBezierPath,
-    NSCompositingOperationSourceOver,
-    NSBitmapImageFileTypePNG,
-)
-
-iconset = sys.argv[1]
-# Tailles requises par .icns (nominale, retina) d'après la doc Apple iconset.
-sizes = [
-    (16, False), (16, True), (32, False), (32, True),
-    (128, False), (128, True), (256, False), (256, True),
-    (512, False), (512, True),
-]
-for nominal, retina in sizes:
-    px = nominal * 2 if retina else nominal
-    canvas = NSImage.alloc().initWithSize_(NSMakeSize(px, px))
-    canvas.lockFocus()
-    # Fond bleu arrondi (style iOS/macOS).
-    NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.48, 1.0, 1.0).set()
-    radius = px * 0.22
-    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-        NSMakeRect(0, 0, px, px), radius, radius
-    ).fill()
-    # SF Symbol mic.fill, teinté blanc, centré.
-    mic = NSImage.imageWithSystemSymbolName_accessibilityDescription_("mic.fill", None)
-    if mic is not None:
-        size_cfg = NSImageSymbolConfiguration.configurationWithPointSize_weight_(
-            px * 0.6, 6  # weight 6 = semibold
-        )
-        mic = mic.imageWithSymbolConfiguration_(size_cfg)
-        tint = NSImageSymbolConfiguration.configurationWithPaletteColors_(
-            [NSColor.whiteColor()]
-        )
-        mic = mic.imageWithSymbolConfiguration_(tint)
-        mic_w = px * 0.55
-        mic.setSize_(NSMakeSize(mic_w, mic_w))
-        origin_x = (px - mic_w) / 2
-        origin_y = (px - mic_w) / 2
-        mic.drawAtPoint_fromRect_operation_fraction_(
-            (origin_x, origin_y),
-            ((0, 0), (0, 0)),
-            NSCompositingOperationSourceOver,
-            1.0,
-        )
-    canvas.unlockFocus()
-    rep = NSBitmapImageRep.imageRepWithData_(canvas.TIFFRepresentation())
-    data = rep.representationUsingType_properties_(NSBitmapImageFileTypePNG, None)
-    suffix = "@2x" if retina else ""
-    fname = f"icon_{nominal}x{nominal}{suffix}.png"
-    data.writeToFile_atomically_(os.path.join(iconset, fname), True)
-PYEOF
-if iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/Voxtral.icns" 2>/dev/null; then
-    ok "Icône Voxtral.icns générée."
-else
-    warn "Échec génération Voxtral.icns (non-bloquant, fallback sur ISGraphicIconConfiguration)"
+DESKTOP_CMD="$HOME/Desktop/Voxtral.command"
+cat > "$DESKTOP_CMD" <<EOF
+#!/bin/bash
+if ! pgrep -f "voxtral/app/app.py" >/dev/null 2>&1; then
+    ( "$LAUNCHER" >> "$LOG_FILE" 2>&1 </dev/null & )
 fi
-rm -rf "$(dirname "$ICONSET_DIR")"
-
-# Rafraîchit le cache LaunchServices pour que macOS relise Info.plist +
-# Voxtral.icns — sans ça Finder/Spotlight gardent l'ancienne icône.
-touch "$APP_BUNDLE"
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-[[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || true
-killall Dock 2>/dev/null || true
-killall Finder 2>/dev/null || true
-
-ok "Voxtral.app disponible dans ~/Applications/. Ouvre-le depuis Spotlight (Cmd+Espace → 'Voxtral') ou glisse-le dans le Dock."
+MY_TTY=\$(tty)
+(
+    sleep 0.3
+    osascript <<APPLESCRIPT >/dev/null 2>&1
+tell application "Terminal"
+    repeat with w in windows
+        try
+            if tty of selected tab of w is "\$MY_TTY" then
+                close w saving no
+                return
+            end if
+        end try
+    end repeat
+end tell
+APPLESCRIPT
+) </dev/null >/dev/null 2>&1 &
+disown
+exit 0
+EOF
+chmod +x "$DESKTOP_CMD"
+ok "Voxtral.command créé sur le Bureau (double-clic pour lancer)."
 info "Logs runtime : $LOG_FILE (tail -f pour les voir en direct)."
 
 # ---------- 8. Démarrage automatique (optionnel) ----------
@@ -357,11 +228,6 @@ read -r -p "Lancer Voxtral automatiquement au démarrage du Mac ? [y/N] " AUTOST
 if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
   mkdir -p "$(dirname "$LAUNCH_AGENT_PLIST")"
   mkdir -p "$(dirname "$LOG_FILE")"
-  # On lance le bundle Voxtral.app via /usr/bin/open plutôt que le script
-  # directement : ça donne au process une identité de bundle macOS correcte,
-  # nécessaire pour que l'icône menu bar (NSStatusItem) s'affiche quand
-  # lancée par launchd (sinon rumps crée l'icône mais macOS la cache car
-  # le process est traité comme un daemon sans UI).
   cat > "$LAUNCH_AGENT_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -371,8 +237,7 @@ if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
     <string>com.voxtral.dictee</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/open</string>
-        <string>$APP_BUNDLE</string>
+        <string>$LAUNCHER</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -399,9 +264,7 @@ echo
 echo "Raccourci par défaut : maintenir ⌥ Option DROITE pour parler."
 echo
 
-# Évite le double-lancement : si Voxtral tourne déjà (instance Terminal
-# précédente, LaunchAgent du step 8, ou lancé via Voxtral.app), on ne
-# relance pas, sinon on aurait deux icônes 🎤 dans la menu bar.
+# Évite le double-lancement : deux instances = deux icônes 🎤 dans la barre.
 if pgrep -f "voxtral/app/app.py" >/dev/null 2>&1; then
   ok "Voxtral est déjà en cours d'exécution (icône 🎤 visible dans la menu bar)."
 else

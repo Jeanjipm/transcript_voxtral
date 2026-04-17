@@ -243,13 +243,13 @@ class SettingsWindow:
         ttk.Label(frame, text="Combinaison :").grid(
             row=4, column=0, sticky="w", pady=(10, 0)
         )
-        # Défaut proposé pour le champ combo : ctrl+option+space. Choisi
-        # pour ne pas voler le focus (contrairement à cmd+shift+h qui ouvre
-        # le dossier Départ dans Finder et casse le paste automatique).
+        # Défaut : alt+space (= option+space). 2 touches, ergonomique,
+        # pas de conflit macOS (remplace juste l'insertion d'espace
+        # insécable, peu utilisée).
         combo_default = (
             self.config.hotkey.combo
             if "+" in self.config.hotkey.combo
-            else "ctrl+option+space"
+            else "alt+space"
         )
         self.combo_var = tk.StringVar(value=combo_default)
         self.combo_entry = ttk.Entry(frame, textvariable=self.combo_var, width=22)
@@ -258,7 +258,7 @@ class SettingsWindow:
         )
         ttk.Label(
             frame,
-            text="Format : 'ctrl+option+space' (recommandé), 'ctrl+alt+d'…",
+            text="Format : 'alt+space' (recommandé), 'cmd+backslash', 'ctrl+shift'…",
             foreground="gray",
         ).grid(row=5, column=1, sticky="w", padx=(10, 0))
 
@@ -463,9 +463,9 @@ class SettingsWindow:
         if error is not None:
             messagebox.showerror(
                 "Raccourci invalide",
-                f"{error}\n\nFormat attendu : 'alt_r', 'cmd+shift+h', "
-                "'ctrl+alt+space'. Jetons valides : cmd, alt, ctrl, shift, "
-                "space, enter, tab, esc, f13-f19, ou une lettre.",
+                f"{error}\n\nFormat attendu : 'alt_r', 'alt+space', "
+                "'cmd+shift+h'. Jetons valides : cmd, option (= alt), "
+                "ctrl, shift, space, enter, tab, esc, f13-f19, ou une lettre.",
             )
             self.notebook.select(2)  # onglet Raccourci
             return

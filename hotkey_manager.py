@@ -27,11 +27,16 @@ from typing import Callable
 from pynput import keyboard
 
 
-# Mapping nom config → pynput.Key (ou caractère)
+# Mapping nom config → pynput.Key (ou caractère). Les alias "option"
+# pointent vers alt — sur les claviers macOS la touche est labellisée
+# "⌥ Option" et les utilisateurs tapent "option" plus souvent qu'"alt".
 _NAMED_KEYS: dict[str, keyboard.Key] = {
     "alt_l": keyboard.Key.alt_l,
     "alt_r": keyboard.Key.alt_r,
     "alt": keyboard.Key.alt,
+    "option_l": keyboard.Key.alt_l,
+    "option_r": keyboard.Key.alt_r,
+    "option": keyboard.Key.alt,
     "cmd_l": keyboard.Key.cmd_l,
     "cmd_r": keyboard.Key.cmd_r,
     "cmd": keyboard.Key.cmd,
@@ -243,6 +248,7 @@ def display_combo(combo: str) -> str:
         "cmd": "⌘", "cmd_l": "⌘ gauche", "cmd_r": "⌘ droite",
         "shift": "⇧", "shift_l": "⇧ gauche", "shift_r": "⇧ droite",
         "alt": "⌥", "alt_l": "⌥ gauche", "alt_r": "⌥ droite",
+        "option": "⌥", "option_l": "⌥ gauche", "option_r": "⌥ droite",
         "ctrl": "⌃", "ctrl_l": "⌃ gauche", "ctrl_r": "⌃ droite",
         "space": "␣", "enter": "↩", "tab": "⇥", "esc": "⎋",
     }
