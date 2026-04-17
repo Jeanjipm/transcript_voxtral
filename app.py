@@ -12,6 +12,8 @@ pour ne pas geler la menu bar.
 
 from __future__ import annotations
 
+import faulthandler
+import signal
 import subprocess
 import sys
 import threading
@@ -20,6 +22,39 @@ from pathlib import Path
 
 import rumps
 import soundfile as sf
+
+
+# Capture les crashs natifs (segfault MLX/pyobjc, OOM soft, etc.) en écrivant
+# la stack C/Python dans stderr (→ voxtral.log). faulthandler est actif aussi
+# longtemps que le process tourne.
+faulthandler.enable(sys.stderr)
+
+
+def _log_exception(exc_type, exc_value, exc_tb) -> None:
+    print("[crash] uncaught exception:", file=sys.stderr)
+    traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
+    sys.stderr.flush()
+
+
+sys.excepthook = _log_exception
+# threading.excepthook (Python 3.8+) attrape les exceptions dans les threads
+# worker (recorder, transcriber) qui sinon disparaissent silencieusement.
+threading.excepthook = lambda args: _log_exception(
+    args.exc_type, args.exc_value, args.exc_traceback
+)
+
+
+def _log_signal(signum, frame) -> None:
+    print(f"[crash] signal {signum} reçu, stack:", file=sys.stderr)
+    traceback.print_stack(frame, file=sys.stderr)
+    sys.stderr.flush()
+    sys.exit(128 + signum)
+
+
+# SIGKILL ne se catch pas (kernel), mais SIGTERM/SIGHUP (arrêt propre,
+# logout, rotation logs) si. On logue avant de mourir.
+for _sig in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(_sig, _log_signal)
 from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyAccessory,
