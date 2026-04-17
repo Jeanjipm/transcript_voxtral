@@ -24,6 +24,12 @@ from config import Config
 # Repo HuggingFace utilisé quand Voxtral est indisponible (paquet MLX absent).
 WHISPER_FALLBACK_REPO = "mlx-community/whisper-large-v3-turbo"
 
+# Modèle utilisé pour la traduction (via Voxtral → délégation) : turbo est
+# distillé pour la transcription uniquement et retourne la langue source
+# au lieu d'anglais. large-v3 (non-turbo) supporte le vrai task="translate".
+# ~3 Go au premier usage translate, téléchargé lazy.
+WHISPER_TRANSLATE_REPO = "mlx-community/whisper-large-v3-mlx"
+
 
 class Transcriber(ABC):
     """Interface commune à tous les backends de transcription."""
@@ -89,9 +95,10 @@ class VoxtralTranscriber(Transcriber):
     ) -> str:
         if task == "translate":
             # Voxtral Mini ne sait pas traduire via mlx-voxtral 0.0.4.
-            # Whisper (fallback, déjà configuré) le fait nativement.
+            # On délègue à Whisper large-v3 (le turbo est distillé pour la
+            # transcription uniquement et retourne la langue source).
             if self._whisper_for_translate is None:
-                self._whisper_for_translate = WhisperTranscriber(WHISPER_FALLBACK_REPO)
+                self._whisper_for_translate = WhisperTranscriber(WHISPER_TRANSLATE_REPO)
             return self._whisper_for_translate.transcribe(
                 wav_path, language=language, task="translate",
                 max_new_tokens=max_new_tokens,
@@ -143,12 +150,22 @@ class WhisperTranscriber(Transcriber):
         max_new_tokens: int = 1024,  # noqa: ARG002 — non utilisé par Whisper
     ) -> str:
         import mlx_whisper  # type: ignore[import-not-found]
+        import soundfile as sf
+
+        # mlx-whisper utilise ffmpeg pour décoder un fichier audio depuis un
+        # chemin. Pour éviter cette dep système, on charge le WAV via
+        # soundfile et on passe un numpy array (AudioRecorder enregistre
+        # déjà en 16 kHz mono, exactement ce qu'attend Whisper).
+        audio, sr = sf.read(str(wav_path), dtype="float32")
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        assert sr == 16_000, f"Whisper attend 16 kHz, pas {sr} Hz"
 
         # Whisper utilise None pour la détection automatique
         whisper_lang = None if language == "auto" else language
 
         result = mlx_whisper.transcribe(
-            str(wav_path),
+            audio,
             path_or_hf_repo=self.model_repo,
             language=whisper_lang,
             task=task,
