@@ -13,8 +13,6 @@ pour ne pas geler la menu bar.
 from __future__ import annotations
 
 import faulthandler
-import gc
-import resource
 import signal
 import subprocess
 import sys
@@ -75,8 +73,6 @@ from config import (
     ensure_user_config_exists,
     load_config,
 )
-from cursor_popup import show_near_cursor
-from focus_detector import is_editable_field_focused
 from hotkey_manager import HotkeyManager, display_combo
 from model_manager import find_model
 from transcriber import Transcriber, make_transcriber
@@ -249,12 +245,6 @@ class VoxtralApp(rumps.App):
     def _on_hotkey_start(self) -> None:
         if not self._try_begin_busy():
             return
-        # Vérifie le champ de saisie AVANT d'enregistrer : pas la peine de
-        # faire tourner MLX (3 Go de RAM, 1-2s) si on a nulle part où coller.
-        if self.config.ui.auto_paste and not is_editable_field_focused():
-            self._end_busy()
-            show_near_cursor("✎  Place le curseur dans un champ de saisie")
-            return
         try:
             self.feedback.play_start()
             self.recorder.start()
@@ -327,14 +317,6 @@ class VoxtralApp(rumps.App):
                 wav_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            # gc.collect + log RSS : mlx-voxtral laisse traîner des objets
-            # temp (workers multiprocessing, tensors MLX) qui s'accumulent
-            # sur les longues sessions et finissent par déclencher un OOM
-            # kill silencieux (SIGKILL non catchable). Le log permet de
-            # confirmer le pattern de croissance et détecter un plafond.
-            gc.collect()
-            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
-            print(f"[mem] RSS peak={rss_mb:.0f}MB", file=sys.stderr, flush=True)
             self._reset_idle()
 
     # ------------------------------------------------------------------
