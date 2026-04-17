@@ -86,6 +86,11 @@ def paste_text(
     if not text or not text.strip():
         return
 
+    # Préfixe un espace : évite que la dictée vienne coller directement
+    # contre la ponctuation du texte précédent (ex. "Bonjour.Comment…").
+    # lstrip d'abord pour ne pas doubler l'espace si Voxtral en a déjà mis.
+    text = " " + text.lstrip()
+
     # On ne préserve que si on va réellement paster — en mode copy-only
     # l'utilisateur veut que son clipboard reste sur le nouveau texte.
     saved = _read_clipboard_text() if (auto_paste and preserve_clipboard) else None

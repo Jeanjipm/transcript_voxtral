@@ -34,7 +34,6 @@ class Transcriber(ABC):
         wav_path: Path,
         language: str = "auto",
         task: str = "transcribe",
-        temperature: float = 0.0,
         max_new_tokens: int = 1024,
     ) -> str:
         """Retourne le texte transcrit (chaîne UTF-8, espaces nettoyés)."""
@@ -45,9 +44,7 @@ class Transcriber(ABC):
 
 
 class VoxtralTranscriber(Transcriber):
-    """
-    Backend Voxtral via le package `mlx_voxtral` (mzbac).
-    """
+    """Backend Voxtral via le package `mlx_voxtral` (mzbac)."""
 
     def __init__(self, model_repo: str) -> None:
         self.model_repo = model_repo
@@ -80,35 +77,24 @@ class VoxtralTranscriber(Transcriber):
         wav_path: Path,
         language: str = "auto",
         task: str = "transcribe",
-        temperature: float = 0.0,
         max_new_tokens: int = 1024,
     ) -> str:
         self._ensure_loaded()
         assert self._model is not None and self._processor is not None
 
-        # mlx-voxtral attend un code langue type "fr"/"en" ; "auto" est
-        # géré côté processor sur les versions récentes — on passe tel quel.
-        # NB : la méthode upstream s'écrit bien "transcrition" (typo du package mzbac).
-        # L'argument task n'est PAS supporté par mlx-voxtral 0.0.4 ; pour la
-        # traduction, bascule sur Whisper dans Préférences (cf. task != "transcribe").
-        if task != "transcribe":
-            print(
-                f"[transcriber] task={task!r} non supporté par mlx-voxtral 0.0.4, "
-                f"fallback sur transcribe. Bascule sur un modèle Whisper dans "
-                f"Préférences pour activer la traduction.",
-                file=sys.stderr,
-            )
+        # NB : la méthode upstream s'écrit bien "transcrition" (typo du
+        # package mzbac). task="translate" traduit vers l'anglais.
         inputs = self._processor.apply_transcrition_request(
             language=language,
             audio=str(wav_path),
+            task=task,
         )
-        # mlx-voxtral 0.0.4 retourne un TranscriptionInputs (objet, pas dict) ;
-        # `**inputs` échoue avec "must be a mapping". On déballe via vars()
-        # qui fonctionne pour les classes ordinaires avec __dict__.
+        # mlx-voxtral retourne un TranscriptionInputs (objet, pas dict) ;
+        # `**inputs` échoue avec "must be a mapping". vars() déballe le
+        # __dict__ de l'objet.
         outputs = self._model.generate(
             **vars(inputs),
             max_new_tokens=max_new_tokens,
-            temperature=temperature,
         )
         text = self._processor.decode(
             outputs[0][inputs.input_ids.shape[1]:],
@@ -137,7 +123,6 @@ class WhisperTranscriber(Transcriber):
         wav_path: Path,
         language: str = "auto",
         task: str = "transcribe",
-        temperature: float = 0.0,
         max_new_tokens: int = 1024,  # noqa: ARG002 — non utilisé par Whisper
     ) -> str:
         import mlx_whisper  # type: ignore[import-not-found]
@@ -150,7 +135,6 @@ class WhisperTranscriber(Transcriber):
             path_or_hf_repo=self.model_repo,
             language=whisper_lang,
             task=task,
-            temperature=temperature,
         )
         return str(result.get("text", "")).strip()
 

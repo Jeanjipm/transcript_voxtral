@@ -295,17 +295,9 @@ class VoxtralApp(rumps.App):
                 wav_path,
                 language=self.config.transcription.language,
                 task=self.config.transcription.task,
-                temperature=self.config.transcription.temperature,
                 max_new_tokens=self.config.transcription.max_new_tokens,
             )
             paste_text(text, auto_paste=self.config.ui.auto_paste)
-
-            if self.config.ui.notification_on_paste:
-                rumps.notification(
-                    title=APP_NAME,
-                    subtitle="Transcription collée",
-                    message=text[:80] + ("…" if len(text) > 80 else ""),
-                )
         except Exception as exc:
             rumps.notification(
                 title=APP_NAME,

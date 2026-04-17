@@ -1,14 +1,12 @@
 """
 Écoute du raccourci clavier global.
 
-Deux modes de raccourci supportés :
+Deux modes pour le déclenchement (s'applique aux touches uniques ET aux
+combinaisons) :
 
-1. **Single-key tenue** (ex. `alt_r` = Option droite). Mode talkie-walkie :
-   on appuie → on_start ; on relâche → on_stop. C'est le défaut Voxtral.
-
-2. **Combinaison** (ex. `cmd+shift+h`). Deux sous-modes :
-   - `push_to_talk` : maintenir la combinaison enregistre
-   - `toggle`       : un appui démarre, le suivant arrête
+- `push_to_talk` : enregistre tant qu'on maintient la touche/combo
+- `toggle`       : un appui démarre, le suivant arrête (le release ne fait
+                   rien)
 
 Implémentation : `pynput.keyboard.Listener` non-suppressif. Ne bloque
 PAS la propagation de la touche au système, donc Right Option continue
@@ -178,18 +176,21 @@ class HotkeyManager:
             return
 
         if _is_single_key(self.combo):
-            # Single-key : push-to-talk forcé
-            if norm == self._target_key and not self._active:
-                self._active = True
-                self._safe_call(self.on_start)
+            if norm != self._target_key:
+                return
+            self._trigger_press()
             return
 
-        # Combinaison : faut que tous les modifs ET la touche finale soient pressés
+        # Combinaison : tous les modifs ET la touche finale doivent être pressés
         if not self._modifier_keys.issubset(self._pressed):
             return
         if norm != self._final_key:
             return
+        self._trigger_press()
 
+    def _trigger_press(self) -> None:
+        """Applique la logique mode (push_to_talk | toggle) sur un press
+        reconnu comme valide (touche cible ou combo complet atteint)."""
         if self.mode == "push_to_talk":
             if not self._active:
                 self._active = True
@@ -211,6 +212,10 @@ class HotkeyManager:
         if not self._active:
             return
 
+        # Toggle : le release ne stoppe jamais — seul un 2e appui stoppe.
+        if self.mode != "push_to_talk":
+            return
+
         if _is_single_key(self.combo):
             if norm == self._target_key:
                 self._active = False
@@ -220,10 +225,9 @@ class HotkeyManager:
         # Combinaison push-to-talk : on stoppe dès qu'on relâche la touche
         # finale OU n'importe quel modificateur (sinon l'utilisateur reste
         # bloqué en "écoute" si le timing est imparfait).
-        if self.mode == "push_to_talk":
-            if norm == self._final_key or norm in self._modifier_keys:
-                self._active = False
-                self._safe_call(self.on_stop)
+        if norm == self._final_key or norm in self._modifier_keys:
+            self._active = False
+            self._safe_call(self.on_stop)
 
     # ---- Robustesse ----
 

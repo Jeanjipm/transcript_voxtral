@@ -10,11 +10,24 @@ L'utilisateur ne touche jamais ./config.yaml ; toutes ses modifications
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields as dc_fields
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import yaml
+
+
+T = TypeVar("T")
+
+
+def _build(cls: type[T], data: dict[str, Any]) -> T:
+    """Instancie une dataclass en ignorant les clés inconnues du dict.
+
+    Permet de tolérer les anciens config.yaml qui contiennent des champs
+    supprimés (ex. `temperature`, `streaming`) sans lever TypeError.
+    """
+    valid = {f.name for f in dc_fields(cls)}
+    return cls(**{k: v for k, v in data.items() if k in valid})
 
 
 # Emplacements canoniques
@@ -44,23 +57,17 @@ class HotkeyConfig:
 class TranscriptionConfig:
     language: str = "auto"
     task: str = "transcribe"  # ou "translate"
-    temperature: float = 0.0
     max_new_tokens: int = 1024
-    streaming: bool = False
 
 
 @dataclass
 class SoundsConfig:
     enabled: bool = True
     volume: float = 0.5
-    theme: str = "system"
-    start_sound: str = "sounds/start.wav"
-    stop_sound: str = "sounds/stop.wav"
 
 
 @dataclass
 class UIConfig:
-    notification_on_paste: bool = False
     auto_paste: bool = True
 
 
@@ -92,13 +99,14 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _dict_to_config(data: dict[str, Any]) -> Config:
-    """Convertit un dict YAML en `Config` typé. Tolère les clés manquantes."""
+    """Convertit un dict YAML en `Config` typé. Tolère les clés manquantes
+    ET les clés obsolètes (ex. `temperature` dans un ancien config)."""
     return Config(
-        model=ModelConfig(**data.get("model", {})),
-        hotkey=HotkeyConfig(**data.get("hotkey", {})),
-        transcription=TranscriptionConfig(**data.get("transcription", {})),
-        sounds=SoundsConfig(**data.get("sounds", {})),
-        ui=UIConfig(**data.get("ui", {})),
+        model=_build(ModelConfig, data.get("model", {})),
+        hotkey=_build(HotkeyConfig, data.get("hotkey", {})),
+        transcription=_build(TranscriptionConfig, data.get("transcription", {})),
+        sounds=_build(SoundsConfig, data.get("sounds", {})),
+        ui=_build(UIConfig, data.get("ui", {})),
     )
 
 
