@@ -24,6 +24,7 @@ from AppKit import (
     NSColor,
     NSImage,
     NSImageSymbolConfiguration,
+    NSMakeSize,
 )
 
 from audio_capture import AudioRecorder
@@ -411,14 +412,24 @@ class VoxtralApp(rumps.App):
                 file=sys.stderr, flush=True,
             )
             return False
+        # Configure la taille du symbole — sans ça, NSImage revient à 0×0
+        # dans certains contextes (notamment bundle), ce qui explique le
+        # rendu invisible dans la menu bar malgré setImage_ sans erreur.
+        # pointSize 16 + setSize_(18×18) = ratio standard des icônes
+        # natives de la menu bar macOS (mic, wifi, etc.).
+        size_config = NSImageSymbolConfiguration.configurationWithPointSize_weight_(
+            16.0, 5  # 5 = NSFontWeightRegular
+        )
+        img = img.imageWithSymbolConfiguration_(size_config)
         if red:
-            config = NSImageSymbolConfiguration.configurationWithPaletteColors_(
+            color_config = NSImageSymbolConfiguration.configurationWithPaletteColors_(
                 [NSColor.systemRedColor()]
             )
-            img = img.imageWithSymbolConfiguration_(config)
+            img = img.imageWithSymbolConfiguration_(color_config)
             img.setTemplate_(False)
         else:
             img.setTemplate_(True)
+        img.setSize_(NSMakeSize(18, 18))
         btn = nsapp.nsstatusitem.button()
         if btn is None:
             return False

@@ -214,6 +214,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
     <string>13.0</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Voxtral utilise le micro pour la dictée vocale locale (aucune donnée ne quitte votre Mac).</string>
+    <key>CFBundleIconFile</key>
+    <string>Voxtral</string>
     <key>ISGraphicIconConfiguration</key>
     <dict>
         <key>ISEnclosureColor</key>
@@ -257,13 +259,87 @@ app.main()
 EOF
 chmod +x "$APP_BUNDLE/Contents/MacOS/voxtral"
 
-# Rafraîchit le cache LaunchServices pour que macOS relise Info.plist —
-# indispensable pour que ISGraphicIconConfiguration génère la nouvelle
-# icône micro. Sans ça, Finder/Spotlight continuent d'afficher l'ancienne.
+# Génère Voxtral.icns depuis le SF Symbol mic.fill rendu sur fond bleu.
+# Plus fiable que ISGraphicIconConfiguration qui n'est pas garanti sur
+# les .app tiers. iconutil est livré avec macOS, pas de dépendance.
+info "Génération de l'icône du bundle (Voxtral.icns)..."
+mkdir -p "$APP_BUNDLE/Contents/Resources"
+ICONSET_DIR=$(mktemp -d)/voxtral.iconset
+mkdir -p "$ICONSET_DIR"
+"$VENV_DIR/bin/python3" - "$ICONSET_DIR" <<'PYEOF'
+import sys
+import os
+from AppKit import (
+    NSImage,
+    NSImageSymbolConfiguration,
+    NSBitmapImageRep,
+    NSMakeSize,
+    NSMakeRect,
+    NSColor,
+    NSBezierPath,
+    NSCompositingOperationSourceOver,
+    NSBitmapImageFileTypePNG,
+)
+
+iconset = sys.argv[1]
+# Tailles requises par .icns (nominale, retina) d'après la doc Apple iconset.
+sizes = [
+    (16, False), (16, True), (32, False), (32, True),
+    (128, False), (128, True), (256, False), (256, True),
+    (512, False), (512, True),
+]
+for nominal, retina in sizes:
+    px = nominal * 2 if retina else nominal
+    canvas = NSImage.alloc().initWithSize_(NSMakeSize(px, px))
+    canvas.lockFocus()
+    # Fond bleu arrondi (style iOS/macOS).
+    NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.48, 1.0, 1.0).set()
+    radius = px * 0.22
+    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        NSMakeRect(0, 0, px, px), radius, radius
+    ).fill()
+    # SF Symbol mic.fill, teinté blanc, centré.
+    mic = NSImage.imageWithSystemSymbolName_accessibilityDescription_("mic.fill", None)
+    if mic is not None:
+        size_cfg = NSImageSymbolConfiguration.configurationWithPointSize_weight_(
+            px * 0.6, 6  # weight 6 = semibold
+        )
+        mic = mic.imageWithSymbolConfiguration_(size_cfg)
+        tint = NSImageSymbolConfiguration.configurationWithPaletteColors_(
+            [NSColor.whiteColor()]
+        )
+        mic = mic.imageWithSymbolConfiguration_(tint)
+        mic_w = px * 0.55
+        mic.setSize_(NSMakeSize(mic_w, mic_w))
+        origin_x = (px - mic_w) / 2
+        origin_y = (px - mic_w) / 2
+        mic.drawAtPoint_fromRect_operation_fraction_(
+            (origin_x, origin_y),
+            ((0, 0), (0, 0)),
+            NSCompositingOperationSourceOver,
+            1.0,
+        )
+    canvas.unlockFocus()
+    rep = NSBitmapImageRep.imageRepWithData_(canvas.TIFFRepresentation())
+    data = rep.representationUsingType_properties_(NSBitmapImageFileTypePNG, None)
+    suffix = "@2x" if retina else ""
+    fname = f"icon_{nominal}x{nominal}{suffix}.png"
+    data.writeToFile_atomically_(os.path.join(iconset, fname), True)
+PYEOF
+if iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/Voxtral.icns" 2>/dev/null; then
+    ok "Icône Voxtral.icns générée."
+else
+    warn "Échec génération Voxtral.icns (non-bloquant, fallback sur ISGraphicIconConfiguration)"
+fi
+rm -rf "$(dirname "$ICONSET_DIR")"
+
+# Rafraîchit le cache LaunchServices pour que macOS relise Info.plist +
+# Voxtral.icns — sans ça Finder/Spotlight gardent l'ancienne icône.
 touch "$APP_BUNDLE"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 [[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || true
 killall Dock 2>/dev/null || true
+killall Finder 2>/dev/null || true
 
 ok "Voxtral.app disponible dans ~/Applications/. Ouvre-le depuis Spotlight (Cmd+Espace → 'Voxtral') ou glisse-le dans le Dock."
 info "Logs runtime : $LOG_FILE (tail -f pour les voir en direct)."
