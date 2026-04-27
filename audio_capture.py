@@ -143,6 +143,39 @@ class AudioRecorder:
             self._stream.close()
             self._stream = None
 
+    def prewarm(self) -> None:
+        """Pré-initialise le stream micro pour amortir le coût d'init CoreAudio.
+
+        Crée + start + stop le stream sans toucher au flag _recording, donc
+        n'interfère pas avec un éventuel hotkey concurrent. Les samples
+        captés pendant le bref start/stop sont ignorés par _on_audio
+        (check _recording=False).
+
+        À appeler en thread daemon au lancement de l'app : la 1re vraie
+        dictée devient instantanée comme les suivantes.
+        """
+        with self._lock:
+            # Si _recording=True, l'utilisateur a déjà déclenché un hotkey
+            # avant qu'on prewarm — le stream est déjà chaud par le start
+            # réel, on n'a rien à faire.
+            if self._recording:
+                return
+            if self._stream is None:
+                self._stream = sd.InputStream(
+                    samplerate=self.sample_rate,
+                    channels=self.channels,
+                    dtype=self.dtype,
+                    callback=self._on_audio,
+                )
+            try:
+                self._stream.start()
+                self._stream.stop()
+            except sd.PortAudioError:
+                # Stream peut être en état imprévu (déjà started par
+                # un start() concurrent qui a contourné le lock — ne
+                # devrait pas arriver, mais on est défensif).
+                pass
+
     @property
     def is_recording(self) -> bool:
         with self._lock:
