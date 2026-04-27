@@ -120,14 +120,23 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
 
 
 def load_config(
-    user_path: Path = USER_CONFIG_PATH,
-    default_path: Path = DEFAULT_CONFIG_PATH,
+    user_path: Path | None = None,
+    default_path: Path | None = None,
 ) -> Config:
     """
     Charge la config en fusionnant defaults projet + overrides utilisateur.
 
     Si le fichier utilisateur n'existe pas, retourne les defaults.
+
+    Les paths sont résolus au runtime (pas dans la signature par défaut)
+    pour que les tests puissent monkeypatcher USER_CONFIG_PATH /
+    DEFAULT_CONFIG_PATH avant l'appel.
     """
+    if user_path is None:
+        user_path = USER_CONFIG_PATH
+    if default_path is None:
+        default_path = DEFAULT_CONFIG_PATH
+
     with open(default_path, "r", encoding="utf-8") as f:
         defaults = yaml.safe_load(f) or {}
 
@@ -141,8 +150,13 @@ def load_config(
     return _dict_to_config(merged)
 
 
-def save_config(cfg: Config, user_path: Path = USER_CONFIG_PATH) -> None:
-    """Écrit la config dans ~/.voxtral/config.yaml (crée le dossier au besoin)."""
+def save_config(cfg: Config, user_path: Path | None = None) -> None:
+    """Écrit la config dans ~/.voxtral/config.yaml (crée le dossier au besoin).
+
+    user_path résolu au runtime pour faciliter les tests (cf. load_config).
+    """
+    if user_path is None:
+        user_path = USER_CONFIG_PATH
     user_path.parent.mkdir(parents=True, exist_ok=True)
     with open(user_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(

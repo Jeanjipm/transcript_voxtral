@@ -9,8 +9,12 @@ dist/
 
 # Environnements virtuels
 .venv/
+.venv-tests/
 venv/
 env/
+
+# pytest
+.pytest_cache/
 
 # Modèles ML (lourds, téléchargés via download_model.py)
 models/
