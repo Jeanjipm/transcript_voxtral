@@ -128,6 +128,19 @@ class VoxtralApp(rumps.App):
         self.feedback = AudioFeedback(self.config)
         self.transcriber: Transcriber = make_transcriber(self.config)
 
+        # 2b) Pré-warm en parallèle pour amortir les coûts d'initialisation
+        # avant la 1re dictée :
+        # - micro CoreAudio : ~1-2s pour ouvrir le device + warm-up hardware
+        # - modèle MLX : ~5-15s pour charger ~3 Go en RAM
+        # Threads daemon → ne bloquent pas le démarrage de l'app, et meurent
+        # avec l'app si elle quitte avant la fin.
+        threading.Thread(
+            target=self._safe_prewarm_audio, daemon=True, name="prewarm-audio"
+        ).start()
+        threading.Thread(
+            target=self._safe_preload_model, daemon=True, name="preload-model"
+        ).start()
+
         # 3) Menu
         self.status_item = rumps.MenuItem("État : prêt")
         self.hotkey_item = rumps.MenuItem(
@@ -190,6 +203,24 @@ class VoxtralApp(rumps.App):
         self._init_icon_timer.start()
 
     # ------------------------------------------------------------------
+    # Pré-warm démarrage (threads daemon)
+    # ------------------------------------------------------------------
+
+    def _safe_prewarm_audio(self) -> None:
+        """Wrapper exception-safe pour le thread daemon prewarm-audio."""
+        try:
+            self.recorder.prewarm()
+        except Exception:
+            traceback.print_exc()
+
+    def _safe_preload_model(self) -> None:
+        """Wrapper exception-safe pour le thread daemon preload-model."""
+        try:
+            self.transcriber.preload()
+        except Exception:
+            traceback.print_exc()
+
+    # ------------------------------------------------------------------
     # Hot-reload config
     # ------------------------------------------------------------------
 
@@ -238,6 +269,15 @@ class VoxtralApp(rumps.App):
 
         if new_config.model.name != old.model.name:
             self.model_item.title = f"Modèle : {self._model_label()}"
+            # Pré-charge le nouveau modèle en arrière-plan pour que la 1re
+            # dictée post-changement soit instantanée. _ensure_loaded() est
+            # idempotent, donc si l'utilisateur déclenche un transcribe
+            # avant la fin du preload, le 2e appel ne re-charge pas.
+            threading.Thread(
+                target=self._safe_preload_model,
+                daemon=True,
+                name="preload-model-reload",
+            ).start()
 
         if new_config.transcription.language != old.transcription.language:
             self.lang_item.title = f"Langue : {self._language_label()}"

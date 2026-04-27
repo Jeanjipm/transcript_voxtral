@@ -49,6 +49,16 @@ class Transcriber(ABC):
     def is_available(self) -> bool:
         """True si le backend peut être utilisé (modèle + lib OK)."""
 
+    def preload(self) -> None:
+        """Charge le modèle en mémoire de façon proactive.
+
+        Appelé typiquement en thread daemon au lancement de l'app, pour
+        que la 1re transcription ne paye pas le coût (5-15s pour un modèle
+        MLX 3B). Implémentation par défaut : no-op — surchargée par les
+        backends qui supportent le pré-chargement.
+        """
+        return None
+
 
 class VoxtralTranscriber(Transcriber):
     """Backend Voxtral via le package `mlx_voxtral` (mzbac).
@@ -86,6 +96,10 @@ class VoxtralTranscriber(Transcriber):
             self.model_repo
         )
         self._processor = VoxtralProcessor.from_pretrained(self.model_repo)
+
+    def preload(self) -> None:
+        """Charge le modèle Voxtral en mémoire dès le démarrage."""
+        self._ensure_loaded()
 
     def transcribe(
         self,
