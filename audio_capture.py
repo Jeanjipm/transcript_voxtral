@@ -57,24 +57,41 @@ class AudioRecorder:
 
     def start(self) -> None:
         """Démarre la capture. Idempotent : un appel start() pendant un
-        enregistrement déjà en cours est ignoré."""
+        enregistrement déjà en cours est ignoré.
+
+        Le `sd.InputStream` est créé lazy au premier appel et conservé
+        entre les dictées : sa fermeture libère le device CoreAudio qui
+        rendort alors le hardware micro, et le réveil au prochain start
+        coûte 2-5s sur Apple Silicon (cf. macos-mic-keepwarm). En gardant
+        le stream ouvert, on évite ce coût à chaque dictée.
+
+        Le hardware reste-t-il "warm" entre stream.stop() et stream.start() ?
+        C'est empirique : la doc PortAudio ne le garantit pas formellement
+        sur CoreAudio. Si insuffisant, il faudra passer à un stream toujours
+        actif (avec voyant orange permanent côté macOS).
+        """
         with self._lock:
             if self._recording:
                 return
             self._chunks = []
             self._recording = True
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype=self.dtype,
-            callback=self._on_audio,
-        )
+        if self._stream is None:
+            self._stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype=self.dtype,
+                callback=self._on_audio,
+            )
         self._stream.start()
 
     def stop(self) -> Path:
         """
         Arrête la capture, écrit un WAV temporaire et retourne son chemin.
         Lève RuntimeError si aucun enregistrement n'est en cours.
+
+        On stop() le stream sans le close() : le device reste alloué côté
+        PortAudio/CoreAudio pour éviter le coût de re-init au prochain start.
+        Le close() final est délégué à shutdown().
         """
         with self._lock:
             if not self._recording:
@@ -82,9 +99,11 @@ class AudioRecorder:
             self._recording = False
 
         assert self._stream is not None
+        # stream.stop() attend la fin du callback en cours (Pa_StopStream)
+        # avant de retourner, donc plus aucun sample ne sera ajouté à
+        # _chunks après ce point — pas de race avec le _chunks = [] de
+        # start() suivant.
         self._stream.stop()
-        self._stream.close()
-        self._stream = None
 
         with self._lock:
             chunks = self._chunks
@@ -106,6 +125,24 @@ class AudioRecorder:
         sf.write(wav_path, audio, self.sample_rate, subtype="PCM_16")
         return wav_path
 
+    def shutdown(self) -> None:
+        """Ferme proprement le stream — à appeler au quit de l'app.
+
+        Pendant la durée de vie de l'app on garde le stream ouvert (cf. start()).
+        Au shutdown on libère le device pour ne pas laisser de fuite
+        côté CoreAudio.
+        """
+        with self._lock:
+            self._recording = False
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+            except sd.PortAudioError:
+                # déjà stoppé : pas grave
+                pass
+            self._stream.close()
+            self._stream = None
+
     @property
     def is_recording(self) -> bool:
         with self._lock:
@@ -122,5 +159,11 @@ class AudioRecorder:
     ) -> None:
         # status peut signaler un overflow/underflow ; on ignore en v0
         # (rare en capture micro, et non bloquant).
+        # Garde-fou : si on est en transition stop(), on ignore les samples
+        # résiduels pour ne pas polluer l'enregistrement suivant. En théorie
+        # PortAudio attend la fin du callback à Pa_StopStream, mais ce check
+        # est gratuit et défensif.
         with self._lock:
+            if not self._recording:
+                return
             self._chunks.append(indata.copy())
