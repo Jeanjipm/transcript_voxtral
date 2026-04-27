@@ -34,3 +34,11 @@ sounds:
 ui:
   # Si true : copie + colle automatiquement. Si false : copie uniquement.
   auto_paste: true
+
+updates:
+  # Si true (défaut) : check silencieux au démarrage de l'app pour
+  # détecter une nouvelle version sur GitHub. Si MAJ dispo, le menu
+  # affiche "Mises à jour disponibles…". L'utilisateur peut aussi
+  # forcer un check via ce même menu.
+  # Mettre à false si tu ne veux aucun appel réseau (mode 100% offline).
+  auto_check: true
