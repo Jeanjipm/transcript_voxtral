@@ -18,7 +18,19 @@ import subprocess
 import sys
 import threading
 import traceback
+import warnings
 from pathlib import Path
+
+# Filtres warnings cosmétiques émis à chaque démarrage / shutdown :
+# - huggingface_hub : "Please set a HF_TOKEN" — sans bénéfice quand le modèle
+#   est en cache local (notre cas après la 1re install).
+# - multiprocessing.resource_tracker : "leaked semaphore" — bug connu de
+#   Python 3.13 quand des libs ML utilisent multiprocessing, sans impact
+#   runtime. Polluait voxtral.log de plusieurs lignes par session.
+warnings.filterwarnings("ignore", message=r".*HF_TOKEN.*")
+warnings.filterwarnings(
+    "ignore", message=r".*resource_tracker.*leaked semaphore.*"
+)
 
 import rumps
 import soundfile as sf
@@ -435,6 +447,10 @@ class VoxtralApp(rumps.App):
 
     def quit_app(self, _sender: rumps.MenuItem) -> None:
         self.hotkey.stop()
+        # Libère proprement le stream micro (kept-warm entre les dictées,
+        # cf. AudioRecorder.start). Sans ça on laisse fuiter le device
+        # CoreAudio jusqu'à ce que macOS le récupère à terme.
+        self.recorder.shutdown()
         rumps.quit_application()
 
     # ------------------------------------------------------------------
