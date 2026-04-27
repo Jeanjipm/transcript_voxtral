@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import warnings
 from pathlib import Path
@@ -56,6 +57,7 @@ from config import (
 from hotkey_manager import HotkeyManager, display_combo
 from model_manager import find_model
 from transcriber import Transcriber, make_transcriber
+import updater
 
 
 # Capture les crashs natifs (segfault MLX/pyobjc, OOM soft, etc.) en écrivant
@@ -111,6 +113,19 @@ SYMBOL_TRANSCRIBING_FRAMES = ("hourglass.tophalf.filled", "hourglass.bottomhalf.
 # clairement lisible.
 SYMBOL_DOWNLOADING_FRAMES = ("square.and.arrow.down.fill", "arrow.down")
 
+# Labels du menu item "mises à jour" — on bascule entre les 2 selon
+# qu'un check au démarrage a détecté une MAJ ou non. macOS bloque les
+# rumps.notification pour les apps non-signées, donc le seul moyen de
+# signaler la MAJ est le menu lui-même.
+UPDATES_LABEL_DEFAULT = "Vérifier les mises à jour…"
+UPDATES_LABEL_AVAILABLE = "Mises à jour disponibles…"
+UPDATES_LABEL_CHECKING = "Vérification en cours…"
+
+# Délai avant le check au démarrage. Laisse à l'app le temps de finir
+# son init (chargement modèle, prewarm audio en threads) avant d'ajouter
+# une charge réseau supplémentaire.
+UPDATE_CHECK_STARTUP_DELAY = 10.0
+
 
 class VoxtralApp(rumps.App):
     def __init__(self) -> None:
@@ -141,6 +156,20 @@ class VoxtralApp(rumps.App):
             target=self._safe_preload_model, daemon=True, name="preload-model"
         ).start()
 
+        # 2c) State pour le système de mise à jour. _update_info contient
+        # la dernière UpdateInfo connue (None si pas de MAJ ou pas encore
+        # checké). _update_lock évite les checks concurrents (double-clic
+        # sur le menu).
+        self._update_info: "updater.UpdateInfo | None" = None
+        self._update_check_in_progress = False
+        self._update_lock = threading.Lock()
+        if self.config.updates.auto_check:
+            threading.Thread(
+                target=self._safe_check_for_update_startup,
+                daemon=True,
+                name="update-check-startup",
+            ).start()
+
         # 3) Menu
         self.status_item = rumps.MenuItem("État : prêt")
         self.hotkey_item = rumps.MenuItem(
@@ -150,6 +179,11 @@ class VoxtralApp(rumps.App):
             f"Langue : {self._language_label()}"
         )
         self.model_item = rumps.MenuItem(f"Modèle : {self._model_label()}")
+        # Garde la référence : on modifie le titre quand une MAJ est
+        # détectée (cf. _mark_update_available).
+        self.updates_item = rumps.MenuItem(
+            UPDATES_LABEL_DEFAULT, callback=self.check_for_updates_manual
+        )
 
         self.menu = [
             self.status_item,
@@ -158,9 +192,7 @@ class VoxtralApp(rumps.App):
             self.model_item,
             None,  # séparateur
             rumps.MenuItem("Préférences…", callback=self.open_preferences),
-            rumps.MenuItem(
-                "Mettre à jour le modèle", callback=self.update_model
-            ),
+            self.updates_item,
             None,
             rumps.MenuItem("À propos", callback=self.about),
             rumps.MenuItem("Quitter", callback=self.quit_app),
@@ -456,22 +488,176 @@ class VoxtralApp(rumps.App):
             [sys.executable, str(Path(__file__).parent / "settings_ui.py")],
         )
 
-    def update_model(self, _sender: rumps.MenuItem) -> None:
-        # Idem : on délègue à download_model.py en sous-processus pour
-        # ne pas bloquer la menu bar pendant un téléchargement de 3 Go.
-        subprocess.Popen(
-            [
-                sys.executable,
-                str(Path(__file__).parent / "download_model.py"),
-                "--model",
-                self.config.model.name,
-            ],
+    # ------------------------------------------------------------------
+    # Mises à jour de l'app (cf. updater.py)
+    # ------------------------------------------------------------------
+
+    def _safe_check_for_update_startup(self) -> None:
+        """Check silencieux au démarrage. Tourne dans un thread daemon.
+
+        Délai initial pour ne pas concurrencer le boot de l'app
+        (chargement modèle, prewarm audio…). Si MAJ détectée, on remonte
+        sur le main thread pour modifier le label du menu — la mutation
+        UI Cocoa exige le main thread (cf. PR #8).
+        """
+        try:
+            time.sleep(UPDATE_CHECK_STARTUP_DELAY)
+            info = updater.check_for_update()
+            if info is not None:
+                AppHelper.callAfter(self._mark_update_available, info)
+        except Exception:
+            traceback.print_exc()
+
+    def _mark_update_available(self, info: "updater.UpdateInfo") -> None:
+        """Sur main thread : signale la MAJ via le label du menu.
+
+        macOS bloque rumps.notification pour les apps non-signées (cf.
+        commit 2e24576), donc on ne peut pas montrer une bannière
+        système — le label menu reste le seul canal de feedback fiable.
+        """
+        self._update_info = info
+        self.updates_item.title = UPDATES_LABEL_AVAILABLE
+
+    def check_for_updates_manual(self, _sender: rumps.MenuItem) -> None:
+        """Callback du menu : force un check + propose si dispo.
+
+        Lance le check dans un thread daemon (l'API GitHub peut prendre
+        jusqu'à 5s, on ne veut pas geler la menu bar). Pendant le check,
+        on affiche un label "Vérification en cours…".
+        """
+        with self._update_lock:
+            if self._update_check_in_progress:
+                return
+            self._update_check_in_progress = True
+
+        self.updates_item.title = UPDATES_LABEL_CHECKING
+        threading.Thread(
+            target=self._safe_check_for_update_manual,
+            daemon=True,
+            name="update-check-manual",
+        ).start()
+
+    def _safe_check_for_update_manual(self) -> None:
+        try:
+            info = updater.check_for_update()
+        except Exception:
+            traceback.print_exc()
+            info = None
+        AppHelper.callAfter(self._on_manual_check_done, info)
+
+    def _on_manual_check_done(
+        self, info: "updater.UpdateInfo | None"
+    ) -> None:
+        """Sur main thread : montre le résultat à l'user."""
+        with self._update_lock:
+            self._update_check_in_progress = False
+
+        if info is None:
+            # Soit on est à jour, soit pas de réseau — on ne distingue
+            # pas, l'utilisateur ne peut rien faire de plus dans les
+            # 2 cas. Message explicite pour ne pas laisser planer le doute.
+            self._update_info = None
+            self.updates_item.title = UPDATES_LABEL_DEFAULT
+            rumps.alert(
+                title=APP_NAME,
+                message=(
+                    "Voxtral est à jour, ou la connexion à GitHub est "
+                    "indisponible (mode hors-ligne)."
+                ),
+            )
+            return
+
+        self._update_info = info
+        self.updates_item.title = UPDATES_LABEL_AVAILABLE
+        self._offer_update(info)
+
+    def _offer_update(self, info: "updater.UpdateInfo") -> None:
+        """Sur main thread : alerte modale qui propose la MAJ.
+
+        Si requirements.txt ou install.sh ont changé, on refuse de
+        mettre à jour automatiquement — un git pull seul laisserait l'app
+        dans un état incohérent (deps Python obsolètes, launchers cassés).
+        """
+        if info.requires_manual_action:
+            files = ", ".join(info.risky_files)
+            rumps.alert(
+                title="Mise à jour majeure disponible",
+                message=(
+                    f"{info.commits_behind} commit(s) avec changements "
+                    f"importants ({files}).\n\n"
+                    f"Cette mise à jour nécessite une réinstallation. "
+                    f"Contacte l'auteur ou re-lance install.sh manuellement."
+                ),
+            )
+            return
+
+        commits_label = (
+            "1 nouveau commit"
+            if info.commits_behind == 1
+            else f"{info.commits_behind} nouveaux commits"
         )
-        rumps.notification(
-            title=APP_NAME,
-            subtitle="Mise à jour du modèle",
-            message=f"Téléchargement de {self.config.model.name} en cours…",
+        response = rumps.alert(
+            title="Mise à jour disponible",
+            message=(
+                f"{commits_label} sur Voxtral.\n\n"
+                f"Dernier : {info.head_message}\n\n"
+                f"Mettre à jour maintenant ?"
+            ),
+            ok="Mettre à jour",
+            cancel="Plus tard",
         )
+        if response != 1:  # Cancel ou close
+            return
+
+        threading.Thread(
+            target=self._safe_apply_update,
+            daemon=True,
+            name="update-apply",
+        ).start()
+
+    def _safe_apply_update(self) -> None:
+        try:
+            result = updater.apply_update()
+        except Exception as exc:
+            traceback.print_exc()
+            result = updater.ApplyResult(
+                success=False,
+                message=f"Erreur inattendue : {exc}",
+            )
+        AppHelper.callAfter(self._on_apply_done, result)
+
+    def _on_apply_done(self, result: "updater.ApplyResult") -> None:
+        """Sur main thread : montre le résultat de la mise à jour.
+
+        Si succès + redémarrage requis : on propose à l'user de quitter
+        l'app pour pouvoir la relancer (le code Python en RAM ne
+        reflète pas le nouveau code on-disk).
+        """
+        if not result.success:
+            rumps.alert(
+                title="Échec de la mise à jour",
+                message=result.message,
+            )
+            return
+
+        self._update_info = None
+        self.updates_item.title = UPDATES_LABEL_DEFAULT
+
+        if result.requires_restart:
+            response = rumps.alert(
+                title="Mise à jour appliquée",
+                message=result.message,
+                ok="Quitter Voxtral",
+                cancel="Plus tard",
+            )
+            if response == 1:
+                self.quit_app(None)
+        else:
+            rumps.alert(title="Mise à jour appliquée", message=result.message)
+
+    # ------------------------------------------------------------------
+    # Items de menu (suite)
+    # ------------------------------------------------------------------
 
     def about(self, _sender: rumps.MenuItem) -> None:
         rumps.alert(

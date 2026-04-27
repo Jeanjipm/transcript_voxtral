@@ -71,12 +71,21 @@ class UIConfig:
 
 
 @dataclass
+class UpdatesConfig:
+    # Au démarrage, un thread daemon interroge GitHub pour détecter une
+    # MAJ. Désactivable via ~/.voxtral/config.yaml pour les users qui
+    # ne veulent pas du tout d'appel réseau (rare en pratique).
+    auto_check: bool = True
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     transcription: TranscriptionConfig = field(default_factory=TranscriptionConfig)
     sounds: SoundsConfig = field(default_factory=SoundsConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    updates: UpdatesConfig = field(default_factory=UpdatesConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -106,6 +115,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         transcription=_build(TranscriptionConfig, data.get("transcription", {})),
         sounds=_build(SoundsConfig, data.get("sounds", {})),
         ui=_build(UIConfig, data.get("ui", {})),
+        updates=_build(UpdatesConfig, data.get("updates", {})),
     )
 
 

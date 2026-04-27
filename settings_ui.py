@@ -137,8 +137,8 @@ class SettingsWindow:
         ttk.Label(
             frame,
             text=(
-                "Le téléchargement se fait via le bouton 'Mettre à jour le "
-                "modèle' du menu, ou via :\n  python download_model.py --model NOM"
+                "Le modèle est téléchargé automatiquement au premier usage, "
+                "ou en avance via :\n  python download_model.py --model NOM"
             ),
             foreground="gray",
             justify=tk.LEFT,
