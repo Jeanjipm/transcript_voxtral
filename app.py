@@ -30,6 +30,7 @@ from AppKit import (
     NSImageSymbolConfiguration,
     NSMakeSize,
 )
+from PyObjCTools import AppHelper
 
 from audio_capture import AudioRecorder
 from audio_feedback import AudioFeedback
@@ -246,6 +247,9 @@ class VoxtralApp(rumps.App):
             self._busy = False
 
     def _reset_idle(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._reset_idle)
+            return
         self._stop_animation()
         self._set_state(SYMBOL_IDLE, "État : prêt")
         self._end_busy()
@@ -261,6 +265,9 @@ class VoxtralApp(rumps.App):
         courante). On stoppe toute animation précédente pour éviter les
         timers orphelins.
         """
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._start_animation, frames, interval)
+            return
         if self._anim_frames == frames and self._anim_timer is not None:
             return
         self._stop_animation()
@@ -273,6 +280,9 @@ class VoxtralApp(rumps.App):
         self._anim_timer.start()
 
     def _stop_animation(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._stop_animation)
+            return
         if self._anim_timer is not None:
             self._anim_timer.stop()
             self._anim_timer = None
@@ -324,7 +334,7 @@ class VoxtralApp(rumps.App):
 
             self.feedback.play_stop()
             self._start_animation(SYMBOL_TRANSCRIBING_FRAMES, 0.4)
-            self.status_item.title = "État : transcription…"
+            self._set_status_title("État : transcription…")
         except Exception:
             self._reset_idle()
             raise
@@ -361,7 +371,7 @@ class VoxtralApp(rumps.App):
         try:
             if self._model_needs_download():
                 self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
-                self.status_item.title = "État : téléchargement du modèle…"
+                self._set_status_title("État : téléchargement du modèle…")
             text = self.transcriber.transcribe(
                 wav_path,
                 language=self.config.transcription.language,
@@ -432,11 +442,21 @@ class VoxtralApp(rumps.App):
     # ------------------------------------------------------------------
 
     def _set_state(self, symbol: str, status_text: str, red: bool = False) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._set_state, symbol, status_text, red)
+            return
         # Poser une icône fixe annule toute animation en cours (sinon le
         # prochain tick du timer écraserait l'icône qu'on vient de poser).
         self._stop_animation()
         self._set_status_icon(symbol, red=red)
         self.status_item.title = status_text
+
+    def _set_status_title(self, text: str) -> None:
+        """Met à jour le titre de l'item 'État' depuis n'importe quel thread."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._set_status_title, text)
+            return
+        self.status_item.title = text
 
     def _set_status_icon(self, symbol_name: str, red: bool = False) -> None:
         """Pose un SF Symbol sur le NSStatusItem de rumps.
@@ -445,6 +465,9 @@ class VoxtralApp(rumps.App):
         utilisé pour l'état recording comme signal visuel fort.
         red=False : template, teinté auto par macOS selon le thème.
         """
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._set_status_icon, symbol_name, red)
+            return
         nsapp = getattr(self, "_nsapp", None)
         if nsapp is None:
             return
