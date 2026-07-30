@@ -260,16 +260,27 @@ def delete_cached_model(repo_id: str) -> int:
     return freed
 
 
-def models_in_use(dictation_repo: str, file_repo: str) -> set[str]:
+def models_in_use(
+    dictation_repo: str, file_repo: str, diarization: bool = False
+) -> set[str]:
     """Les modèles qu'il ne faut pas proposer à la suppression.
 
     Inclut le repli de traduction : `VoxtralTranscriber` délègue à Whisper
     quand on demande une traduction, donc le supprimer casserait cette
     fonction sans que le lien soit évident pour l'utilisateur.
+
+    Et, si l'identification des locuteurs est activée, le modèle de
+    diarisation : il n'apparaît dans aucune liste de choix, donc rien ne
+    signalerait à l'utilisateur que ces 225 Mo servent à quelque chose.
     """
     from transcriber import WHISPER_TRANSLATE_REPO
 
-    return {dictation_repo, file_repo, WHISPER_TRANSLATE_REPO}
+    in_use = {dictation_repo, file_repo, WHISPER_TRANSLATE_REPO}
+    if diarization:
+        from diarizer import DEFAULT_MODEL as DIARIZATION_REPO
+
+        in_use.add(DIARIZATION_REPO)
+    return in_use
 
 
 def download_model(

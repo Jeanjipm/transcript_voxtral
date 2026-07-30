@@ -96,6 +96,10 @@ class FileTranscript:
     duration_s: float = 0.0
     # Position atteinte quand le job a été interrompu ; None si terminé.
     cancelled_at_s: float | None = None
+    # Renseigné si l'identification des locuteurs a été demandée mais a
+    # échoué : un .txt sans étiquettes et sans explication laisserait
+    # croire que le réglage n'a pas été pris en compte.
+    diarization_error: str | None = None
 
     @property
     def cancelled(self) -> bool:
@@ -271,6 +275,10 @@ def format_transcript(
     ]
     if transcript.language:
         lines.append(f"Langue : {transcript.language}")
+    if transcript.diarization_error:
+        lines.append(
+            f"[Locuteurs non identifiés : {transcript.diarization_error}]"
+        )
     if transcript.cancelled:
         # En-tête explicite : un .txt partiel qui ne se signale pas comme tel
         # serait pris pour une transcription complète.

@@ -8,6 +8,7 @@
 mlx>=0.18.0                   # Framework ML natif Apple Silicon
 mlx-voxtral                   # Wrapper MLX pour le modèle Voxtral (mzbac) — pas de pin : versions 0.0.x évoluent vite chez l'upstream
 mlx-whisper>=0.4.0            # Fallback Whisper si Voxtral indisponible
+mlx-audio>=0.4.6              # Identification des locuteurs (Sortformer) sur les fichiers audio — le code se désactive proprement si le paquet manque
 
 # --- App menu bar ---
 rumps>=0.4.0                  # Menu bar macOS natif (ultra-léger)

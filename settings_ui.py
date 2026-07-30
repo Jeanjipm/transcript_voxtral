@@ -595,12 +595,25 @@ class SettingsWindow:
             foreground="gray",
         ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
+        self.diarization_var = tk.BooleanVar(value=cfg.diarization)
+        ttk.Checkbutton(
+            frame,
+            text="Identifier qui parle — « Locuteur 1 : … »",
+            variable=self.diarization_var,
+            command=self._update_diarization_note,
+        ).grid(row=6, column=0, columnspan=2, sticky="w")
+        self.diarization_note = ttk.Label(frame, foreground="gray", justify=tk.LEFT)
+        self.diarization_note.grid(
+            row=7, column=0, columnspan=2, sticky="w", pady=(0, 14)
+        )
+        self._update_diarization_note()
+
         ttk.Label(frame, text="Refuser les fichiers de plus de").grid(
-            row=6, column=0, sticky="w"
+            row=8, column=0, sticky="w"
         )
         self.file_max_hours_var = tk.DoubleVar(value=cfg.max_duration_s / 3600.0)
         limit_row = ttk.Frame(frame)
-        limit_row.grid(row=7, column=0, sticky="w", pady=(4, 0))
+        limit_row.grid(row=9, column=0, sticky="w", pady=(4, 0))
         ttk.Spinbox(
             limit_row, from_=0.5, to=12.0, increment=0.5,
             textvariable=self.file_max_hours_var, width=6,
@@ -610,7 +623,35 @@ class SettingsWindow:
             frame,
             text="Garde-fou : évite de lancer un long traitement par erreur.",
             foreground="gray",
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=10, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+    def _update_diarization_note(self) -> None:
+        """Dit ce que coûte l'option, et ce qui manque le cas échéant.
+
+        L'identification des locuteurs repose sur un paquet optionnel et sur
+        un modèle qui n'est pas livré avec l'app. Cocher la case sans rien
+        dire, puis voir un .txt sans étiquettes, serait le pire des scénarios.
+        """
+        if not self.diarization_var.get():
+            self.diarization_note.configure(text="")
+            return
+
+        import diarizer
+
+        if not diarizer.is_available():
+            self.diarization_note.configure(
+                text="⚠ Nécessite un composant supplémentaire. Dans le Terminal :\n"
+                     "   ~/.voxtral/venv/bin/pip install mlx-audio",
+                foreground="#c25e00",
+            )
+            return
+
+        self.diarization_note.configure(
+            text="Jusqu'à 4 personnes. Premier usage : 225 Mo à télécharger.\n"
+                 "Fonctionne bien sur des voix distinctes ; à vérifier sur tes\n"
+                 "propres enregistrements avant de compter dessus.",
+            foreground="gray",
+        )
 
     def _pick_output_dir(self) -> None:
         chosen = filedialog.askdirectory(
@@ -706,7 +747,11 @@ class SettingsWindow:
             child.destroy()
 
         cached = scan_cached_models()
-        in_use = models_in_use(self.model_var.get(), self.file_model_var.get())
+        in_use = models_in_use(
+            self.model_var.get(),
+            self.file_model_var.get(),
+            diarization=bool(self.diarization_var.get()),
+        )
         total = sum(c.size_bytes for c in cached)
 
         ttk.Label(
@@ -913,6 +958,7 @@ class SettingsWindow:
         cfg.file_transcription.model = self.file_model_var.get()
         cfg.file_transcription.output_dir = self.output_dir_var.get().strip()
         cfg.file_transcription.include_timestamps = bool(self.timestamps_var.get())
+        cfg.file_transcription.diarization = bool(self.diarization_var.get())
         cfg.file_transcription.max_duration_s = int(
             float(self.file_max_hours_var.get()) * 3600
         )

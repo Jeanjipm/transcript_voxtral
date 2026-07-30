@@ -92,11 +92,11 @@ file_transcription:
   include_timestamps: true
   # Identifier les locuteurs (« Locuteur 1 », « Locuteur 2 »…).
   #
-  # ⚠️ EXPÉRIMENTAL ET ACTUELLEMENT PEU FIABLE. Le modèle disponible sur MLX
-  # ne sépare que des voix très différentes (mesuré : au-delà d'environ 40 %
-  # d'écart de hauteur, soit près d'une octave). Une voix masculine et une voix
-  # féminine ne sont pas distinguées. Laisse à false jusqu'à ce qu'un moteur
-  # plus fiable soit intégré — cf. l'en-tête de diarizer.py pour les mesures.
+  # Utilise Sortformer v2.1 (225 Mo, téléchargé au premier usage), qui a
+  # remplacé la v1 : mesuré à 96 % d'attribution correcte sur un dialogue à
+  # deux voix, contre 50-56 % pour la v1. Jusqu'à 4 personnes.
+  # Réglable aussi dans Préférences → Fichiers. Détail des mesures dans
+  # l'en-tête de diarizer.py.
   diarization: false
 
 offline:

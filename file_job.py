@@ -244,8 +244,11 @@ class FileJob:
             transcript.segments = diarizer.assign_speakers(
                 transcript.segments, turns
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             traceback.print_exc()
+            # Best-effort, mais pas silencieux : le texte reste le livrable,
+            # et l'en-tête du .txt dira pourquoi les étiquettes manquent.
+            transcript.diarization_error = str(exc).split("\n")[0]
         return transcript
 
     def _finish(self, result: JobResult) -> None:
