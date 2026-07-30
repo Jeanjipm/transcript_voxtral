@@ -15,6 +15,7 @@ Nécessite la permission Accessibilité (cf. README).
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 
 from pynput.keyboard import Controller, Key
@@ -32,25 +33,53 @@ except ImportError:  # pragma: no cover (macOS+pyobjc only)
 _keyboard = Controller()
 
 
+def _on_main_thread() -> bool:
+    return threading.current_thread() is threading.main_thread()
+
+
 def copy_to_clipboard(text: str) -> None:
-    """Place le texte dans le presse-papier système."""
-    if _HAS_NSPASTEBOARD:
+    """Place le texte dans le presse-papier système.
+
+    `NSPasteboard` uniquement depuis le main thread ; ailleurs on passe par
+    `pbcopy`. Raison : `paste_text` tourne sur l'inference-worker, et les
+    classes AppKit ne sont pas garanties utilisables hors main thread. On ne
+    peut pas non plus renvoyer l'appel sur le main thread — cette fonction est
+    suivie de 0,5 s de pauses délibérées et d'une injection de CGEvents, ce
+    qui gèlerait la menu bar. Un sous-processus est isolé, sûr, et coûte ~10 ms,
+    négligeable devant les pauses déjà présentes.
+    """
+    if _HAS_NSPASTEBOARD and _on_main_thread():
         pb = NSPasteboard.generalPasteboard()
         pb.clearContents()
         pb.setString_forType_(text, NSPasteboardTypeString)
-    else:
-        # Fallback CLI macOS (toujours présent sur Mac)
-        proc = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-        proc.communicate(text.encode("utf-8"))
+        return
+
+    proc = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+    proc.communicate(text.encode("utf-8"))
 
 
 def _read_clipboard_text() -> str | None:
-    """Retourne le contenu texte actuel du presse-papier, ou None si vide /
-    si pyobjc est absent (dans ce cas on ne préserve pas)."""
-    if not _HAS_NSPASTEBOARD:
+    """Retourne le contenu texte actuel du presse-papier, ou None si vide.
+
+    Même règle de thread que `copy_to_clipboard`. `pbpaste` rend une chaîne
+    vide quand le presse-papier ne contient pas de texte (image, fichier) :
+    on la traduit en None pour ne pas « restaurer » du vide par-dessus le
+    contenu de l'utilisateur.
+    """
+    if _HAS_NSPASTEBOARD and _on_main_thread():
+        pb = NSPasteboard.generalPasteboard()
+        return pb.stringForType_(NSPasteboardTypeString)
+
+    try:
+        result = subprocess.run(
+            ["pbpaste"], capture_output=True, timeout=5, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return None
-    pb = NSPasteboard.generalPasteboard()
-    return pb.stringForType_(NSPasteboardTypeString)
+    if result.returncode != 0:
+        return None
+    text = result.stdout.decode("utf-8", errors="replace")
+    return text or None
 
 
 def simulate_paste() -> None:

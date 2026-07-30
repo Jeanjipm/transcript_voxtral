@@ -206,3 +206,75 @@ def test_paste_text_copies_before_simulating(
     # Le 1er événement doit être un copy, le 2e un simulate.
     assert sequence[0][0] == "copy"
     assert sequence[1][0] == "simulate"
+
+
+# ---- Sprint 5 : NSPasteboard réservé au main thread ----
+
+
+def test_copy_uses_nspasteboard_on_main_thread(monkeypatch: pytest.MonkeyPatch):
+    """Sur le main thread on garde AppKit : pas de sous-processus inutile."""
+    fake_pb = MagicMock(name="NSPasteboard")
+    monkeypatch.setattr("clipboard._HAS_NSPASTEBOARD", True)
+    monkeypatch.setattr("clipboard.NSPasteboard", fake_pb, raising=False)
+    fake_popen = MagicMock(name="Popen")
+    monkeypatch.setattr("clipboard.subprocess.Popen", fake_popen)
+
+    clipboard.copy_to_clipboard("bonjour")
+
+    fake_pb.generalPasteboard.assert_called_once()
+    fake_popen.assert_not_called()
+
+
+def test_copy_uses_pbcopy_off_main_thread(monkeypatch: pytest.MonkeyPatch):
+    """Hors main thread on passe par pbcopy : les classes AppKit ne sont pas
+    garanties utilisables ailleurs, et on ne peut pas renvoyer l'appel sur le
+    main thread (paste_text contient 0,5 s de pauses délibérées)."""
+    fake_pb = MagicMock(name="NSPasteboard")
+    monkeypatch.setattr("clipboard._HAS_NSPASTEBOARD", True)
+    monkeypatch.setattr("clipboard.NSPasteboard", fake_pb, raising=False)
+    monkeypatch.setattr("clipboard._on_main_thread", lambda: False)
+    fake_popen = MagicMock(name="Popen")
+    monkeypatch.setattr("clipboard.subprocess.Popen", fake_popen)
+
+    clipboard.copy_to_clipboard("bonjour")
+
+    fake_pb.generalPasteboard.assert_not_called()
+    fake_popen.assert_called_once_with(["pbcopy"], stdin=clipboard.subprocess.PIPE)
+    fake_popen.return_value.communicate.assert_called_once_with(b"bonjour")
+
+
+def test_read_uses_pbpaste_off_main_thread(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("clipboard._HAS_NSPASTEBOARD", True)
+    monkeypatch.setattr("clipboard._on_main_thread", lambda: False)
+    fake_run = MagicMock(
+        return_value=MagicMock(returncode=0, stdout="précédent".encode("utf-8"))
+    )
+    monkeypatch.setattr("clipboard.subprocess.run", fake_run)
+
+    assert clipboard._read_clipboard_text() == "précédent"
+
+
+def test_read_returns_none_when_pbpaste_gives_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Presse-papier non textuel (image, fichier) : pbpaste rend du vide.
+    On doit répondre None, sinon on « restaurerait » du vide par-dessus le
+    contenu de l'utilisateur."""
+    monkeypatch.setattr("clipboard._HAS_NSPASTEBOARD", True)
+    monkeypatch.setattr("clipboard._on_main_thread", lambda: False)
+    monkeypatch.setattr(
+        "clipboard.subprocess.run",
+        MagicMock(return_value=MagicMock(returncode=0, stdout=b"")),
+    )
+
+    assert clipboard._read_clipboard_text() is None
+
+
+def test_read_returns_none_when_pbpaste_fails(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("clipboard._HAS_NSPASTEBOARD", True)
+    monkeypatch.setattr("clipboard._on_main_thread", lambda: False)
+    monkeypatch.setattr(
+        "clipboard.subprocess.run", MagicMock(side_effect=OSError("pas de pbpaste"))
+    )
+
+    assert clipboard._read_clipboard_text() is None
