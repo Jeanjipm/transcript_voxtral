@@ -92,6 +92,36 @@ class RecordingConfig:
 
 
 @dataclass
+class FileTranscriptionConfig:
+    # Modèle dédié aux fichiers audio. Whisper découpe nativement l'audio long
+    # et fournit des HORODATAGES, ce que mlx-voxtral ne sait pas faire — or
+    # sans horodatage, pas de repères dans le .txt ni d'identification des
+    # locuteurs. Whisper gère aussi les silences et les hallucinations.
+    model: str = "mlx-community/whisper-large-v3-mlx"
+    # Où écrire les .txt produits.
+    output_dir: str = "~/Documents/Voxtral"
+    # Durée d'un bloc traité d'un coup. Des blocs LARGES sont volontaires :
+    # à l'intérieur d'un bloc, Whisper applique sa propre logique de découpage
+    # (fenêtres de 30 s, ré-ancrage sur les fins de phrase) qui est testée en
+    # amont. Découper plus fin la remplacerait par la nôtre et fait perdre du
+    # contenu aux jointures — mesuré. C'est aussi le délai maximum qu'une
+    # dictée peut attendre pendant qu'un fichier est en cours.
+    block_duration_s: int = 300
+    # Refuse les fichiers plus longs (4 h par défaut) : évite de lancer par
+    # erreur un job d'une heure sur le mauvais fichier.
+    max_duration_s: int = 14400
+    # Préfixe chaque paragraphe par [hh:mm:ss] dans le .txt.
+    include_timestamps: bool = True
+    # Identification des locuteurs (« Locuteur 1 », « Locuteur 2 »…).
+    # Désactivé par défaut : nécessite un paquet supplémentaire.
+    diarization: bool = False
+
+    @property
+    def resolved_output_dir(self) -> Path:
+        return Path(self.output_dir).expanduser()
+
+
+@dataclass
 class OfflineConfig:
     # Quand le modèle est déjà téléchargé, coupe tout accès réseau au
     # chargement. Sans ça, charger un modèle pourtant présent sur le disque
@@ -110,6 +140,9 @@ class Config:
     ui: UIConfig = field(default_factory=UIConfig)
     updates: UpdatesConfig = field(default_factory=UpdatesConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
+    file_transcription: FileTranscriptionConfig = field(
+        default_factory=FileTranscriptionConfig
+    )
     offline: OfflineConfig = field(default_factory=OfflineConfig)
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,6 +175,9 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         ui=_build(UIConfig, data.get("ui", {})),
         updates=_build(UpdatesConfig, data.get("updates", {})),
         recording=_build(RecordingConfig, data.get("recording", {})),
+        file_transcription=_build(
+            FileTranscriptionConfig, data.get("file_transcription", {})
+        ),
         offline=_build(OfflineConfig, data.get("offline", {})),
     )
 

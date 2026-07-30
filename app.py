@@ -63,14 +63,18 @@ from config import (
     ensure_user_config_exists,
     load_config,
 )
+import file_picker
+import file_transcriber
 from dictation_controller import (
     DictationCallbacks,
     DictationController,
     State as DictationState,
 )
+from file_job import FileJob, FileJobCallbacks, JobResult, JobState
 from hotkey_manager import HotkeyManager, display_combo
 from inference_worker import (
     PRIORITY_DICTATION,
+    PRIORITY_FILE,
     PRIORITY_MODEL,
     InferenceWorker,
 )
@@ -147,6 +151,13 @@ SYMBOL_TRANSCRIBING_FRAMES = ("hourglass.tophalf.filled", "hourglass.bottomhalf.
 # clairement lisible.
 SYMBOL_DOWNLOADING_FRAMES = ("square.and.arrow.down.fill", "arrow.down")
 SYMBOL_ERROR = "exclamationmark.triangle.fill"
+# Transcription de fichier : silhouettes nettement différentes du sablier de
+# dictée, pour qu'on distingue les deux d'un coup d'œil.
+SYMBOL_FILE_FRAMES = ("doc.text", "doc.text.fill")
+
+FILE_MENU_LABEL = "Transcrire un fichier audio…"
+FILE_CANCEL_LABEL = "Annuler la transcription"
+FILE_PROGRESS_NONE = "—"
 
 # Libellés de l'item d'erreur. Une chaîne vide rendrait l'item invisible mais
 # laisserait un séparateur bancal ; un tiret discret indique « rien à voir ».
@@ -263,6 +274,16 @@ class VoxtralApp(rumps.App):
         self.error_item = rumps.MenuItem(ERROR_LABEL_NONE)
         self._last_error: tuple[str, str] | None = None
 
+        # Transcription de fichiers. Les deux items de progression restent en
+        # place en permanence (titre neutre au repos) : ajouter et retirer des
+        # items de menu à chaud avec rumps est plus fragile que changer un
+        # titre, et un menu de hauteur stable est moins déroutant.
+        self.file_item = rumps.MenuItem(
+            FILE_MENU_LABEL, callback=self.transcribe_file_dialog
+        )
+        self.file_progress_item = rumps.MenuItem(FILE_PROGRESS_NONE)
+        self.file_cancel_item = rumps.MenuItem(FILE_CANCEL_LABEL)
+
         self.menu = [
             self.status_item,
             self.hotkey_item,
@@ -270,6 +291,10 @@ class VoxtralApp(rumps.App):
             self.model_item,
             self.error_item,
             None,  # séparateur
+            self.file_item,
+            self.file_progress_item,
+            self.file_cancel_item,
+            None,
             rumps.MenuItem("Préférences…", callback=self.open_preferences),
             self.updates_item,
             None,
@@ -280,9 +305,22 @@ class VoxtralApp(rumps.App):
         # Désactiver la sélection des items purement informatifs
         for item in (
             self.status_item, self.hotkey_item, self.lang_item,
-            self.model_item, self.error_item,
+            self.model_item, self.error_item, self.file_progress_item,
+            self.file_cancel_item,
         ):
             item.set_callback(None)
+
+        self.file_job = FileJob(
+            callbacks=FileJobCallbacks(
+                on_progress=self._on_file_progress,
+                on_done=self._on_file_done,
+            ),
+            run_transcription=self._run_file_transcription,
+        )
+        # Transcriber dédié aux fichiers, construit à la demande : il charge un
+        # second modèle (~3 Go) qu'on ne veut pas payer si la fonctionnalité
+        # n'est jamais utilisée.
+        self._file_transcriber: "Transcriber | None" = None
 
         # 4) Raccourci global. on_start/on_stop tournent DANS le callback de
         # l'event tap macOS : ils ne font qu'une mise en file (cf. la docstring
@@ -524,6 +562,137 @@ class VoxtralApp(rumps.App):
                 pass
             # Rend la main à la machine à états, qui remet l'icône au repos.
             self.dictation.notify_transcription_done()
+
+    # ------------------------------------------------------------------
+    # Transcription d'un fichier audio
+    # ------------------------------------------------------------------
+
+    def transcribe_file_dialog(self, _sender: rumps.MenuItem) -> None:
+        """Callback du menu. Main thread (NSOpenPanel l'exige)."""
+        if self.file_job.is_running:
+            rumps.alert(
+                title=APP_NAME,
+                message=(
+                    "Une transcription de fichier est déjà en cours.\n\n"
+                    "Attends la fin, ou annule-la depuis le menu."
+                ),
+            )
+            return
+
+        source = file_picker.choose_audio_file()
+        if source is None:
+            return
+
+        cfg = self.config.file_transcription
+        started = self.file_job.submit(
+            source=source,
+            transcriber=self._get_file_transcriber(),
+            model_name=cfg.model,
+            output_dir=cfg.resolved_output_dir,
+            block_duration_s=cfg.block_duration_s,
+            max_duration_s=cfg.max_duration_s,
+            language=self.config.transcription.language,
+            task=self.config.transcription.task,
+            include_timestamps=cfg.include_timestamps,
+        )
+        if not started:
+            return
+
+        self.file_cancel_item.set_callback(self.cancel_file_transcription)
+        self._start_animation(SYMBOL_FILE_FRAMES, 0.6)
+        self.file_progress_item.title = f"Transcription : {source.name}"
+
+    def cancel_file_transcription(self, _sender: rumps.MenuItem) -> None:
+        """Annule le job. Le texte déjà transcrit sera conservé."""
+        self.file_job.cancel()
+        self.file_progress_item.title = "Annulation en cours…"
+
+    def _get_file_transcriber(self) -> Transcriber:
+        """Transcriber dédié aux fichiers, créé au premier usage.
+
+        Si le modèle configuré pour les fichiers est le même que celui des
+        dictées, on réutilise l'instance : inutile de charger deux fois les
+        mêmes poids.
+        """
+        cfg = self.config.file_transcription
+        if cfg.model == self.config.model.name:
+            return self.transcriber
+        if self._file_transcriber is None:
+            hf_offline.refresh(
+                cfg.model, prefer_offline=self.config.offline.prefer_offline
+            )
+            file_config = load_config()
+            file_config.model.name = cfg.model
+            self._file_transcriber = make_transcriber(file_config)
+        return self._file_transcriber
+
+    def _run_file_transcription(self, work):  # noqa: ANN001, ANN202
+        """Exécute la transcription sur l'inference-worker, en priorité basse.
+
+        Appelé depuis le thread `file-job`, qui attend ici le résultat. La
+        priorité basse est ce qui permet à une dictée de passer devant : elle
+        n'attend au pire que la fin du bloc en cours.
+        """
+        handle = self.inference.submit(work, priority=PRIORITY_FILE, label="file")
+        # Pas de timeout : un fichier de 4 h peut légitimement prendre
+        # longtemps, et l'annulation est le mécanisme prévu pour l'interrompre.
+        return handle.result()
+
+    def _on_file_progress(self, current_s: float, total_s: float) -> None:
+        """Progression. Appelé depuis le thread `file-job`."""
+        pct = int(100 * current_s / total_s) if total_s > 0 else 0
+        label = (
+            f"Transcription : {pct} % — "
+            f"{file_transcriber.format_duration(current_s)} / "
+            f"{file_transcriber.format_duration(total_s)}"
+        )
+        self._set_menu_title(self.file_progress_item, label)
+
+    def _on_file_done(self, result: JobResult) -> None:
+        """Fin du job. Appelé depuis le thread `file-job`."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._on_file_done, result)
+            return
+
+        self._stop_animation()
+        self._set_status_icon(SYMBOL_IDLE)
+        self.file_progress_item.title = FILE_PROGRESS_NONE
+        self.file_cancel_item.set_callback(None)
+
+        if result.state is JobState.FAILED:
+            # Action lancée par l'utilisateur : une fenêtre est attendue ici,
+            # contrairement aux erreurs de dictée.
+            self._show_error("Transcription du fichier échouée", result.error or "")
+            rumps.alert(
+                title="Transcription impossible",
+                message=result.error or "Erreur inconnue.",
+            )
+            return
+
+        if result.output_path is None:
+            return
+
+        if result.state is JobState.CANCELLED:
+            rumps.alert(
+                title="Transcription interrompue",
+                message=(
+                    f"Le texte déjà transcrit a été conservé dans :\n"
+                    f"{result.output_path.name}"
+                ),
+            )
+        else:
+            rumps.alert(
+                title="Transcription terminée",
+                message=f"Fichier écrit :\n{result.output_path.name}",
+            )
+        file_picker.reveal_in_finder(result.output_path)
+
+    def _set_menu_title(self, item: rumps.MenuItem, title: str) -> None:
+        """Change le titre d'un item de menu depuis n'importe quel thread."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._set_menu_title, item, title)
+            return
+        item.title = title
 
     # ------------------------------------------------------------------
     # Erreurs visibles (cause 5)
@@ -785,6 +954,7 @@ class VoxtralApp(rumps.App):
         """
         # Les workers reçoivent leur ordre d'arrêt sans qu'on l'attende : une
         # inférence MLX en cours peut durer plusieurs secondes.
+        self.file_job.cancel()
         self.dictation.shutdown(wait=False)
         self.inference.shutdown(wait=False)
 

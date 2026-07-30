@@ -54,6 +54,30 @@ recording:
   # (casque branché ou débranché, Bluetooth, dock, sortie de veille).
   start_retries: 1
 
+file_transcription:
+  # Transcription d'un fichier audio déjà enregistré, via
+  # « Transcrire un fichier audio… » dans le menu.
+  #
+  # Modèle dédié aux fichiers. Whisper est choisi parce qu'il fournit des
+  # HORODATAGES, ce que Voxtral ne sait pas faire — sans eux, pas de repères
+  # dans le .txt ni d'identification des locuteurs.
+  model: "mlx-community/whisper-large-v3-mlx"
+  # Dossier où sont écrits les .txt.
+  output_dir: "~/Documents/Voxtral"
+  # Durée d'un bloc traité d'un coup, en secondes. Volontairement large :
+  # à l'intérieur d'un bloc, Whisper applique son propre découpage, plus fiable
+  # que le nôtre. C'est aussi le délai maximum qu'une dictée peut attendre
+  # pendant qu'un fichier est en cours de transcription.
+  block_duration_s: 300
+  # Fichiers plus longs que ça : refusés (4 h). Garde-fou contre un mauvais
+  # fichier choisi par erreur.
+  max_duration_s: 14400
+  # Préfixer chaque paragraphe par [hh:mm:ss] dans le .txt.
+  include_timestamps: true
+  # Identifier les locuteurs (« Locuteur 1 », « Locuteur 2 »…).
+  # Nécessite un paquet supplémentaire, désactivé par défaut.
+  diarization: false
+
 offline:
   # Si true (défaut) : quand le modèle est déjà téléchargé, plus aucun
   # accès réseau au chargement. Corrige le cas « pas de Wi-Fi » ou
