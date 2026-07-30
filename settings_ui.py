@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from config import Config, load_config, save_config
 from hotkey_manager import display_combo, validate_combo
@@ -97,6 +97,7 @@ class SettingsWindow:
         self._build_language_tab()
         self._build_hotkey_tab()
         self._build_sounds_tab()
+        self._build_files_tab()
         self._build_advanced_tab()
         self._build_about_tab()
 
@@ -313,6 +314,69 @@ class SettingsWindow:
             length=300,
         ).grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(15, 0))
 
+    def _build_files_tab(self) -> None:
+        """Onglet « Fichiers » : réglages de « Transcrire un fichier audio… »."""
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Fichiers")
+
+        cfg = self.config.file_transcription
+
+        ttk.Label(frame, text="Dossier des transcriptions :").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.output_dir_var = tk.StringVar(value=cfg.output_dir)
+        ttk.Entry(frame, textvariable=self.output_dir_var, width=30).grid(
+            row=1, column=0, sticky="w"
+        )
+        ttk.Button(frame, text="Choisir…", command=self._pick_output_dir).grid(
+            row=1, column=1, sticky="w", padx=(10, 0)
+        )
+
+        self.timestamps_var = tk.BooleanVar(value=cfg.include_timestamps)
+        ttk.Checkbutton(
+            frame,
+            text="Horodater chaque paragraphe — [00:12:34]",
+            variable=self.timestamps_var,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(15, 0))
+        ttk.Label(
+            frame,
+            text="Pratique pour retrouver un passage dans un enregistrement long.",
+            foreground="gray",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 15))
+
+        ttk.Label(frame, text="Durée maximale acceptée (heures) :").grid(
+            row=4, column=0, sticky="w"
+        )
+        self.file_max_hours_var = tk.DoubleVar(value=cfg.max_duration_s / 3600.0)
+        ttk.Spinbox(
+            frame, from_=0.5, to=12.0, increment=0.5,
+            textvariable=self.file_max_hours_var, width=8,
+        ).grid(row=4, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="Garde-fou : évite de lancer un long traitement par erreur.",
+            foreground="gray",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+        ttk.Label(
+            frame,
+            text=(
+                f"Modèle utilisé : {cfg.model}\n"
+                "Choisi pour ses horodatages, que le modèle de dictée ne\n"
+                "fournit pas. Modifiable dans ~/.voxtral/config.yaml."
+            ),
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(15, 0))
+
+    def _pick_output_dir(self) -> None:
+        chosen = filedialog.askdirectory(
+            title="Dossier des transcriptions",
+            initialdir=str(self.config.file_transcription.resolved_output_dir),
+        )
+        if chosen:
+            self.output_dir_var.set(chosen)
+
     def _build_advanced_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(frame, text="Avancé")
@@ -329,10 +393,21 @@ class SettingsWindow:
             textvariable=self.tokens_var,
             width=8,
         ).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        # L'ancien libellé annonçait « 1024 ≈ 12 min de parole », ce qui est
+        # faux dans les deux sens : 1024 tokens font environ 5 minutes de texte
+        # en sortie, et côté entrée une dictée Voxtral ne doit pas dépasser
+        # ~90 s. C'est précisément ce qui pouvait faire croire que la dictée
+        # encaisse les longs enregistrements — pour ça, il y a
+        # « Transcrire un fichier audio… ».
         ttk.Label(
             frame,
-            text="Tronque la transcription si elle dépasse. 1024 ≈ 12 min de parole.",
+            text=(
+                "Tronque la transcription si elle dépasse. 1024 ≈ 5 min de\n"
+                "texte. Pour un enregistrement long, utilise plutôt\n"
+                "« Transcrire un fichier audio… » dans le menu."
+            ),
             foreground="gray",
+            justify=tk.LEFT,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 15))
 
         self.autopaste_var = tk.BooleanVar(value=self.config.ui.auto_paste)
@@ -402,6 +477,13 @@ class SettingsWindow:
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
+        cfg.file_transcription.output_dir = self.output_dir_var.get().strip()
+        cfg.file_transcription.include_timestamps = bool(
+            self.timestamps_var.get()
+        )
+        cfg.file_transcription.max_duration_s = int(
+            float(self.file_max_hours_var.get()) * 3600
+        )
 
         save_config(cfg)
         # Pas de popup de confirmation : le hot-reload applique les

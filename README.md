@@ -51,6 +51,34 @@ Sans Accessibilité, le raccourci ne déclenche rien.
 
 C'est tout.
 
+### Transcrire un enregistrement déjà fait
+
+Pour un fichier audio existant — un mémo vocal, une réunion enregistrée —
+la dictée n'est pas le bon outil : elle est faite pour des phrases courtes.
+
+Clique l'icône 🎤 → **Transcrire un fichier audio…**, choisis le fichier, et
+un `.txt` horodaté apparaît dans `~/Documents/Voxtral` (le Finder s'ouvre
+dessus à la fin). L'avancement s'affiche dans le menu, et tu peux annuler à
+tout moment — le texte déjà transcrit est conservé.
+
+```
+Transcription — reunion.m4a
+Modèle : mlx-community/whisper-large-v3-mlx
+Durée : 00:35:12 — généré le 30/07/2026 à 14:22
+Langue : fr
+
+[00:00:00] Bonjour à tous et merci d'être présents…
+
+[00:00:41] Concernant le budget, je voudrais insister sur un point précis…
+```
+
+Formats acceptés : tout ce que macOS sait lire — `.m4a` (Dictaphone,
+iPhone), `.mp3`, `.wav`, `.aiff`, `.caf`, `.flac`, et la piste audio d'un
+`.mp4` ou `.mov`. La conversion est automatique.
+
+Tu peux continuer à dicter pendant qu'un fichier est en cours de
+transcription : la dictée passe devant.
+
 ### Changer le raccourci, la langue, le modèle…
 
 Clique l'icône 🎤 → **Préférences…**
@@ -62,6 +90,8 @@ Onglets :
 - **Raccourci** : touche unique tenue (talkie-walkie) ou combinaison
   (ex. `alt+space`). Mode push-to-talk — maintenir pour enregistrer.
 - **Sons** : activer/désactiver, volume.
+- **Fichiers** : dossier de destination des `.txt`, horodatage des
+  paragraphes, durée maximale acceptée.
 - **Avancé** : longueur max de transcription, collage auto.
 
 Les changements sont appliqués automatiquement en quelques secondes

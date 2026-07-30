@@ -157,7 +157,6 @@ SYMBOL_FILE_FRAMES = ("doc.text", "doc.text.fill")
 
 FILE_MENU_LABEL = "Transcrire un fichier audio…"
 FILE_CANCEL_LABEL = "Annuler la transcription"
-FILE_PROGRESS_NONE = "—"
 
 # Libellés de l'item d'erreur. Une chaîne vide rendrait l'item invisible mais
 # laisserait un séparateur bancal ; un tiret discret indique « rien à voir ».
@@ -274,14 +273,17 @@ class VoxtralApp(rumps.App):
         self.error_item = rumps.MenuItem(ERROR_LABEL_NONE)
         self._last_error: tuple[str, str] | None = None
 
-        # Transcription de fichiers. Les deux items de progression restent en
-        # place en permanence (titre neutre au repos) : ajouter et retirer des
-        # items de menu à chaud avec rumps est plus fragile que changer un
-        # titre, et un menu de hauteur stable est moins déroutant.
+        # Transcription de fichiers. Les items restent en place en permanence
+        # plutôt que d'être ajoutés et retirés à chaud : muter le menu rumps
+        # pendant l'exécution est plus fragile que changer un titre, et un menu
+        # de hauteur stable est moins déroutant.
+        #
+        # La progression s'affiche DANS cet item plutôt que dans une ligne
+        # dédiée — attention, rumps indexe les items par leur titre, donc deux
+        # items partageant un même titre de repos s'écrasent silencieusement.
         self.file_item = rumps.MenuItem(
             FILE_MENU_LABEL, callback=self.transcribe_file_dialog
         )
-        self.file_progress_item = rumps.MenuItem(FILE_PROGRESS_NONE)
         self.file_cancel_item = rumps.MenuItem(FILE_CANCEL_LABEL)
 
         self.menu = [
@@ -292,7 +294,6 @@ class VoxtralApp(rumps.App):
             self.error_item,
             None,  # séparateur
             self.file_item,
-            self.file_progress_item,
             self.file_cancel_item,
             None,
             rumps.MenuItem("Préférences…", callback=self.open_preferences),
@@ -305,8 +306,7 @@ class VoxtralApp(rumps.App):
         # Désactiver la sélection des items purement informatifs
         for item in (
             self.status_item, self.hotkey_item, self.lang_item,
-            self.model_item, self.error_item, self.file_progress_item,
-            self.file_cancel_item,
+            self.model_item, self.error_item, self.file_cancel_item,
         ):
             item.set_callback(None)
 
@@ -598,14 +598,17 @@ class VoxtralApp(rumps.App):
         if not started:
             return
 
+        # Pendant le job, l'item devient l'affichage de progression et cesse
+        # d'être cliquable : on ne peut pas lancer un 2e job de toute façon.
+        self.file_item.set_callback(None)
+        self.file_item.title = f"Transcription : {source.name}"
         self.file_cancel_item.set_callback(self.cancel_file_transcription)
         self._start_animation(SYMBOL_FILE_FRAMES, 0.6)
-        self.file_progress_item.title = f"Transcription : {source.name}"
 
     def cancel_file_transcription(self, _sender: rumps.MenuItem) -> None:
         """Annule le job. Le texte déjà transcrit sera conservé."""
         self.file_job.cancel()
-        self.file_progress_item.title = "Annulation en cours…"
+        self.file_item.title = "Annulation en cours…"
 
     def _get_file_transcriber(self) -> Transcriber:
         """Transcriber dédié aux fichiers, créé au premier usage.
@@ -646,7 +649,7 @@ class VoxtralApp(rumps.App):
             f"{file_transcriber.format_duration(current_s)} / "
             f"{file_transcriber.format_duration(total_s)}"
         )
-        self._set_menu_title(self.file_progress_item, label)
+        self._set_menu_title(self.file_item, label)
 
     def _on_file_done(self, result: JobResult) -> None:
         """Fin du job. Appelé depuis le thread `file-job`."""
@@ -656,7 +659,8 @@ class VoxtralApp(rumps.App):
 
         self._stop_animation()
         self._set_status_icon(SYMBOL_IDLE)
-        self.file_progress_item.title = FILE_PROGRESS_NONE
+        self.file_item.title = FILE_MENU_LABEL
+        self.file_item.set_callback(self.transcribe_file_dialog)
         self.file_cancel_item.set_callback(None)
 
         if result.state is JobState.FAILED:
