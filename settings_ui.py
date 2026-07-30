@@ -30,13 +30,15 @@ plusieurs endroits : régler sa dictée demandait de visiter trois onglets.
 
 from __future__ import annotations
 
+import queue
 import threading
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
 from config import Config, load_config, save_config
-from hotkey_manager import display_combo, validate_combo
+from hotkey_capture import HotkeyCapture, Outcome
+from hotkey_manager import display_combo, generic_combo, validate_combo
 from model_manager import (
     USAGE_DICTATION,
     USAGE_FILES,
@@ -82,20 +84,11 @@ KNOWN_SYSTEM_CONFLICTS: set[str] = {
 }
 
 
-# Touches "single-key tenue" proposées dans le sélecteur
-SINGLE_KEY_OPTIONS: list[tuple[str, str]] = [
-    ("alt_r", "⌥ Option droite  (recommandé)"),
-    ("cmd_r", "⌘ Commande droite"),
-    ("ctrl_r", "⌃ Contrôle droite"),
-    ("shift_r", "⇧ Majuscule droite"),
-    ("f13", "F13"),
-    ("f14", "F14"),
-    ("f15", "F15"),
-    ("f16", "F16"),
-    ("f17", "F17"),
-    ("f18", "F18"),
-    ("f19", "F19"),
-]
+# Durée maximale d'une capture de raccourci restée sans appui. Un listener
+# clavier global qui traîne parce que l'utilisateur a cliqué « Modifier… »
+# puis est parti déjeuner n'a aucune raison d'exister.
+CAPTURE_TIMEOUT_MS = 15_000
+CAPTURE_POLL_MS = 40
 
 
 REPO_URL = "https://github.com/Jeanjipm/transcript_voxtral"
@@ -259,9 +252,16 @@ class SettingsWindow:
         ttk.Button(btn_frame, text="Enregistrer", command=self._save).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btn_frame, text="Annuler", command=self.root.destroy).pack(
+        ttk.Button(btn_frame, text="Annuler", command=self._close).pack(
             side=tk.RIGHT, padx=(0, 8)
         )
+        # Fermer par la croix doit passer par le même chemin : sinon une
+        # capture en cours laisserait un écouteur clavier global derrière elle.
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
+
+    def _close(self) -> None:
+        self._end_capture(None)
+        self.root.destroy()
 
     # ------------------------------------------------------------------
     # Onglet Dictée — tout le trajet raccourci → parole → texte collé
@@ -281,93 +281,99 @@ class SettingsWindow:
             foreground="gray",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
-        self.hotkey_type_var = tk.StringVar(
-            value="single" if "+" not in self.config.hotkey.combo else "combo"
-        )
-        ttk.Radiobutton(
-            frame, text="Une seule touche, tenue", variable=self.hotkey_type_var,
-            value="single", command=self._on_hotkey_type_change,
-        ).grid(row=2, column=0, columnspan=2, sticky="w")
+        # Le raccourci ne se tape plus, il s'enregistre. L'ancien champ de
+        # texte libre demandait de connaître le vocabulaire interne (`alt_r`,
+        # `cmd+shift+h`) et acceptait des raccourcis syntaxiquement valides
+        # mais introuvables au clavier.
+        self._combo: str = self.config.hotkey.combo
+        self._capture: HotkeyCapture | None = None
+        self._capture_timeout_id: str | None = None
+        self._capture_saw_a_key = False
 
-        single_default = (
-            self.config.hotkey.combo
-            if "+" not in self.config.hotkey.combo
-            else "alt_r"
-        )
-        self.single_key = LabelledChoice(
-            frame, SINGLE_KEY_OPTIONS, single_default, width=28
-        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=(24, 0), pady=(2, 8))
+        hotkey_row = ttk.Frame(frame)
+        hotkey_row.grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        ttk.Radiobutton(
-            frame, text="Combinaison de touches", variable=self.hotkey_type_var,
-            value="combo", command=self._on_hotkey_type_change,
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
+        # takefocus : pendant la capture, ce libellé prend le focus clavier.
+        # Sans ça, appuyer sur Espace ou Entrée pour l'enregistrer activerait
+        # le bouton qui a le focus au lieu d'être capturé.
+        self.hotkey_display = ttk.Label(
+            hotkey_row, width=26, anchor="center", relief="groove",
+            padding=(8, 7), takefocus=True,
+        )
+        self.hotkey_display.pack(side=tk.LEFT)
+        self.hotkey_display.bind("<KeyPress>", self._swallow_key)
+        self.hotkey_display.bind("<KeyRelease>", self._swallow_key)
 
-        combo_default = (
-            self.config.hotkey.combo
-            if "+" in self.config.hotkey.combo
-            else "alt+space"
+        self.capture_button = ttk.Button(
+            hotkey_row, text="Modifier…", command=self._toggle_capture
         )
-        self.combo_var = tk.StringVar(value=combo_default)
-        self.combo_entry = ttk.Entry(frame, textvariable=self.combo_var, width=26)
-        self.combo_entry.grid(
-            row=5, column=0, sticky="w", padx=(24, 0), pady=(2, 0)
+        self.capture_button.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.reset_hotkey_button = ttk.Button(
+            hotkey_row, text="Par défaut", command=self._reset_combo
         )
-        ttk.Label(
-            frame, text="par exemple  alt+space", foreground="gray",
-        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=(24, 0))
+        self.reset_hotkey_button.pack(side=tk.LEFT, padx=(6, 0))
+
+        self.hotkey_hint = ttk.Label(frame, text="", foreground="gray")
+        self.hotkey_hint.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         self.hotkey_warning = ttk.Label(frame, text="", foreground="#c25e00")
         self.hotkey_warning.grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(6, 14)
+            row=4, column=0, columnspan=2, sticky="w", pady=(2, 0)
         )
+
+        ttk.Label(
+            frame,
+            text="La dictée est en pause tant que cette fenêtre est ouverte.",
+            foreground="gray",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 14))
 
         # --- Langue ---
         ttk.Label(frame, text="Langue", font=("", 12, "bold")).grid(
-            row=8, column=0, columnspan=2, sticky="w"
+            row=6, column=0, columnspan=2, sticky="w"
         )
         self.lang = LabelledChoice(
             frame, LANGUAGE_OPTIONS, self.config.transcription.language, width=28
-        ).grid(row=9, column=0, sticky="w", pady=(4, 4))
+        ).grid(row=7, column=0, sticky="w", pady=(4, 4))
 
         self.task_var = tk.StringVar(value=self.config.transcription.task)
         ttk.Radiobutton(
             frame, text="Écrire dans la langue parlée", variable=self.task_var,
             value="transcribe",
-        ).grid(row=10, column=0, columnspan=2, sticky="w")
+        ).grid(row=8, column=0, columnspan=2, sticky="w")
         ttk.Radiobutton(
             frame, text="Traduire vers l'anglais", variable=self.task_var,
             value="translate",
-        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
         # --- Résultat ---
         ttk.Label(frame, text="Résultat", font=("", 12, "bold")).grid(
-            row=12, column=0, columnspan=2, sticky="w"
+            row=10, column=0, columnspan=2, sticky="w"
         )
         self.autopaste_var = tk.BooleanVar(value=self.config.ui.auto_paste)
         ttk.Checkbutton(
             frame,
             text="Coller directement à la position du curseur",
             variable=self.autopaste_var,
-        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(
             frame,
             text="Décoché, le texte est seulement copié dans le presse-papier.",
             foreground="gray",
-        ).grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ).grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
         # --- Sons ---
         ttk.Label(frame, text="Sons", font=("", 12, "bold")).grid(
-            row=15, column=0, columnspan=2, sticky="w"
+            row=13, column=0, columnspan=2, sticky="w"
         )
         self.sounds_enabled_var = tk.BooleanVar(value=self.config.sounds.enabled)
         ttk.Checkbutton(
             frame, text="Signal sonore au début et à la fin",
             variable=self.sounds_enabled_var,
-        ).grid(row=16, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=14, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         volume_row = ttk.Frame(frame)
-        volume_row.grid(row=17, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        volume_row.grid(row=15, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(volume_row, text="Volume").pack(side=tk.LEFT)
         self.volume_var = tk.DoubleVar(value=self.config.sounds.volume * 100)
         ttk.Scale(
@@ -382,12 +388,7 @@ class SettingsWindow:
         )
         self._update_volume_label()
 
-        self.combo_var.trace_add("write", lambda *_: self._update_hotkey_warning())
-        self.single_key.var.trace_add(
-            "write", lambda *_: self._update_hotkey_warning()
-        )
-        self._on_hotkey_type_change()
-        self._update_hotkey_warning()
+        self._refresh_hotkey_display()
 
     def _update_volume_label(self) -> None:
         self.volume_label.configure(text=f"{int(self.volume_var.get())} %")
@@ -404,24 +405,155 @@ class SettingsWindow:
         except Exception as exc:  # noqa: BLE001
             messagebox.showwarning("Son indisponible", str(exc))
 
-    def _on_hotkey_type_change(self) -> None:
-        is_single = self.hotkey_type_var.get() == "single"
-        self.single_key.widget.configure(state="readonly" if is_single else "disabled")
-        self.combo_entry.configure(state="disabled" if is_single else "normal")
+    # --- Capture du raccourci ---------------------------------------------
+    #
+    # L'écoute clavier vit dans `hotkey_capture` et parle par une file
+    # d'événements. Tout ce qui suit tourne sur le thread de tkinter, jamais
+    # dans le callback pynput : Tk n'est pas thread-safe.
 
-    def _update_hotkey_warning(self) -> None:
-        combo = self._current_combo()
-        if combo.lower() in KNOWN_SYSTEM_CONFLICTS:
+    def _current_combo(self) -> str:
+        return self._combo.strip()
+
+    def _swallow_key(self, _event: tk.Event) -> str | None:
+        """Absorbe les touches pendant la capture.
+
+        Sans ça, enregistrer Espace « cliquerait » le bouton qui a le focus,
+        et enregistrer une lettre l'écrirait dans le champ voisin.
+        """
+        return "break" if self._capture is not None else None
+
+    def _toggle_capture(self) -> None:
+        if self._capture is not None:
+            self._end_capture(None)
+        else:
+            self._start_capture()
+
+    def _start_capture(self) -> None:
+        try:
+            capture = HotkeyCapture()
+            capture.start()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(
+                "Capture impossible",
+                f"{exc}\n\nVoxtral a besoin de l'autorisation « Saisie au "
+                f"clavier » dans Réglages Système → Confidentialité et "
+                f"sécurité.",
+            )
+            return
+
+        self._capture = capture
+        self._capture_saw_a_key = False
+        self.capture_button.configure(text="Annuler")
+        self.reset_hotkey_button.configure(state="disabled")
+        self.hotkey_display.configure(text="Appuie sur les touches…")
+        self.hotkey_hint.configure(
+            text="Tiens la touche (ou la combinaison) puis relâche. Échap annule."
+        )
+        self.hotkey_warning.configure(text="")
+        self.hotkey_display.focus_set()
+
+        self._capture_timeout_id = self.root.after(
+            CAPTURE_TIMEOUT_MS, self._on_capture_timeout
+        )
+        self.root.after(CAPTURE_POLL_MS, self._poll_capture)
+
+    def _poll_capture(self) -> None:
+        capture = self._capture
+        if capture is None:
+            return
+
+        while True:
+            try:
+                event = capture.events.get_nowait()
+            except queue.Empty:
+                break
+
+            self._capture_saw_a_key = True
+
+            if event.outcome is Outcome.DONE:
+                self._end_capture(event.combo)
+                return
+            if event.outcome is Outcome.CANCELLED:
+                self._end_capture(None)
+                return
+            if event.outcome is Outcome.UNSUPPORTED:
+                self.hotkey_warning.configure(
+                    text="⚠ Cette touche ne peut pas servir de raccourci."
+                )
+            elif event.combo:
+                self.hotkey_display.configure(
+                    text=display_combo(event.combo, verbose=True)
+                )
+
+        self.root.after(CAPTURE_POLL_MS, self._poll_capture)
+
+    def _on_capture_timeout(self) -> None:
+        self._capture_timeout_id = None
+        if self._capture is None:
+            return
+
+        # Aucun événement reçu du tout : le cas bénin est « l'utilisateur est
+        # parti », mais c'est aussi la signature d'une autorisation « Saisie
+        # au clavier » manquante — pynput n'échoue pas bruyamment dans ce cas,
+        # il ne remonte simplement jamais rien. On nomme les deux.
+        silent = not self._capture_saw_a_key
+        self._end_capture(None)
+        self.hotkey_hint.configure(
+            text=(
+                "Aucune touche reçue. Vérifie l'autorisation « Saisie au "
+                "clavier » de Voxtral dans Réglages Système."
+                if silent
+                else "Capture annulée : trop de temps sans relâcher."
+            )
+        )
+
+    def _end_capture(self, combo: str | None) -> None:
+        """Arrête l'écoute et applique le raccourci (None = on garde l'ancien)."""
+        if self._capture is not None:
+            self._capture.stop()
+            self._capture = None
+        if self._capture_timeout_id is not None:
+            self.root.after_cancel(self._capture_timeout_id)
+            self._capture_timeout_id = None
+
+        self.capture_button.configure(text="Modifier…")
+        self.reset_hotkey_button.configure(state="normal")
+        self.hotkey_hint.configure(text="")
+
+        error = validate_combo(combo) if combo else None
+        if combo and error is None:
+            self._combo = combo
+
+        self._refresh_hotkey_display()
+        if error is not None:
+            # Ne devrait pas arriver : la capture ne produit que des jetons
+            # issus du vocabulaire. On le dit plutôt que de sauvegarder un
+            # raccourci que le listener ne saura pas lire. Après le refresh,
+            # sinon celui-ci écraserait l'avertissement.
+            self.hotkey_warning.configure(text=f"⚠ {error}")
+
+    def _reset_combo(self) -> None:
+        """Revient au raccourci livré par défaut, sans avoir à le presser.
+
+        Utile si le raccourci enregistré est devenu inaccessible — clavier
+        externe débranché, touche cassée.
+        """
+        self._combo = Config().hotkey.combo
+        self._refresh_hotkey_display()
+
+    def _refresh_hotkey_display(self) -> None:
+        self.hotkey_display.configure(
+            text=display_combo(self._combo, verbose=True) or "aucun"
+        )
+        # La comparaison se fait sur la forme générique : macOS ne distingue
+        # pas les côtés pour ses propres raccourcis, donc cmd_r+space entre en
+        # conflit avec Spotlight tout autant que cmd+space.
+        if generic_combo(self._combo) in KNOWN_SYSTEM_CONFLICTS:
             self.hotkey_warning.configure(
-                text=f"⚠ {display_combo(combo)} est déjà utilisé par macOS."
+                text=f"⚠ {display_combo(self._combo)} est déjà utilisé par macOS."
             )
         else:
             self.hotkey_warning.configure(text="")
-
-    def _current_combo(self) -> str:
-        if self.hotkey_type_var.get() == "single":
-            return self.single_key.get_code().strip()
-        return self.combo_var.get().strip()
 
     # ------------------------------------------------------------------
     # Onglet Fichiers
@@ -744,6 +876,10 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _save(self) -> None:
+        # Une capture encore ouverte ferait enregistrer l'ancien raccourci
+        # sans le dire, et laisserait l'écouteur clavier en vie.
+        self._end_capture(None)
+
         combo = self._current_combo()
         error = validate_combo(combo)
         if error is not None:
@@ -822,6 +958,13 @@ class SettingsWindow:
 def main() -> None:
     root = tk.Tk()
     SettingsWindow(root)
+    # L'app menu bar est en mode « accessory » : sans ça la fenêtre s'ouvre
+    # derrière celle qu'on était en train d'utiliser. `topmost` est relâché
+    # aussitôt, pour ne pas coller la fenêtre par-dessus tout le reste.
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(200, lambda: root.attributes("-topmost", False))
+    root.focus_force()
     root.mainloop()
 
 

@@ -15,7 +15,11 @@ model:
 hotkey:
   # "alt_r" = touche Option DROITE. Mode push-to-talk : maintenir pour
   # enregistrer, relâcher pour transcrire.
-  # Alternatives possibles dans l'UI : "alt+space", "cmd+shift+h"…
+  # Le plus simple est de l'enregistrer dans Préférences → Dictée →
+  # « Modifier… » : on appuie sur les touches voulues, et c'est écrit ici.
+  # À la main, aussi possible : "f13", "alt+space", "cmd+shift+h"…
+  # Sur macOS, "cmd" / "alt" / "ctrl" / "shift" désignent la touche de
+  # GAUCHE ; celles de droite s'écrivent "cmd_r", "alt_r", etc.
   combo: "alt_r"
 
 transcription:

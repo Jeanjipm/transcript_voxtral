@@ -111,6 +111,12 @@ Onglets :
 - **Dictée** : le raccourci, la langue, ce qui se passe avec le texte
   (collé au curseur ou seulement copié), et les sons — avec un bouton
   « Écouter » pour régler le volume sans deviner.
+
+  Le raccourci ne se tape pas, il s'enregistre : clique **Modifier…**, puis
+  appuie sur la touche (ou la combinaison) que tu veux, et relâche. Échap
+  annule, « Par défaut » revient à ⌥ Option droite. La dictée est en pause
+  tant que la fenêtre de préférences est ouverte — sinon appuyer sur une
+  touche pour l'enregistrer déclencherait un enregistrement micro.
 - **Fichiers** : dossier de destination des `.txt`, horodatage des
   paragraphes, durée maximale acceptée.
 - **Modèles** : quel modèle pour la dictée, lequel pour les fichiers, et la

@@ -14,6 +14,7 @@ from hotkey_manager import (
     _is_single_key,
     display_combo,
     parse_key,
+    token_for_key,
     validate_combo,
 )
 
@@ -441,3 +442,79 @@ def test_stop_survives_join_runtimeerror(distinct_listeners):
 
     mgr.stop()  # ne doit pas lever
     assert mgr._listener is None
+
+
+# ---- Sprint 6 : vocabulaire de touches et noms canoniques ----
+#
+# Ces fonctions existent pour l'enregistrement de raccourci
+# (cf. hotkey_capture.py). Elles sont testées ici parce que c'est
+# hotkey_manager qui possède le vocabulaire.
+
+
+def test_token_for_key_gives_the_canonical_name():
+    assert token_for_key(kbd.Key.alt_r) == "alt_r"
+    assert token_for_key(kbd.Key.f13) == "f13"
+
+
+def test_token_for_left_modifier_is_the_generic_name():
+    """Sur macOS, Key.alt et Key.alt_l sont un seul objet. Le nom rendu ne
+    doit pas dépendre de l'ordre d'itération d'un dictionnaire."""
+    assert token_for_key(kbd.Key.alt) == "alt"
+    assert token_for_key(kbd.Key.alt_l) == "alt"
+
+
+def test_token_for_key_accepts_a_character():
+    assert token_for_key("h") == "h"
+    assert token_for_key("H") == "h"
+
+
+def test_token_for_key_returns_none_when_unnameable():
+    """Une touche absente du vocabulaire n'est pas enregistrable : le None
+    est ce qui permet de le DIRE au lieu d'écrire un raccourci mort."""
+    assert token_for_key("+") is None
+    assert token_for_key("ab") is None
+
+
+def test_named_keys_cover_the_extended_vocabulary():
+    for token in ("f1", "f12", "up", "page_down", "backspace", "caps_lock"):
+        assert validate_combo(token) is None, token
+
+
+def test_format_combo_orders_modifiers_canonically():
+    assert hotkey_manager.format_combo(["shift", "cmd", "h"]) == "cmd+shift+h"
+    assert hotkey_manager.format_combo(["h", "shift", "cmd"]) == "cmd+shift+h"
+
+
+def test_format_combo_keeps_the_last_modifier_as_final():
+    """Sans non-modificateur, c'est le dernier pressé qui déclenche."""
+    assert hotkey_manager.format_combo(["cmd", "shift"]) == "cmd+shift"
+
+
+def test_format_combo_single_token_is_unchanged():
+    assert hotkey_manager.format_combo(["alt_r"]) == "alt_r"
+    assert hotkey_manager.format_combo([]) == ""
+
+
+def test_generic_combo_drops_the_side():
+    """macOS ne distingue pas les côtés pour SES raccourcis : ⌘ droite +
+    Espace ouvre Spotlight autant que ⌘ gauche. Sans cette normalisation, la
+    détection de conflit rate un cas sur deux."""
+    assert hotkey_manager.generic_combo("cmd_r+space") == "cmd+space"
+    assert hotkey_manager.generic_combo("option_r") == "alt"
+    assert hotkey_manager.generic_combo("cmd+shift+h") == "cmd+shift+h"
+
+
+def test_is_modifier():
+    assert hotkey_manager.is_modifier("cmd_r") is True
+    assert hotkey_manager.is_modifier("option") is True
+    assert hotkey_manager.is_modifier("space") is False
+
+
+def test_display_combo_verbose_names_the_side():
+    """« ⌥ » seul dans un champ ne dit pas quelle touche a été enregistrée."""
+    assert display_combo("alt_r", verbose=True) == "⌥ Option droite"
+    assert display_combo("alt", verbose=True) == "⌥ Option gauche"
+
+
+def test_display_combo_verbose_leaves_combinations_compact():
+    assert display_combo("cmd+shift+h", verbose=True) == "⌘⇧H"

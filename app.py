@@ -275,6 +275,10 @@ class VoxtralApp(rumps.App):
         self.error_item = rumps.MenuItem(ERROR_LABEL_NONE)
         self._last_error: tuple[str, str] | None = None
 
+        # Fenêtre de réglages : une seule à la fois, et le raccourci global est
+        # suspendu tant qu'elle vit (cf. _pause_hotkey_during_preferences).
+        self._prefs_proc: subprocess.Popen | None = None
+
         # Transcription de fichiers. Les items restent en place en permanence
         # plutôt que d'être ajoutés et retirés à chaud : muter le menu rumps
         # pendant l'exécution est plus fragile que changer un titre, et un menu
@@ -790,9 +794,70 @@ class VoxtralApp(rumps.App):
         # On lance settings_ui.py dans un sous-processus : tkinter ne
         # cohabite pas bien avec la mainloop rumps (deux event loops Cocoa).
         # Sub-process = isolation simple et robuste.
-        subprocess.Popen(
-            [sys.executable, str(Path(__file__).parent / "settings_ui.py")],
-        )
+        if self._prefs_proc is not None and self._prefs_proc.poll() is None:
+            # Une fenêtre est déjà ouverte. En rouvrir une seconde donnerait
+            # deux jeux de réglages divergents dont le dernier enregistré
+            # écraserait l'autre en silence.
+            return
+
+        try:
+            self._prefs_proc = subprocess.Popen(
+                [sys.executable, str(Path(__file__).parent / "settings_ui.py")],
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._show_error("Préférences", str(exc))
+            return
+
+        threading.Thread(
+            target=self._pause_hotkey_during_preferences,
+            args=(self._prefs_proc,),
+            name="prefs-hotkey-pause",
+            daemon=True,
+        ).start()
+
+    def _pause_hotkey_during_preferences(self, proc: subprocess.Popen) -> None:
+        """Coupe le raccourci global tant que la fenêtre de réglages vit.
+
+        Indispensable depuis que le raccourci s'enregistre en appuyant sur les
+        touches : sans ça, presser ⌥ droite pour l'enregistrer lancerait une
+        dictée, qui viendrait coller son texte dans la fenêtre de réglages
+        trois secondes plus tard.
+
+        Effet de bord assumé et annoncé dans la fenêtre : on ne peut pas
+        dicter pendant qu'on règle. C'est aussi ce qu'on veut — le raccourci
+        ne doit pas se déclencher pendant qu'on tape dans un champ.
+
+        Tourne dans un thread dédié : `HotkeyManager.stop()` attend la fin du
+        thread listener (jusqu'à 2 s), ce qui est hors budget pour le main
+        thread de rumps.
+        """
+        try:
+            self.hotkey.stop()
+        except Exception:
+            traceback.print_exc()
+        self._set_hotkey_title("Raccourci : en pause (Préférences ouvertes)")
+
+        try:
+            proc.wait()
+        finally:
+            # `start()` est idempotent : si `_reload_config` a déjà reconstruit
+            # le listener entre-temps, cet appel ne fait rien.
+            try:
+                self.hotkey.start()
+            except Exception:
+                traceback.print_exc()
+            # On relit la config plutôt que de mémoriser l'ancien libellé : le
+            # raccourci vient peut-être justement d'être changé.
+            self._set_hotkey_title(
+                f"Raccourci : {display_combo(self.hotkey.combo)}"
+            )
+
+    def _set_hotkey_title(self, text: str) -> None:
+        """Met à jour l'item 'Raccourci' depuis n'importe quel thread."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._set_hotkey_title, text)
+            return
+        self.hotkey_item.title = text
 
     # ------------------------------------------------------------------
     # Mises à jour de l'app (cf. updater.py)

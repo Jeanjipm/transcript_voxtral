@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from collections.abc import Sequence
 from typing import Callable
 
 from pynput import keyboard
@@ -32,37 +33,104 @@ _REARM_MIN_INTERVAL_S = 10.0
 _LISTENER_JOIN_TIMEOUT_S = 2.0
 
 
-# Mapping nom config → pynput.Key (ou caractère). Les alias "option"
-# pointent vers alt — sur les claviers macOS la touche est labellisée
-# "⌥ Option" et les utilisateurs tapent "option" plus souvent qu'"alt".
-_NAMED_KEYS: dict[str, keyboard.Key] = {
-    "alt_l": keyboard.Key.alt_l,
-    "alt_r": keyboard.Key.alt_r,
-    "alt": keyboard.Key.alt,
-    "option_l": keyboard.Key.alt_l,
-    "option_r": keyboard.Key.alt_r,
-    "option": keyboard.Key.alt,
-    "cmd_l": keyboard.Key.cmd_l,
-    "cmd_r": keyboard.Key.cmd_r,
-    "cmd": keyboard.Key.cmd,
-    "ctrl_l": keyboard.Key.ctrl_l,
-    "ctrl_r": keyboard.Key.ctrl_r,
-    "ctrl": keyboard.Key.ctrl,
-    "shift_l": keyboard.Key.shift_l,
-    "shift_r": keyboard.Key.shift_r,
-    "shift": keyboard.Key.shift,
-    "space": keyboard.Key.space,
-    "enter": keyboard.Key.enter,
-    "tab": keyboard.Key.tab,
-    "esc": keyboard.Key.esc,
-    "f13": keyboard.Key.f13,
-    "f14": keyboard.Key.f14,
-    "f15": keyboard.Key.f15,
-    "f16": keyboard.Key.f16,
-    "f17": keyboard.Key.f17,
-    "f18": keyboard.Key.f18,
-    "f19": keyboard.Key.f19,
+# Vocabulaire des touches nommées, dans l'ordre où on veut les voir gagner
+# quand plusieurs noms désignent la MÊME touche physique (cf. _TOKEN_BY_KEY).
+#
+# Détail macOS mesuré, et il compte : dans pynput, `Key.alt` et `Key.alt_l`
+# partagent le même code virtuel (0x3A) et sont donc le même objet — pareil
+# pour cmd/cmd_l, ctrl/ctrl_l, shift/shift_l. Autrement dit, sur un Mac,
+# écrire « cmd » dans la config désigne le Commande *gauche*, pas « l'un ou
+# l'autre ». Les touches de droite ont bien un code distinct (cmd_r = 0x36).
+_KEY_NAMES: tuple[str, ...] = (
+    # Modificateurs : la forme générique d'abord, c'est le nom canonique.
+    "cmd", "cmd_l", "cmd_r",
+    "ctrl", "ctrl_l", "ctrl_r",
+    "alt", "alt_l", "alt_r",
+    "shift", "shift_l", "shift_r",
+    # Touches ordinaires
+    "space", "enter", "tab", "esc", "backspace", "delete", "caps_lock",
+    "up", "down", "left", "right",
+    "home", "end", "page_up", "page_down",
+) + tuple(f"f{i}" for i in range(1, 21))
+
+
+# Les alias "option" pointent vers alt — sur les claviers macOS la touche est
+# labellisée "⌥ Option" et les utilisateurs tapent "option" plus souvent
+# qu'"alt". Ce sont des entrées acceptées en lecture, jamais produites.
+_KEY_ALIASES: dict[str, str] = {
+    "option": "alt",
+    "option_l": "alt_l",
+    "option_r": "alt_r",
 }
+
+
+def _build_named_keys() -> dict[str, keyboard.Key]:
+    """Construit le mapping nom → touche pynput, en sautant les absentes.
+
+    `getattr` plutôt qu'un dictionnaire littéral : toutes les touches
+    listées n'existent pas sur toutes les plateformes ni dans toutes les
+    versions de pynput, et un `AttributeError` à l'import rendrait l'app
+    non lançable pour une touche que personne n'utilise.
+    """
+    named: dict[str, keyboard.Key] = {}
+    for name in _KEY_NAMES:
+        key = getattr(keyboard.Key, name, None)
+        if key is not None:
+            named[name] = key
+    for alias, target in _KEY_ALIASES.items():
+        if target in named:
+            named[alias] = named[target]
+    return named
+
+
+_NAMED_KEYS: dict[str, keyboard.Key] = _build_named_keys()
+
+
+# Mapping inverse : touche pynput → nom canonique. Le `setdefault` est ce qui
+# fait le travail — plusieurs noms partageant un même objet touche, c'est le
+# premier de `_KEY_NAMES` qui l'emporte. Sans cet ordre explicite, le nom rendu
+# par la capture dépendrait de l'ordre d'itération d'un dictionnaire.
+_TOKEN_BY_KEY: dict[keyboard.Key, str] = {}
+for _token, _key in _NAMED_KEYS.items():
+    _TOKEN_BY_KEY.setdefault(_key, _token)
+
+
+# Modificateurs, par famille. Sert à deux choses : décider quel jeton est la
+# touche « finale » d'une combinaison, et ramener un raccourci à sa forme
+# générique pour la détection de conflits.
+_MODIFIER_FAMILIES: dict[str, str] = {
+    "cmd": "cmd", "cmd_l": "cmd", "cmd_r": "cmd",
+    "ctrl": "ctrl", "ctrl_l": "ctrl", "ctrl_r": "ctrl",
+    "alt": "alt", "alt_l": "alt", "alt_r": "alt",
+    "option": "alt", "option_l": "alt", "option_r": "alt",
+    "shift": "shift", "shift_l": "shift", "shift_r": "shift",
+}
+
+# Ordre d'écriture des modificateurs dans un raccourci. Choisi pour coller à
+# celui déjà utilisé dans `KNOWN_SYSTEM_CONFLICTS` (cmd+option+h,
+# cmd+ctrl+space, cmd+shift+h) : sinon la capture produirait des raccourcis
+# corrects mais dont la détection de conflit ne verrait rien.
+_MODIFIER_ORDER: tuple[str, ...] = ("cmd", "ctrl", "alt", "shift")
+
+
+def is_modifier(token: str) -> bool:
+    """True si le jeton désigne une touche de modification (⌘ ⌃ ⌥ ⇧)."""
+    return token.lower().strip() in _MODIFIER_FAMILIES
+
+
+def generic_combo(combo: str) -> str:
+    """Ramène un raccourci à sa forme sans gauche/droite ('cmd_r+space' →
+    'cmd+space').
+
+    macOS ne distingue pas les côtés pour ses propres raccourcis : ⌘ droite +
+    Espace ouvre Spotlight tout autant que ⌘ gauche. La détection de conflit
+    doit donc comparer sur cette forme, sinon elle laisse passer la moitié
+    des cas.
+    """
+    return "+".join(
+        _MODIFIER_FAMILIES.get(t.strip().lower(), t.strip().lower())
+        for t in combo.split("+")
+    )
 
 
 def parse_key(token: str) -> keyboard.Key | str:
@@ -100,6 +168,61 @@ def validate_combo(combo: str) -> str | None:
     except ValueError as exc:
         return str(exc)
     return None
+
+
+def normalize_key(key: object) -> keyboard.Key | str | None:
+    """Normalise un événement pynput (KeyCode → char, Key → Key, sinon None).
+
+    Fonction de module et non méthode : l'enregistreur de raccourci
+    (`hotkey_capture`) doit normaliser exactement comme le fait la mise en
+    correspondance à l'exécution. Deux implémentations qui divergeraient d'un
+    cheveu donneraient un raccourci enregistré qui ne se déclenche jamais.
+    """
+    if isinstance(key, keyboard.Key):
+        return key
+    if isinstance(key, keyboard.KeyCode) and key.char is not None:
+        return key.char.lower()
+    return None
+
+
+def token_for_key(key: keyboard.Key | str) -> str | None:
+    """Nom de configuration d'une touche normalisée, ou None si inexprimable.
+
+    None signifie « cette touche n'a pas de nom dans notre vocabulaire » —
+    une touche média, un pavé numérique exotique. L'appelant doit le dire à
+    l'utilisateur plutôt que d'enregistrer un raccourci qui ne marchera pas.
+    """
+    if isinstance(key, str):
+        token = key.lower()
+        return token if len(token) == 1 and token != "+" else None
+    return _TOKEN_BY_KEY.get(key)
+
+
+def format_combo(tokens: Sequence[str]) -> str:
+    """Assemble des jetons en raccourci canonique ('h', 'cmd+shift+h').
+
+    Deux règles :
+    - la touche finale est la première non-modificateur ; s'il n'y en a pas,
+      c'est le dernier modificateur pressé (tenir ⌘ puis appuyer sur ⇧ donne
+      bien `cmd+shift`, pas `shift+cmd`) ;
+    - les modificateurs restants sont écrits dans `_MODIFIER_ORDER`, pour que
+      deux enregistrements des mêmes touches donnent toujours la même chaîne.
+    """
+    ordered = [t.lower().strip() for t in tokens if t and t.strip()]
+    if not ordered:
+        return ""
+    if len(ordered) == 1:
+        return ordered[0]
+
+    plain = [t for t in ordered if not is_modifier(t)]
+    final = plain[0] if plain else ordered[-1]
+    modifiers = [t for t in ordered if t != final]
+    modifiers.sort(
+        key=lambda t: _MODIFIER_ORDER.index(_MODIFIER_FAMILIES[t])
+        if t in _MODIFIER_FAMILIES
+        else len(_MODIFIER_ORDER)
+    )
+    return "+".join([*modifiers, final])
 
 
 class HotkeyManager:
@@ -232,11 +355,7 @@ class HotkeyManager:
 
     def _normalize(self, key: object) -> keyboard.Key | str | None:
         """Normalise key (KeyCode → char str, Key → Key, autre → None)."""
-        if isinstance(key, keyboard.Key):
-            return key
-        if isinstance(key, keyboard.KeyCode) and key.char is not None:
-            return key.char.lower()
-        return None
+        return normalize_key(key)
 
     def _on_press(self, key: object) -> None:
         norm = self._normalize(key)
@@ -298,16 +417,50 @@ class HotkeyManager:
             traceback.print_exc()
 
 
-def display_combo(combo: str) -> str:
-    """Joli label pour l'UI (ex. 'alt_r' → '⌥ droite', 'cmd+shift+h' → '⌘⇧H')."""
-    pretty: dict[str, str] = {
-        "cmd": "⌘", "cmd_l": "⌘ gauche", "cmd_r": "⌘ droite",
-        "shift": "⇧", "shift_l": "⇧ gauche", "shift_r": "⇧ droite",
-        "alt": "⌥", "alt_l": "⌥ gauche", "alt_r": "⌥ droite",
-        "option": "⌥", "option_l": "⌥ gauche", "option_r": "⌥ droite",
-        "ctrl": "⌃", "ctrl_l": "⌃ gauche", "ctrl_r": "⌃ droite",
-        "space": "␣", "enter": "↩", "tab": "⇥", "esc": "⎋",
-    }
+_PRETTY_KEYS: dict[str, str] = {
+    "cmd": "⌘", "cmd_l": "⌘ gauche", "cmd_r": "⌘ droite",
+    "shift": "⇧", "shift_l": "⇧ gauche", "shift_r": "⇧ droite",
+    "alt": "⌥", "alt_l": "⌥ gauche", "alt_r": "⌥ droite",
+    "option": "⌥", "option_l": "⌥ gauche", "option_r": "⌥ droite",
+    "ctrl": "⌃", "ctrl_l": "⌃ gauche", "ctrl_r": "⌃ droite",
+    "space": "␣", "enter": "↩", "tab": "⇥", "esc": "⎋",
+    "backspace": "⌫", "delete": "⌦", "caps_lock": "⇪",
+    "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "home": "↖", "end": "↘", "page_up": "⇞", "page_down": "⇟",
+}
+
+# Libellés complets, pour la fenêtre de préférences : « ⌥ » tout seul dans un
+# champ ne dit pas à l'utilisateur quelle touche il vient d'enregistrer.
+# Rappel du mapping macOS : la forme générique EST la touche de gauche.
+_VERBOSE_KEYS: dict[str, str] = {
+    "cmd": "⌘ Commande gauche", "cmd_l": "⌘ Commande gauche",
+    "cmd_r": "⌘ Commande droite",
+    "ctrl": "⌃ Contrôle gauche", "ctrl_l": "⌃ Contrôle gauche",
+    "ctrl_r": "⌃ Contrôle droite",
+    "alt": "⌥ Option gauche", "alt_l": "⌥ Option gauche",
+    "alt_r": "⌥ Option droite",
+    "option": "⌥ Option gauche", "option_l": "⌥ Option gauche",
+    "option_r": "⌥ Option droite",
+    "shift": "⇧ Majuscule gauche", "shift_l": "⇧ Majuscule gauche",
+    "shift_r": "⇧ Majuscule droite",
+    "space": "␣ Espace", "enter": "↩ Entrée", "tab": "⇥ Tabulation",
+    "esc": "⎋ Échap", "backspace": "⌫ Retour arrière", "delete": "⌦ Suppr",
+    "caps_lock": "⇪ Verr. maj",
+}
+
+
+def display_combo(combo: str, verbose: bool = False) -> str:
+    """Joli label pour l'UI (ex. 'alt_r' → '⌥ droite', 'cmd+shift+h' → '⌘⇧H').
+
+    `verbose=True` donne le nom complet d'une touche seule (« ⌥ Option
+    droite ») : dans la fenêtre de préférences, le symbole seul ne suffit pas
+    à savoir ce qu'on vient d'enregistrer.
+    """
+    combo = combo.strip()
+    if not combo:
+        return ""
     if "+" not in combo:
-        return pretty.get(combo, combo.upper())
-    return "".join(pretty.get(t, t.upper()) for t in combo.split("+"))
+        if verbose and combo in _VERBOSE_KEYS:
+            return _VERBOSE_KEYS[combo]
+        return _PRETTY_KEYS.get(combo, combo.upper())
+    return "".join(_PRETTY_KEYS.get(t, t.upper()) for t in combo.split("+"))
