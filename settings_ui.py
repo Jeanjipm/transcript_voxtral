@@ -17,8 +17,14 @@ from tkinter import filedialog, messagebox, ttk
 from config import Config, load_config, save_config
 from hotkey_manager import display_combo, validate_combo
 from model_manager import (
-    AVAILABLE_MODELS,
+    USAGE_DICTATION,
+    USAGE_FILES,
+    delete_cached_model,
+    format_size,
     is_downloaded,
+    list_available_models,
+    models_in_use,
+    scan_cached_models,
 )
 
 
@@ -98,6 +104,7 @@ class SettingsWindow:
         self._build_hotkey_tab()
         self._build_sounds_tab()
         self._build_files_tab()
+        self._build_storage_tab()
         self._build_advanced_tab()
         self._build_about_tab()
 
@@ -116,34 +123,176 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _build_model_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Modèle")
+        """Onglet « Modèles » : un sélecteur par usage.
 
-        ttk.Label(frame, text="Modèle de transcription :").grid(
-            row=0, column=0, sticky="w", pady=(0, 5)
-        )
+        Les deux usages ont des contraintes différentes — les fichiers exigent
+        des horodatages, que Voxtral ne produit pas — donc les deux listes ne
+        sont pas les mêmes. Avant, seule la dictée était réglable ici et le
+        modèle des fichiers était du texte figé dans un autre onglet.
+        """
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Modèles")
 
         self.model_var = tk.StringVar(value=self.config.model.name)
-        for i, m in enumerate(AVAILABLE_MODELS, start=1):
-            downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
-            tag = "   📥 téléchargé" if downloaded else ""
-            label = f"{m.label} — {m.size_gb:.1f} Go{tag}\n   {m.description}"
-            ttk.Radiobutton(
-                frame,
-                text=label,
-                variable=self.model_var,
-                value=m.repo_id,
-            ).grid(row=i, column=0, sticky="w", pady=3)
+        self.file_model_var = tk.StringVar(
+            value=self.config.file_transcription.model
+        )
+
+        row = self._build_model_section(
+            frame,
+            row=0,
+            title="Dictée — raccourci clavier",
+            variable=self.model_var,
+            models=list_available_models(USAGE_DICTATION),
+        )
+        row = self._build_model_section(
+            frame,
+            row=row + 1,
+            title="Fichiers audio — « Transcrire un fichier audio… »",
+            variable=self.file_model_var,
+            models=list_available_models(USAGE_FILES),
+            note=(
+                "Seuls les modèles Whisper apparaissent ici : eux seuls\n"
+                "produisent des horodatages, indispensables pour se repérer\n"
+                "dans un long enregistrement."
+            ),
+        )
 
         ttk.Label(
             frame,
             text=(
-                "Le modèle est téléchargé automatiquement au premier usage, "
-                "ou en avance via :\n  python download_model.py --model NOM"
+                "Un modèle non téléchargé l'est automatiquement à son premier "
+                "usage.\nVoir l'onglet Stockage pour l'espace occupé."
             ),
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=len(AVAILABLE_MODELS) + 1, column=0, sticky="w", pady=(15, 0))
+        ).grid(row=row + 1, column=0, sticky="w", pady=(15, 0))
+
+    def _build_model_section(
+        self,
+        parent: tk.Widget,
+        row: int,
+        title: str,
+        variable: tk.StringVar,
+        models: list,
+        note: str | None = None,
+    ) -> int:
+        """Un groupe de boutons radio. Retourne la dernière ligne utilisée."""
+        ttk.Label(parent, text=title, font=("", 12, "bold")).grid(
+            row=row, column=0, sticky="w", pady=(10, 4)
+        )
+        row += 1
+
+        for m in models:
+            downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
+            tag = "  ✓ téléchargé" if downloaded else "  ⤓ à télécharger"
+            ttk.Radiobutton(
+                parent,
+                text=f"{m.label} — {m.size_gb:.1f} Go{tag}\n   {m.description}",
+                variable=variable,
+                value=m.repo_id,
+            ).grid(row=row, column=0, sticky="w", pady=2)
+            row += 1
+
+        if note:
+            ttk.Label(parent, text=note, foreground="gray", justify=tk.LEFT).grid(
+                row=row, column=0, sticky="w", pady=(2, 0)
+            )
+            row += 1
+        return row
+
+    def _build_storage_tab(self) -> None:
+        """Onglet « Stockage » : voir et libérer l'espace occupé.
+
+        Le cache HuggingFace n'efface jamais rien : chaque modèle essayé y
+        reste. Constaté en vrai, 22 Go accumulés dont 15 inutilisés, sans
+        aucun moyen de s'en apercevoir depuis l'app — ni d'y remédier sans
+        terminal, ce qui exclut la plupart des utilisateurs.
+        """
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Stockage")
+        self._storage_frame = frame
+        self._render_storage()
+
+    def _render_storage(self) -> None:
+        """(Re)dessine la liste. Rappelé après chaque suppression."""
+        frame = self._storage_frame
+        for child in frame.winfo_children():
+            child.destroy()
+
+        cached = scan_cached_models()
+        in_use = models_in_use(
+            self.model_var.get(), self.file_model_var.get()
+        )
+
+        ttk.Label(
+            frame,
+            text=f"Modèles sur le disque : {format_size(sum(c.size_bytes for c in cached))}",
+            font=("", 13, "bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+        if not cached:
+            ttk.Label(
+                frame, text="Aucun modèle téléchargé pour l'instant.",
+                foreground="gray",
+            ).grid(row=1, column=0, sticky="w")
+            return
+
+        for i, entry in enumerate(cached, start=1):
+            used = entry.repo_id in in_use
+            ttk.Label(frame, text=entry.size_str, width=9).grid(
+                row=i, column=0, sticky="e", padx=(0, 10), pady=2
+            )
+            ttk.Label(
+                frame,
+                text=entry.label + ("   (utilisé)" if used else ""),
+                foreground="" if used else "gray30",
+            ).grid(row=i, column=1, sticky="w", pady=2)
+
+            if used:
+                # Pas de bouton : supprimer un modèle en service le
+                # re-téléchargerait à la dictée suivante.
+                ttk.Label(frame, text="—", foreground="gray").grid(
+                    row=i, column=2, padx=(15, 0)
+                )
+            else:
+                ttk.Button(
+                    frame,
+                    text="Supprimer",
+                    command=lambda e=entry: self._delete_model(e),
+                ).grid(row=i, column=2, padx=(15, 0))
+
+        ttk.Label(
+            frame,
+            text=(
+                "Les modèles marqués « utilisé » servent à la dictée, aux\n"
+                "fichiers, ou à la traduction : ils ne sont pas supprimables.\n"
+                "Un modèle supprimé se re-télécharge si tu le resélectionnes."
+            ),
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=len(cached) + 1, column=0, columnspan=3, sticky="w", pady=(12, 0))
+
+    def _delete_model(self, entry) -> None:  # noqa: ANN001
+        confirmed = messagebox.askyesno(
+            "Supprimer ce modèle ?",
+            f"{entry.label}\n{entry.size_str} seront libérés.\n\n"
+            f"Le modèle sera re-téléchargé automatiquement si tu le "
+            f"resélectionnes plus tard.",
+        )
+        if not confirmed:
+            return
+        try:
+            freed = delete_cached_model(entry.repo_id)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(
+                "Suppression impossible", f"{exc}"
+            )
+            return
+        messagebox.showinfo(
+            "Modèle supprimé", f"{format_size(freed)} libérés."
+        )
+        self._render_storage()
 
     def _build_language_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
@@ -358,13 +507,12 @@ class SettingsWindow:
             foreground="gray",
         ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
+        # Le modèle se règle dans l'onglet Modèles, plus ici : avoir deux
+        # modèles réglables à deux endroits, dont un seul modifiable, était la
+        # principale confusion de l'ancienne fenêtre.
         ttk.Label(
             frame,
-            text=(
-                f"Modèle utilisé : {cfg.model}\n"
-                "Choisi pour ses horodatages, que le modèle de dictée ne\n"
-                "fournit pas. Modifiable dans ~/.voxtral/config.yaml."
-            ),
+            text="Le modèle utilisé se choisit dans l'onglet Modèles.",
             foreground="gray",
             justify=tk.LEFT,
         ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(15, 0))
@@ -477,6 +625,7 @@ class SettingsWindow:
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
+        cfg.file_transcription.model = self.file_model_var.get()
         cfg.file_transcription.output_dir = self.output_dir_var.get().strip()
         cfg.file_transcription.include_timestamps = bool(
             self.timestamps_var.get()

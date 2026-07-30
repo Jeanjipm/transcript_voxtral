@@ -109,14 +109,21 @@ Puis dans `~/.voxtral/config.yaml`, mets `diarization: true` sous
 Clique l'icône 🎤 → **Préférences…**
 
 Onglets :
-- **Modèle** : choisir entre Voxtral 3B (4-bit, 8-bit, full) ou Whisper.
+- **Modèles** : deux choix distincts — le modèle de la **dictée**, et celui
+  des **fichiers audio**. Les listes diffèrent : seuls les modèles Whisper
+  produisent des horodatages, indispensables pour se repérer dans un long
+  enregistrement.
+- **Stockage** : l'espace occupé par chaque modèle téléchargé, et un bouton
+  pour supprimer ceux qui ne servent plus. Le cache n'efface jamais rien
+  tout seul — sans cet écran on accumule des dizaines de Go sans le voir.
 - **Langue** : auto-détection ou langue forcée (fr, en, de, es, …) ;
   tâche transcription ou traduction vers anglais.
 - **Raccourci** : touche unique tenue (talkie-walkie) ou combinaison
   (ex. `alt+space`). Mode push-to-talk — maintenir pour enregistrer.
 - **Sons** : activer/désactiver, volume.
 - **Fichiers** : dossier de destination des `.txt`, horodatage des
-  paragraphes, durée maximale acceptée.
+  paragraphes, durée maximale acceptée. (Le modèle se choisit dans
+  l'onglet Modèles.)
 - **Avancé** : longueur max de transcription, collage auto.
 
 Les changements sont appliqués automatiquement en quelques secondes

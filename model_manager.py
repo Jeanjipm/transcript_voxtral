@@ -24,14 +24,29 @@ from huggingface_hub import snapshot_download
 import hf_offline
 
 
+# Usages possibles d'un modèle.
+#
+# Tous les modèles savent transcrire une dictée, mais seuls ceux qui rendent
+# des HORODATAGES conviennent aux fichiers : sans eux, pas de repères dans le
+# .txt ni d'identification des locuteurs. Voxtral n'en produit aucun.
+USAGE_DICTATION = "dictation"
+USAGE_FILES = "files"
+
+
 # Catalogue des modèles connus, exposé dans l'UI Préférences.
-# Source : brief technique v0.2 § F3 (Voxtral) et § Fallback (Whisper).
 @dataclass(frozen=True)
 class ModelInfo:
     repo_id: str
     label: str
     size_gb: float
     description: str
+    usages: tuple[str, ...] = (USAGE_DICTATION,)
+    # False pour les modèles distillés « turbo », qui rendent la langue source
+    # au lieu de l'anglais quand on demande une traduction.
+    can_translate: bool = True
+
+    def supports(self, usage: str) -> bool:
+        return usage in self.usages
 
 
 AVAILABLE_MODELS: list[ModelInfo] = [
@@ -39,31 +54,53 @@ AVAILABLE_MODELS: list[ModelInfo] = [
         repo_id="mzbac/voxtral-mini-3b-4bit-mixed",
         label="Voxtral Mini 3B (4-bit)",
         size_gb=3.2,
-        description="Rapide, recommandé. Quantification mixte 4-bit.",
+        description="Rapide et léger. Bon compromis pour la dictée.",
+        usages=(USAGE_DICTATION,),
+        can_translate=False,  # délégué à Whisper par VoxtralTranscriber
     ),
     ModelInfo(
         repo_id="mzbac/voxtral-mini-3b-8bit",
         label="Voxtral Mini 3B (8-bit)",
         size_gb=5.3,
-        description="Qualité supérieure, plus lourd.",
+        description="Meilleure qualité de dictée, plus lourd.",
+        usages=(USAGE_DICTATION,),
+        can_translate=False,
     ),
     ModelInfo(
-        repo_id="mistralai/Voxtral-Mini-3B-2507",
-        label="Voxtral Mini 3B (full)",
-        size_gb=8.0,
-        description="Qualité maximale, nécessite plus de RAM.",
+        repo_id="mlx-community/whisper-large-v3-turbo",
+        label="Whisper Large V3 Turbo",
+        size_gb=1.6,
+        description=(
+            "Le plus rapide et le plus léger. Mesuré à 64× le temps réel "
+            "contre 17× pour large-v3, avec une fidélité au moins égale. "
+            "Ne sait pas traduire."
+        ),
+        usages=(USAGE_DICTATION, USAGE_FILES),
+        can_translate=False,
     ),
     ModelInfo(
         repo_id="mlx-community/whisper-large-v3-mlx",
         label="Whisper Large V3",
         size_gb=3.0,
-        description="MIT, transcrit + traduit.",
+        description=(
+            "Le seul à savoir traduire vers l'anglais. Plus lent que Turbo, "
+            "à ne prendre que si tu utilises la traduction."
+        ),
+        usages=(USAGE_DICTATION, USAGE_FILES),
+        can_translate=True,
     ),
 ]
+# Retiré du catalogue : mistralai/Voxtral-Mini-3B-2507 (8,7 Go pleine
+# précision). Le gain face au 8-bit ne justifie pas le poids, et un
+# utilisateur qui le sélectionnait par curiosité déclenchait un
+# téléchargement de 8,7 Go.
 
 
-def list_available_models() -> list[ModelInfo]:
-    return list(AVAILABLE_MODELS)
+def list_available_models(usage: str | None = None) -> list[ModelInfo]:
+    """Catalogue, éventuellement filtré sur un usage (dictée ou fichiers)."""
+    if usage is None:
+        return list(AVAILABLE_MODELS)
+    return [m for m in AVAILABLE_MODELS if m.supports(usage)]
 
 
 def find_model(repo_id: str) -> ModelInfo | None:
@@ -93,6 +130,115 @@ def is_downloaded(repo_id: str, models_root: Path) -> bool:  # noqa: ARG001
     appelants (`settings_ui`, `download_model.py`) mais n'est plus consulté.
     """
     return hf_offline.is_model_cached(repo_id)
+
+
+# ----------------------------------------------------------------------
+# Occupation disque
+#
+# Le cache HuggingFace n'efface jamais rien de lui-même : chaque modèle
+# essayé y reste pour toujours. Constaté sur une installation réelle,
+# 22 Go accumulés dont 15 inutilisés, sans aucun moyen de s'en rendre compte
+# depuis l'app. D'où ces fonctions, exposées dans Préférences → Stockage.
+# ----------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CachedModel:
+    """Un modèle présent dans le cache HuggingFace."""
+
+    repo_id: str
+    size_bytes: int
+    label: str  # libellé du catalogue, ou le repo_id s'il est inconnu
+    in_catalog: bool
+
+    @property
+    def size_str(self) -> str:
+        return format_size(self.size_bytes)
+
+
+def format_size(size_bytes: int) -> str:
+    """Taille lisible. On reste en Go/Mo : les utilisateurs raisonnent comme ça."""
+    if size_bytes >= 1_000_000_000:
+        return f"{size_bytes / 1_000_000_000:.1f} Go"
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.0f} Mo"
+    return f"{size_bytes / 1_000:.0f} Ko"
+
+
+def scan_cached_models() -> list[CachedModel]:
+    """Liste les modèles présents dans le cache HuggingFace, du plus gros au
+    plus petit.
+
+    Best-effort : si l'API de cache est indisponible, on rend une liste vide
+    plutôt que de faire échouer l'ouverture des Préférences.
+    """
+    try:
+        from huggingface_hub import scan_cache_dir
+    except ImportError:
+        return []
+
+    try:
+        info = scan_cache_dir()
+    except Exception:  # noqa: BLE001 — cache absent ou corrompu
+        return []
+
+    result: list[CachedModel] = []
+    for repo in info.repos:
+        if getattr(repo, "repo_type", "model") != "model":
+            continue
+        known = find_model(repo.repo_id)
+        result.append(
+            CachedModel(
+                repo_id=repo.repo_id,
+                size_bytes=int(repo.size_on_disk),
+                label=known.label if known else repo.repo_id,
+                in_catalog=known is not None,
+            )
+        )
+    result.sort(key=lambda m: -m.size_bytes)
+    return result
+
+
+def total_cache_size() -> int:
+    """Occupation totale du cache HuggingFace, en octets."""
+    return sum(m.size_bytes for m in scan_cached_models())
+
+
+def delete_cached_model(repo_id: str) -> int:
+    """Supprime un modèle du cache. Retourne le nombre d'octets libérés.
+
+    L'appelant est responsable de vérifier que le modèle n'est pas en cours
+    d'utilisation — cf. `models_in_use`. On ne le vérifie pas ici pour garder
+    la fonction sans dépendance à la config.
+    """
+    from huggingface_hub import scan_cache_dir
+
+    info = scan_cache_dir()
+    revisions = [
+        rev.commit_hash
+        for repo in info.repos
+        if repo.repo_id == repo_id
+        for rev in repo.revisions
+    ]
+    if not revisions:
+        return 0
+
+    strategy = info.delete_revisions(*revisions)
+    freed = int(strategy.expected_freed_size)
+    strategy.execute()
+    return freed
+
+
+def models_in_use(dictation_repo: str, file_repo: str) -> set[str]:
+    """Les modèles qu'il ne faut pas proposer à la suppression.
+
+    Inclut le repli de traduction : `VoxtralTranscriber` délègue à Whisper
+    quand on demande une traduction, donc le supprimer casserait cette
+    fonction sans que le lien soit évident pour l'utilisateur.
+    """
+    from transcriber import WHISPER_TRANSLATE_REPO
+
+    return {dictation_repo, file_repo, WHISPER_TRANSLATE_REPO}
 
 
 def download_model(
