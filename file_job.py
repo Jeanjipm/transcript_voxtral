@@ -119,6 +119,7 @@ class FileJob:
         language: str = "auto",
         task: str = "transcribe",
         include_timestamps: bool = True,
+        diarization: bool = False,
     ) -> bool:
         """Démarre un job. Retourne False si un autre est déjà en cours."""
         with self._lock:
@@ -132,7 +133,7 @@ class FileJob:
             target=self._run,
             args=(
                 source, transcriber, model_name, output_dir, block_duration_s,
-                max_duration_s, language, task, include_timestamps,
+                max_duration_s, language, task, include_timestamps, diarization,
             ),
             daemon=True,
             name="file-job",
@@ -157,6 +158,7 @@ class FileJob:
         language: str,
         task: str,
         include_timestamps: bool,
+        diarization: bool,
     ) -> None:
         temp_audio: Path | None = None
         try:
@@ -194,6 +196,9 @@ class FileJob:
                 )
             )
 
+            if diarization and not self._cancel.is_set():
+                transcript = self._apply_diarization(transcript, audio_path)
+
             output_path = self._write_transcript(
                 transcript=transcript,
                 source=source,
@@ -220,6 +225,28 @@ class FileJob:
                     temp_audio.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def _apply_diarization(
+        self, transcript: FileTranscript, audio_path: Path
+    ) -> FileTranscript:
+        """Ajoute les étiquettes de locuteur. Best-effort.
+
+        Un échec de diarisation ne doit PAS faire perdre la transcription : on
+        logue et on rend le transcript sans étiquettes. Le texte est le
+        livrable ; les locuteurs sont un bonus.
+        """
+        import diarizer
+
+        try:
+            turns = self._run_transcription(
+                lambda: diarizer.diarize(audio_path)
+            )
+            transcript.segments = diarizer.assign_speakers(
+                transcript.segments, turns
+            )
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        return transcript
 
     def _finish(self, result: JobResult) -> None:
         with self._lock:

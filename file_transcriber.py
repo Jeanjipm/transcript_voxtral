@@ -284,6 +284,9 @@ def format_transcript(
         prefix = ""
         if include_timestamps:
             prefix = f"[{format_timestamp(paragraph[0].start)}] "
+        speaker = _paragraph_speaker(paragraph)
+        if speaker:
+            prefix = f"{prefix}{speaker} : "
         body = " ".join(s.text for s in paragraph).strip()
         if body:
             lines.append(f"{prefix}{body}")
@@ -292,11 +295,28 @@ def format_transcript(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _paragraph_speaker(paragraph: list[Segment]) -> str:
+    """Étiquette du locuteur d'un paragraphe, vide s'il n'y en a pas.
+
+    Import local : `diarizer` est une dépendance optionnelle côté modèle, mais
+    `speaker_label` est du pur formatage et toujours disponible. L'import est
+    quand même local pour ne pas créer de cycle avec `transcriber`.
+    """
+    speaker = paragraph[0].speaker
+    if speaker is None:
+        return ""
+    from diarizer import speaker_label
+
+    return speaker_label(speaker)
+
+
 def _paragraphs(segments: list[Segment]) -> list[list[Segment]]:
     """Regroupe les segments en paragraphes lisibles.
 
-    Rupture sur un silence notable, ou quand le paragraphe devient trop long
-    pour rester lisible.
+    Rupture sur un changement de locuteur, sur un silence notable, ou quand le
+    paragraphe devient trop long pour rester lisible. Le changement de locuteur
+    est la rupture la plus importante : mélanger deux personnes dans un même
+    paragraphe rendrait le transcript trompeur.
     """
     if not segments:
         return []
@@ -306,7 +326,12 @@ def _paragraphs(segments: list[Segment]) -> list[list[Segment]]:
 
     for previous, current in zip(segments, segments[1:]):
         gap = current.start - previous.end
-        if gap > _PARAGRAPH_GAP_S or length > _PARAGRAPH_MAX_CHARS:
+        speaker_changed = current.speaker != previous.speaker
+        if (
+            speaker_changed
+            or gap > _PARAGRAPH_GAP_S
+            or length > _PARAGRAPH_MAX_CHARS
+        ):
             groups.append([current])
             length = len(current.text)
         else:

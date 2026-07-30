@@ -584,6 +584,27 @@ class VoxtralApp(rumps.App):
             return
 
         cfg = self.config.file_transcription
+
+        # Prévenir AVANT de lancer un job de plusieurs minutes : découvrir à
+        # la fin que les locuteurs n'ont pas été identifiés serait pénible.
+        if cfg.diarization:
+            import diarizer
+
+            if not diarizer.is_available():
+                response = rumps.alert(
+                    title="Identification des locuteurs indisponible",
+                    message=(
+                        "Le paquet « mlx-audio » n'est pas installé, les "
+                        "locuteurs ne seront pas identifiés.\n\n"
+                        "Pour l'activer :\n"
+                        "  ~/.voxtral/venv/bin/pip install mlx-audio\n\n"
+                        "Transcrire quand même ?"
+                    ),
+                    ok="Transcrire",
+                    cancel="Annuler",
+                )
+                if response != 1:
+                    return
         started = self.file_job.submit(
             source=source,
             transcriber=self._get_file_transcriber(),
@@ -594,6 +615,7 @@ class VoxtralApp(rumps.App):
             language=self.config.transcription.language,
             task=self.config.transcription.task,
             include_timestamps=cfg.include_timestamps,
+            diarization=cfg.diarization,
         )
         if not started:
             return

@@ -75,7 +75,9 @@ file_transcription:
   # Préfixer chaque paragraphe par [hh:mm:ss] dans le .txt.
   include_timestamps: true
   # Identifier les locuteurs (« Locuteur 1 », « Locuteur 2 »…).
-  # Nécessite un paquet supplémentaire, désactivé par défaut.
+  # Nécessite un paquet supplémentaire, d'où le false par défaut :
+  #   ~/.voxtral/venv/bin/pip install mlx-audio
+  # Limite : 4 locuteurs maximum. Coût : ~15 s pour une heure d'audio.
   diarization: false
 
 offline:

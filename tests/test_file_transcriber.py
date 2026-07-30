@@ -468,3 +468,48 @@ def test_default_block_is_several_minutes():
 
     default = inspect.signature(transcribe_file).parameters["block_duration_s"].default
     assert default >= 120
+
+
+# ---- Locuteurs dans le .txt ----
+
+
+def test_format_prefixes_speaker_labels():
+    """Étiquettes numérotées à partir de 1, après l'horodatage."""
+    out = format_transcript(
+        FileTranscript(
+            segments=[Segment(0.0, 5.0, "Bonjour à tous.", speaker=0)],
+            duration_s=10.0,
+        ),
+        source_name="a.wav", model_name="m", generated_at="x",
+    )
+    assert "[00:00:00] Locuteur 1 : Bonjour à tous." in out
+
+
+def test_format_splits_paragraph_on_speaker_change():
+    """Mélanger deux personnes dans un même paragraphe rendrait le transcript
+    trompeur : le changement de locuteur est une rupture obligatoire, même
+    sans silence entre les deux."""
+    out = format_transcript(
+        FileTranscript(
+            segments=[
+                Segment(0.0, 4.0, "Bonjour Amélie.", speaker=0),
+                Segment(4.1, 8.0, "Bonjour Thomas.", speaker=1),
+            ],
+            duration_s=10.0,
+        ),
+        source_name="a.wav", model_name="m", generated_at="x",
+    )
+    assert "Locuteur 1 : Bonjour Amélie." in out
+    assert "Locuteur 2 : Bonjour Thomas." in out
+
+
+def test_format_omits_speaker_when_unknown():
+    """Sans diarisation, aucun préfixe parasite."""
+    out = format_transcript(
+        FileTranscript(
+            segments=[Segment(0.0, 5.0, "Bonjour.")], duration_s=10.0
+        ),
+        source_name="a.wav", model_name="m", generated_at="x",
+    )
+    assert "Locuteur" not in out
+    assert "Bonjour." in out

@@ -79,6 +79,31 @@ iPhone), `.mp3`, `.wav`, `.aiff`, `.caf`, `.flac`, et la piste audio d'un
 Tu peux continuer à dicter pendant qu'un fichier est en cours de
 transcription : la dictée passe devant.
 
+#### Identifier les locuteurs (optionnel)
+
+Pour un enregistrement à plusieurs voix, Voxtral peut préfixer chaque
+paragraphe par « Locuteur 1 », « Locuteur 2 »… Ça demande un paquet
+supplémentaire, donc c'est désactivé par défaut :
+
+```bash
+~/.voxtral/venv/bin/pip install mlx-audio
+```
+
+Puis dans `~/.voxtral/config.yaml`, mets `diarization: true` sous
+`file_transcription`, et relance l'app.
+
+À savoir :
+- **4 locuteurs maximum.** Au-delà, les voix en trop sont rabattues sur les
+  4 existantes.
+- Le coût en temps est négligeable — environ 15 secondes pour une heure
+  d'enregistrement.
+- La qualité dépend de la netteté des voix. Elle n'a pas pu être validée sur
+  de la vraie parole à plusieurs (les voix de synthèse macOS utilisées pour
+  les tests se ressemblent trop et sont fusionnées en un seul locuteur) :
+  vérifie le résultat sur un de tes enregistrements avant de compter dessus.
+- Si l'identification échoue, la transcription reste écrite, simplement sans
+  les étiquettes.
+
 ### Changer le raccourci, la langue, le modèle…
 
 Clique l'icône 🎤 → **Préférences…**

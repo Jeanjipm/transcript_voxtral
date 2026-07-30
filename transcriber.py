@@ -32,11 +32,17 @@ AUDIO_SAMPLE_RATE = 16_000
 
 @dataclass(frozen=True)
 class Segment:
-    """Un passage transcrit, horodaté en secondes depuis le début de l'audio."""
+    """Un passage transcrit, horodaté en secondes depuis le début de l'audio.
+
+    `speaker` reste None sauf si l'identification des locuteurs a tourné
+    (cf. diarizer.py) ; il est indexé à partir de 0 côté modèle et affiché
+    à partir de 1.
+    """
 
     start: float
     end: float
     text: str
+    speaker: int | None = None
 
 
 @dataclass

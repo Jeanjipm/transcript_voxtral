@@ -39,10 +39,11 @@ Si tu veux juste un module :
 | `audio_convert.py` | 17 | afconvert, formats refusés par libsndfile, lecture par blocs |
 | `hf_offline.py` | 17 | détection du cache, bascule hors-ligne, résolution locale |
 | `clipboard.py` | 15 | paste_text, préservation clipboard, règle de thread |
+| `diarizer.py` | 14 | fusion locuteurs × segments, dégradation sans le paquet |
 | `inference_worker.py` | 13 | priorité, exclusion mutuelle, robustesse |
 | `transcriber.py` | 12 | factory, delegation translate, preload |
 
-**Total : 257 tests**
+**Total : 274 tests**
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui
 l'a révélée en docstring — par exemple « `on_hotkey_start` ne touche le
