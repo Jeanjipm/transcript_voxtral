@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import threading
+from unittest.mock import MagicMock
+
 import pytest
 import pynput.keyboard as kbd
 
+import hotkey_manager
 from hotkey_manager import (
     HotkeyManager,
     _is_single_key,
@@ -313,3 +317,127 @@ def test_display_combo_combination():
 def test_display_combo_unknown_named_falls_back():
     """Token inconnu → uppercase fallback."""
     assert display_combo("foo") == "FOO"
+
+
+# ---- Régression sprint 5 : réarmement après désactivation du tap ----
+
+
+@pytest.fixture
+def distinct_listeners(monkeypatch: pytest.MonkeyPatch):
+    """Remplace keyboard.Listener par une fabrique rendant des instances
+    DISTINCTES.
+
+    Le stub global de conftest est un MagicMock, dont chaque appel retourne
+    le MÊME `return_value` : impossible de vérifier qu'un listener a bien été
+    remplacé par un autre.
+    """
+    created: list = []
+
+    def factory(**_kwargs):
+        listener = MagicMock(name=f"Listener{len(created)}")
+        created.append(listener)
+        return listener
+
+    monkeypatch.setattr("hotkey_manager.keyboard.Listener", factory)
+    return created
+
+
+def _mgr(combo: str = "alt_r") -> HotkeyManager:
+    return HotkeyManager(combo=combo, on_start=lambda: None, on_stop=lambda: None)
+
+
+def test_rearm_recreates_the_listener(distinct_listeners):
+    """rearm() doit reconstruire le listener : c'est la seule façon d'obtenir
+    un CGEventTap neuf, pynput gardant le tap hors d'atteinte."""
+    mgr = _mgr()
+    mgr.start()
+    first = mgr._listener
+
+    assert mgr.rearm() is True
+    assert mgr._listener is not first
+    assert mgr._listener is distinct_listeners[1]
+    first.stop.assert_called_once()
+
+
+def test_rearm_is_rate_limited(distinct_listeners):
+    """Deux réarmements rapprochés = un seul effet. Sans ça, une cause de
+    blocage persistante ferait boucler la reconstruction."""
+    mgr = _mgr()
+    mgr.start()
+
+    assert mgr.rearm() is True
+    assert mgr.rearm() is False
+    assert len(distinct_listeners) == 2  # 1 au start + 1 au réarmement
+
+
+def test_rearm_allowed_again_after_the_interval(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    assert mgr.rearm() is True
+
+    # Simule le passage du temps au-delà de l'intervalle minimum.
+    mgr._last_rearm_at -= hotkey_manager._REARM_MIN_INTERVAL_S + 1.0
+    assert mgr.rearm() is True
+
+
+def test_rearm_preserves_the_combo(distinct_listeners):
+    mgr = _mgr("cmd+shift+h")
+    mgr.start()
+    mgr.rearm()
+    assert mgr.combo == "cmd+shift+h"
+    assert mgr._final_key == "h"
+
+
+def test_rearm_clears_pressed_keys(distinct_listeners):
+    """Le set des touches enfoncées doit repartir de zéro : les relâchements
+    survenus pendant que le tap était mort n'arriveront jamais."""
+    mgr = _mgr()
+    mgr.start()
+    _press(mgr, "alt_r")
+    assert mgr._pressed
+    assert mgr._active is True
+
+    mgr.rearm()
+    assert mgr._pressed == set()
+    assert mgr._active is False
+
+
+def test_stop_refuses_to_run_from_the_listener_thread(distinct_listeners, capsys):
+    """pynput.Listener EST un Thread et son callback tourne dessus : s'arrêter
+    depuis là se bloquerait sur le join. Le garde doit refuser l'appel."""
+    mgr = _mgr()
+    mgr.start()
+
+    # Fait croire au garde qu'on est sur le thread du listener.
+    mgr._listener = threading.current_thread()  # type: ignore[assignment]
+    mgr.stop()
+
+    assert "thread du listener" in capsys.readouterr().err
+    # L'appel a été refusé : le listener n'a pas été détaché.
+    assert mgr._listener is threading.current_thread()
+
+
+def test_stop_joins_the_listener(distinct_listeners):
+    """Sans join, update_binding laisse deux taps vivants jusqu'à 1 s, ce qui
+    délivre les appuis en double."""
+    mgr = _mgr()
+    mgr.start()
+    listener = mgr._listener
+
+    mgr.stop()
+
+    listener.stop.assert_called_once()
+    listener.join.assert_called_once()
+    assert listener.join.call_args.kwargs["timeout"] > 0
+    assert mgr._listener is None
+
+
+def test_stop_survives_join_runtimeerror(distinct_listeners):
+    """join() sur un thread jamais démarré lève RuntimeError : sans
+    conséquence, ne doit pas remonter."""
+    mgr = _mgr()
+    mgr.start()
+    mgr._listener.join.side_effect = RuntimeError("thread not started")
+
+    mgr.stop()  # ne doit pas lever
+    assert mgr._listener is None

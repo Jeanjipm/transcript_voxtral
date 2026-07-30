@@ -43,6 +43,17 @@ updates:
   # Mettre à false si tu ne veux aucun appel réseau (mode 100% offline).
   auto_check: true
 
+recording:
+  # Coupe-circuit anti-blocage : si le relâchement du raccourci n'est jamais
+  # reçu (macOS désactive parfois la surveillance clavier), l'enregistrement
+  # s'arrête tout seul au bout de ce délai, en secondes. L'audio est conservé
+  # dans ~/.voxtral/recordings/ et n'est pas collé — tu peux le transcrire
+  # ensuite via « Transcrire un fichier audio… ».
+  max_duration_s: 300
+  # Nombre de tentatives de reconstruction du micro s'il refuse de démarrer
+  # (casque branché ou débranché, Bluetooth, dock, sortie de veille).
+  start_retries: 1
+
 offline:
   # Si true (défaut) : quand le modèle est déjà téléchargé, plus aucun
   # accès réseau au chargement. Corrige le cas « pas de Wi-Fi » ou

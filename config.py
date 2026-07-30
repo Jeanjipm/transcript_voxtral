@@ -79,6 +79,19 @@ class UpdatesConfig:
 
 
 @dataclass
+class RecordingConfig:
+    # Coupe-circuit anti-blocage. Si le relâchement du raccourci n'arrive
+    # jamais — macOS désactive parfois la surveillance clavier, et pynput ne
+    # la réactive pas — on arrête l'enregistrement au bout de ce délai.
+    # L'audio est conservé dans ~/.voxtral/recordings/ et n'est PAS collé :
+    # coller cinq minutes de bruit serait pire que de perdre la dictée.
+    max_duration_s: int = 300
+    # Nombre de reconstructions du stream micro après un échec de démarrage
+    # (changement de périphérique : casque, Bluetooth, dock, sortie de veille).
+    start_retries: int = 1
+
+
+@dataclass
 class OfflineConfig:
     # Quand le modèle est déjà téléchargé, coupe tout accès réseau au
     # chargement. Sans ça, charger un modèle pourtant présent sur le disque
@@ -96,6 +109,7 @@ class Config:
     sounds: SoundsConfig = field(default_factory=SoundsConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     updates: UpdatesConfig = field(default_factory=UpdatesConfig)
+    recording: RecordingConfig = field(default_factory=RecordingConfig)
     offline: OfflineConfig = field(default_factory=OfflineConfig)
 
     def to_dict(self) -> dict[str, Any]:
@@ -127,6 +141,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         sounds=_build(SoundsConfig, data.get("sounds", {})),
         ui=_build(UIConfig, data.get("ui", {})),
         updates=_build(UpdatesConfig, data.get("updates", {})),
+        recording=_build(RecordingConfig, data.get("recording", {})),
         offline=_build(OfflineConfig, data.get("offline", {})),
     )
 
