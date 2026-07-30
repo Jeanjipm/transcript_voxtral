@@ -199,6 +199,37 @@ def scan_cached_models() -> list[CachedModel]:
     return result
 
 
+def cached_size_bytes(repo_id: str) -> int:
+    """Taille sur disque d'un modèle précis, en octets. 0 s'il est absent.
+
+    On parcourt le dossier directement plutôt que d'appeler `scan_cache_dir`,
+    qui inspecte tout le cache : ici on veut pouvoir interroger la taille
+    plusieurs fois par seconde pour animer une barre de progression pendant
+    un téléchargement.
+    """
+    folder = _repo_cache_dir(repo_id)
+    if folder is None or not folder.is_dir():
+        return 0
+    total = 0
+    for path in folder.rglob("*"):
+        try:
+            if path.is_file() and not path.is_symlink():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _repo_cache_dir(repo_id: str) -> Path | None:
+    """Dossier du cache HuggingFace correspondant à `repo_id`."""
+    try:
+        from huggingface_hub import constants
+    except ImportError:
+        return None
+    safe = "models--" + repo_id.replace("/", "--")
+    return Path(constants.HF_HUB_CACHE) / safe
+
+
 def total_cache_size() -> int:
     """Occupation totale du cache HuggingFace, en octets."""
     return sum(m.size_bytes for m in scan_cached_models())
@@ -243,7 +274,7 @@ def models_in_use(dictation_repo: str, file_repo: str) -> set[str]:
 
 def download_model(
     repo_id: str,
-    models_root: Path,  # noqa: ARG001 — conservé pour compat. des appelants
+    models_root: Path | None = None,  # noqa: ARG001 — compat. des appelants
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     """

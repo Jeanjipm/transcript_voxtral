@@ -63,7 +63,7 @@ tout moment — le texte déjà transcrit est conservé.
 
 ```
 Transcription — reunion.m4a
-Modèle : mlx-community/whisper-large-v3-mlx
+Modèle : mlx-community/whisper-large-v3-turbo
 Durée : 00:35:12 — généré le 30/07/2026 à 14:22
 Langue : fr
 
@@ -92,39 +92,34 @@ supplémentaire, donc c'est désactivé par défaut :
 Puis dans `~/.voxtral/config.yaml`, mets `diarization: true` sous
 `file_transcription`, et relance l'app.
 
-À savoir :
-- **4 locuteurs maximum.** Au-delà, les voix en trop sont rabattues sur les
-  4 existantes.
-- Le coût en temps est négligeable — environ 15 secondes pour une heure
-  d'enregistrement.
-- La qualité dépend de la netteté des voix. Elle n'a pas pu être validée sur
-  de la vraie parole à plusieurs (les voix de synthèse macOS utilisées pour
-  les tests se ressemblent trop et sont fusionnées en un seul locuteur) :
-  vérifie le résultat sur un de tes enregistrements avant de compter dessus.
-- Si l'identification échoue, la transcription reste écrite, simplement sans
-  les étiquettes.
+⚠️ **Actuellement peu fiable, et désactivé pour cette raison.** Le seul
+modèle disponible sur MLX ne distingue que des voix très différentes :
+mesuré, il lui faut environ 40 % d'écart de hauteur — près d'une octave —
+alors qu'une voix masculine et une voix féminine ne sont pas séparées. Un
+test sur un enregistrement réel à deux voix a échoué.
+
+Le code est en place et le jour où un moteur fiable sera intégré
+(pyannote), il suffira de le brancher. En attendant, ne compte pas dessus.
+Si l'identification échoue, la transcription reste écrite, simplement sans
+les étiquettes.
 
 ### Changer le raccourci, la langue, le modèle…
 
 Clique l'icône 🎤 → **Préférences…**
 
 Onglets :
-- **Modèles** : deux choix distincts — le modèle de la **dictée**, et celui
-  des **fichiers audio**. Les listes diffèrent : seuls les modèles Whisper
-  produisent des horodatages, indispensables pour se repérer dans un long
-  enregistrement.
-- **Stockage** : l'espace occupé par chaque modèle téléchargé, et un bouton
-  pour supprimer ceux qui ne servent plus. Le cache n'efface jamais rien
-  tout seul — sans cet écran on accumule des dizaines de Go sans le voir.
-- **Langue** : auto-détection ou langue forcée (fr, en, de, es, …) ;
-  tâche transcription ou traduction vers anglais.
-- **Raccourci** : touche unique tenue (talkie-walkie) ou combinaison
-  (ex. `alt+space`). Mode push-to-talk — maintenir pour enregistrer.
-- **Sons** : activer/désactiver, volume.
+- **Dictée** : le raccourci, la langue, ce qui se passe avec le texte
+  (collé au curseur ou seulement copié), et les sons — avec un bouton
+  « Écouter » pour régler le volume sans deviner.
 - **Fichiers** : dossier de destination des `.txt`, horodatage des
-  paragraphes, durée maximale acceptée. (Le modèle se choisit dans
-  l'onglet Modèles.)
-- **Avancé** : longueur max de transcription, collage auto.
+  paragraphes, durée maximale acceptée.
+- **Modèles** : quel modèle pour la dictée, lequel pour les fichiers, et la
+  place que chacun occupe sur le disque — avec un bouton pour supprimer
+  ceux qui ne servent plus. Choisir un modèle absent propose son
+  téléchargement immédiat, avec une barre de progression.
+- **Avancé** : réglages fins (fin de phrase conservée, durée maximale d'une
+  dictée, longueur du texte, vérification des mises à jour).
+- **À propos** : aide-mémoire et lien vers le code source.
 
 Les changements sont appliqués automatiquement en quelques secondes
 (hot-reload) — pas besoin de redémarrer l'app.
@@ -152,11 +147,11 @@ python ~/.voxtral/app/download_model.py --list
 | Symptôme | Cause probable | Solution |
 |---|---|---|
 | Le raccourci ne fait rien | Accessibilité non autorisée | Réglages Système → Confidentialité → Accessibilité → cocher Voxtral / Terminal / Python |
-| Pas de son `Tink` au début | Sons désactivés ou volume à 0 | Préférences → onglet Sons |
+| Pas de son `Tink` au début | Sons désactivés ou volume à 0 | Préférences → Dictée → Sons |
 | Texte vide après dictée | Trop court (< 0.5s) ou silence | Reparler plus longtemps ; vérifier le micro dans Réglages → Son |
 | « Modèle introuvable » | Téléchargement interrompu | `python download_model.py` pour relancer |
 | App lente la 1ʳᵉ fois | Modèle MLX se charge en RAM | Normal, quelques secondes à la 1ʳᵉ dictée seulement |
-| Caractères spéciaux (é, ñ) cassés en dictée | Conflit Right Option | Choisir un autre raccourci dans Préférences (ex. F13 ou `cmd+shift+h`) |
+| Caractères spéciaux (é, ñ) cassés en dictée | Conflit Right Option | Choisir un autre raccourci dans Préférences → Dictée (ex. F13) |
 
 ### Logs
 
@@ -212,6 +207,6 @@ Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
 - **Code Voxtral Dictée** : MIT.
 - **Modèle Voxtral Mini 3B** : CC BY-NC 4.0 (usage **non commercial**
   uniquement). Pour un usage commercial, bascule sur Whisper Large V3
-  (MIT) dans Préférences → Modèle.
+  (MIT) dans Préférences → Modèles.
 - **Whisper Large V3** : MIT (OpenAI). Supporte transcription et
   traduction vers l'anglais.

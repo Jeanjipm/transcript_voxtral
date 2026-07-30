@@ -223,3 +223,59 @@ def test_delete_unknown_repo_is_a_noop(monkeypatch: pytest.MonkeyPatch):
 
     assert mm.delete_cached_model("org/absent") == 0
     info.delete_revisions.assert_not_called()
+
+
+# ---- cached_size_bytes : alimente la barre de progression ----
+
+
+def test_cached_size_sums_real_files(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    repo_dir = tmp_path / "models--org--modele" / "blobs"
+    repo_dir.mkdir(parents=True)
+    (repo_dir / "a.bin").write_bytes(b"x" * 1000)
+    (repo_dir / "b.bin").write_bytes(b"y" * 500)
+
+    hub = MagicMock()
+    hub.constants.HF_HUB_CACHE = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    assert mm.cached_size_bytes("org/modele") == 1500
+
+
+def test_cached_size_ignores_symlinks(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """Le cache HF fait pointer snapshots/ vers blobs/ par liens symboliques :
+    les compter doublerait la taille annoncée, donc la progression."""
+    repo_dir = tmp_path / "models--org--modele"
+    blobs = repo_dir / "blobs"
+    snaps = repo_dir / "snapshots" / "abc"
+    blobs.mkdir(parents=True)
+    snaps.mkdir(parents=True)
+    (blobs / "poids.bin").write_bytes(b"z" * 2000)
+    (snaps / "poids.bin").symlink_to(blobs / "poids.bin")
+
+    hub = MagicMock()
+    hub.constants.HF_HUB_CACHE = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    assert mm.cached_size_bytes("org/modele") == 2000
+
+
+def test_cached_size_zero_for_absent_model(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    hub = MagicMock()
+    hub.constants.HF_HUB_CACHE = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    assert mm.cached_size_bytes("org/jamais-vu") == 0
+
+
+def test_cached_size_zero_without_hub(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+    assert mm.cached_size_bytes("org/modele") == 0
+
+
+def test_download_model_does_not_require_models_root(monkeypatch: pytest.MonkeyPatch):
+    """La signature garde models_root pour les anciens appelants, mais la
+    fenêtre de téléchargement l'appelle sans."""
+    import inspect
+
+    param = inspect.signature(mm.download_model).parameters["models_root"]
+    assert param.default is None

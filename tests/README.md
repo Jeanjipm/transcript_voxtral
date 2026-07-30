@@ -41,10 +41,10 @@ Si tu veux juste un module :
 | `clipboard.py` | 15 | paste_text, préservation clipboard, règle de thread |
 | `diarizer.py` | 14 | fusion locuteurs × segments, dégradation sans le paquet |
 | `inference_worker.py` | 13 | priorité, exclusion mutuelle, robustesse |
-| `model_manager.py` | 25 | catalogue, usages dictée/fichiers, scan et purge du cache |
+| `model_manager.py` | 30 | catalogue, usages dictée/fichiers, scan et purge du cache |
 | `transcriber.py` | 15 | factory, delegation translate, garde-fou turbo |
 
-**Total : 312 tests**
+**Total : 317 tests**
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui
 l'a révélée en docstring — par exemple « `on_hotkey_start` ne touche le
@@ -61,6 +61,8 @@ Ne pas les alléger sans lire le pourquoi.
   s'écrasent silencieusement — vérifier le menu à l'œil après ajout.
 - `audio_feedback.py` — dépend de NSSound, idem.
 - `file_picker.py` — NSOpenPanel, main thread uniquement, testé à la main.
-- `settings_ui.py` — UI tkinter, testée à la main.
+- `settings_ui.py` — UI tkinter, testée à la main. La logique testable en
+  a été sortie : conversion libellé ↔ code technique et calcul de
+  progression vivent dans `model_manager`, qui est couvert.
 - Comportements vraiment system : capture micro réel, paste Cmd+V,
   permissions TCC. Ne se mockent pas — testés à la main sur Mac.
