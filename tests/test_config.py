@@ -239,3 +239,98 @@ def test_config_to_dict_roundtrip():
     cfg2 = _dict_to_config(d)
     assert cfg2.hotkey.combo == "f13"
     assert cfg2.sounds.enabled is False
+
+
+# ---- save_config : n'écrit que les écarts (sinon les defauts ne passent plus) ----
+
+
+def test_save_writes_only_overrides(tmp_path: Path):
+    """Régression constatée en vrai : save_config écrivait les ~20 clés, donc
+    ouvrir Préférences une fois figeait TOUTES les valeurs et l'utilisateur ne
+    recevait plus jamais aucun nouveau défaut lors des mises à jour."""
+    import yaml as _yaml
+
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text(
+        "model:\n  name: defaut/modele\nhotkey:\n  combo: alt_r\n",
+        encoding="utf-8",
+    )
+    user_path = tmp_path / "user.yaml"
+
+    cfg = load_config(user_path=user_path, default_path=default_path)
+    cfg.hotkey.combo = "cmd+shift+h"  # seul choix délibéré
+
+    import config as cfgmod
+
+    monkey_defaults = cfgmod.DEFAULT_CONFIG_PATH
+    cfgmod.DEFAULT_CONFIG_PATH = default_path
+    try:
+        save_config(cfg, user_path=user_path)
+    finally:
+        cfgmod.DEFAULT_CONFIG_PATH = monkey_defaults
+
+    written = _yaml.safe_load(user_path.read_text(encoding="utf-8")) or {}
+    assert written == {"hotkey": {"combo": "cmd+shift+h"}}
+
+
+def test_save_with_no_override_writes_no_key(tmp_path: Path):
+    """Aucun réglage personnalisé : le fichier ne doit épingler aucune clé."""
+    import yaml as _yaml
+
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text("model:\n  name: defaut/modele\n", encoding="utf-8")
+    user_path = tmp_path / "user.yaml"
+
+    import config as cfgmod
+
+    saved = cfgmod.DEFAULT_CONFIG_PATH
+    cfgmod.DEFAULT_CONFIG_PATH = default_path
+    try:
+        cfg = load_config(user_path=user_path, default_path=default_path)
+        save_config(cfg, user_path=user_path)
+    finally:
+        cfgmod.DEFAULT_CONFIG_PATH = saved
+
+    assert (_yaml.safe_load(user_path.read_text(encoding="utf-8")) or {}) == {}
+
+
+def test_new_default_reaches_a_user_who_saved_before(tmp_path: Path):
+    """Le scénario complet : l'utilisateur enregistre un réglage, puis une mise
+    à jour change un défaut — il doit en bénéficier."""
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text(
+        "model:\n  name: ancien/modele\nsounds:\n  volume: 0.5\n",
+        encoding="utf-8",
+    )
+    user_path = tmp_path / "user.yaml"
+
+    import config as cfgmod
+
+    saved = cfgmod.DEFAULT_CONFIG_PATH
+    cfgmod.DEFAULT_CONFIG_PATH = default_path
+    try:
+        cfg = load_config(user_path=user_path, default_path=default_path)
+        cfg.sounds.volume = 0.9  # choix délibéré
+        save_config(cfg, user_path=user_path)
+    finally:
+        cfgmod.DEFAULT_CONFIG_PATH = saved
+
+    # Mise à jour de l'app : le modèle par défaut change.
+    default_path.write_text(
+        "model:\n  name: nouveau/modele\nsounds:\n  volume: 0.5\n",
+        encoding="utf-8",
+    )
+    reloaded = load_config(user_path=user_path, default_path=default_path)
+
+    assert reloaded.model.name == "nouveau/modele"  # le défaut est bien passé
+    assert reloaded.sounds.volume == 0.9  # le choix délibéré est préservé
+
+
+def test_diff_removes_emptied_sections():
+    from config import _diff_from_defaults
+
+    result = _diff_from_defaults(
+        {"a": {"x": 1, "y": 2}, "b": {"z": 3}},
+        {"a": {"x": 1, "y": 2}, "b": {"z": 9}},
+    )
+    assert result == {"b": {"z": 3}}

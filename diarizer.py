@@ -12,21 +12,47 @@ modèle. Pour un utilisateur non-développeur — et plus encore pour distribuer
 l'outil à des amis — c'est un blocage net. Sortformer est public, sans
 compte ni token.
 
-## Ce qui est mesuré, et ce qui ne l'est pas
+## ⚠️ CE PORTAGE N'EST PAS EXPLOITABLE EN L'ÉTAT
 
-Mesuré sur cette machine :
-- 600 s d'audio diarisés en 2,7 s (224× le temps réel), donc une heure
-  d'enregistrement coûte une quinzaine de secondes ;
-- sur deux voix franchement distinctes, les deux locuteurs sont correctement
-  séparés.
+Testé, et il échoue sur son cas d'usage principal. Mesuré en faisant varier la
+hauteur de la seconde voix (même phrase, même enregistrement de départ) :
 
-**Non validé** : la qualité sur de la vraie parole humaine à plusieurs. Les
-voix de synthèse macOS (`say`) partagent le même moteur et se ressemblent
-trop — Sortformer les a fusionnées en un seul locuteur. Ce n'est donc pas un
-matériel de test représentatif, et la qualité réelle reste à confirmer sur un
-enregistrement authentique.
+| Écart de hauteur | Locuteurs détectés | Probabilité du canal 2 |
+|---|---|---|
+| ×1,00 (voix identique) | 1 | 0,0002 |
+| ×1,05 | 1 | 0,0001 |
+| ×1,10 | 1 | 0,0002 |
+| ×1,20 | 1 | 0,17 |
+| ×1,40 | 2 | 0,995 |
+| ×1,60 | 2 | 0,9999 |
 
-## Limites à connaître
+Il ne sépare donc qu'au-delà d'environ **40 % d'écart de hauteur**, soit près
+d'une octave — très au-delà de ce qui distingue deux personnes réelles. Une
+voix masculine et une voix féminine ne sont PAS séparées, et un test
+utilisateur sur un enregistrement réel à deux voix a également échoué.
+
+Ce n'est pas un seuil à ajuster : la détection d'activité vocale (le découpage
+en segments de parole) est correcte, seule l'attribution des locuteurs
+s'effondre. Symptôme typique d'un défaut de prétraitement dans le portage, qui
+détruit l'information de timbre en préservant les différences spectrales
+grossières. Vérifié aussi en fp32 : même résultat, ce n'est pas une saturation
+fp16.
+
+Ce module reste en place — le code de fusion (`assign_speakers`) est correct et
+réutilisable avec un autre moteur — mais la fonctionnalité doit rester
+**désactivée par défaut** et signalée comme expérimentale tant qu'un backend
+fiable n'a pas remplacé Sortformer. La piste sérieuse est `pyannote.audio`
+(~10 % de DER en conditions réelles), au prix d'un compte HuggingFace et de
+l'acceptation d'une licence.
+
+## Ce qui fonctionne quand même
+
+- **Performance** : 600 s d'audio diarisés en 2,7 s (224× le temps réel), donc
+  une heure d'enregistrement coûterait une quinzaine de secondes.
+- **La détection de parole** est juste : les frontières de segments
+  correspondent bien aux tours de parole.
+
+## Limites structurelles
 
 - **4 locuteurs maximum.** Au-delà, les voix supplémentaires sont rabattues
   sur les 4 canaux existants.

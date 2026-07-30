@@ -144,11 +144,13 @@ class DictationController:
         callbacks: DictationCallbacks,
         max_duration_s: int = 300,
         recordings_dir: Path | None = None,
+        tail_padding_ms: int = 350,
     ) -> None:
         self._recorder = recorder
         self._feedback = feedback
         self._cb = callbacks
         self._max_duration_s = max_duration_s
+        self._tail_padding_ms = tail_padding_ms
         self._recordings_dir = recordings_dir or (
             Path.home() / ".voxtral" / "recordings"
         )
@@ -318,6 +320,15 @@ class DictationController:
         if self._state is not State.RECORDING:
             self._log_drop("stop", self._state)
             return
+
+        # On continue d'enregistrer un court instant après le relâchement.
+        # Mesuré : sans ça, le micro s'arrêtait 0,1 ms après le relâchement,
+        # alors qu'on lâche la touche en finissant de prononcer le dernier mot
+        # — la fin de phrase était donc systématiquement tronquée en pleine
+        # syllabe. On est sur `dictation-worker`, donc cette attente ne bloque
+        # ni la menu bar ni le callback clavier.
+        if self._tail_padding_ms > 0:
+            time.sleep(self._tail_padding_ms / 1000.0)
 
         wav_path = self._recorder.stop()
         self._state = State.IDLE

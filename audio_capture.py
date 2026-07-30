@@ -72,11 +72,13 @@ class AudioRecorder:
         channels: int = CHANNELS,
         dtype: str = DTYPE,
         start_retries: int = DEFAULT_START_RETRIES,
+        silence_padding_ms: int = 0,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
         self.dtype = dtype
         self.start_retries = start_retries
+        self.silence_padding_ms = silence_padding_ms
         self._stream: sd.InputStream | None = None
         self._chunks: list[np.ndarray] = []
         self._state_lock = threading.Lock()
@@ -271,8 +273,24 @@ class AudioRecorder:
         except Exception:  # noqa: BLE001
             pass
 
+    def _pad(self, audio: np.ndarray) -> np.ndarray:
+        """Ajoute du silence de chaque côté de l'enregistrement.
+
+        Les modèles de reconnaissance vocale sont entraînés sur des fenêtres
+        rembourrées de silence et se comportent mal quand la parole commence
+        ou finit exactement au bord du fichier — le premier ou le dernier mot
+        y perd des phonèmes. Quelques centaines de millisecondes de zéros
+        coûtent 8 Ko et suppriment cette classe d'erreur.
+        """
+        if self.silence_padding_ms <= 0 or audio.shape[0] == 0:
+            return audio
+        pad_frames = int(self.sample_rate * self.silence_padding_ms / 1000)
+        silence = np.zeros((pad_frames, self.channels), dtype=self.dtype)
+        return np.concatenate([silence, audio, silence], axis=0)
+
     def _write_wav(self, audio: np.ndarray) -> Path:
         """Écrit `audio` dans un WAV temporaire et retourne son chemin."""
+        audio = self._pad(audio)
         # mkstemp renvoie (fd, path) : on ferme le fd immédiatement pour
         # éviter une fuite de descripteur à chaque dictée (soundfile
         # rouvre le fichier en écriture indépendamment).

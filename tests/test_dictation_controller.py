@@ -418,3 +418,61 @@ def test_start_is_idempotent(recorder, feedback, cb, tmp_path):
         assert ctrl._thread is thread
     finally:
         ctrl.shutdown(wait=True)
+
+
+# ---- Post-roll : la fin de phrase tronquée ----
+
+
+def test_stop_waits_before_stopping_the_microphone(
+    recorder, feedback, cb, tmp_path: Path
+):
+    """Régression mesurée : le micro s'arrêtait 0,1 ms après le relâchement,
+    alors qu'on lâche la touche en finissant de prononcer le dernier mot — la
+    fin de phrase était coupée en pleine syllabe."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec", tail_padding_ms=200,
+    )
+    ctrl._handle_start()
+
+    started = time.perf_counter()
+    ctrl._handle_stop()
+    elapsed = time.perf_counter() - started
+
+    assert elapsed >= 0.2, f"le micro s'est arrêté après seulement {elapsed*1000:.0f} ms"
+    recorder.stop.assert_called_once()
+
+
+def test_zero_tail_padding_stops_immediately(
+    recorder, feedback, cb, tmp_path: Path
+):
+    """Réglable à 0 pour qui préfère la latence minimale."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec", tail_padding_ms=0,
+    )
+    ctrl._handle_start()
+
+    started = time.perf_counter()
+    ctrl._handle_stop()
+
+    assert time.perf_counter() - started < 0.1
+
+
+def test_tail_padding_not_applied_on_max_duration_cut(
+    recorder, feedback, cb, tmp_path: Path
+):
+    """Coupure pour dépassement : inutile d'attendre encore, l'utilisateur ne
+    tient plus la touche depuis longtemps."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        max_duration_s=1, recordings_dir=tmp_path / "recordings",
+        tail_padding_ms=2000,
+    )
+    ctrl._handle_start()
+    ctrl._recording_started_at = time.monotonic() - 5.0
+
+    started = time.perf_counter()
+    ctrl._on_tick()
+
+    assert time.perf_counter() - started < 0.5

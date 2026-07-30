@@ -53,6 +53,15 @@ recording:
   # Nombre de tentatives de reconstruction du micro s'il refuse de démarrer
   # (casque branché ou débranché, Bluetooth, dock, sortie de veille).
   start_retries: 1
+  # On continue d'enregistrer ce délai (en millisecondes) APRÈS que tu as
+  # relâché le raccourci. Sans ça la fin de phrase est coupée : on lâche la
+  # touche en finissant de prononcer le dernier mot. Augmente si tes fins de
+  # phrase sont encore rognées ; diminue si tu trouves la dictée trop lente.
+  tail_padding_ms: 350
+  # Silence ajouté de chaque côté de l'enregistrement avant transcription.
+  # Les modèles se comportent mal quand la parole démarre ou finit pile au
+  # bord du fichier — le premier ou le dernier mot y perd des sons.
+  silence_padding_ms: 250
 
 file_transcription:
   # Transcription d'un fichier audio déjà enregistré, via
@@ -61,7 +70,10 @@ file_transcription:
   # Modèle dédié aux fichiers. Whisper est choisi parce qu'il fournit des
   # HORODATAGES, ce que Voxtral ne sait pas faire — sans eux, pas de repères
   # dans le .txt ni d'identification des locuteurs.
-  model: "mlx-community/whisper-large-v3-mlx"
+  # Turbo mesuré à 64x le temps réel contre 17x pour large-v3, avec une
+  # fidélité légèrement meilleure sur du français. Bascule automatiquement sur
+  # large-v3 si tu demandes la traduction, que turbo ne sait pas faire.
+  model: "mlx-community/whisper-large-v3-turbo"
   # Dossier où sont écrits les .txt.
   output_dir: "~/Documents/Voxtral"
   # Durée d'un bloc traité d'un coup, en secondes. Volontairement large :
@@ -75,9 +87,12 @@ file_transcription:
   # Préfixer chaque paragraphe par [hh:mm:ss] dans le .txt.
   include_timestamps: true
   # Identifier les locuteurs (« Locuteur 1 », « Locuteur 2 »…).
-  # Nécessite un paquet supplémentaire, d'où le false par défaut :
-  #   ~/.voxtral/venv/bin/pip install mlx-audio
-  # Limite : 4 locuteurs maximum. Coût : ~15 s pour une heure d'audio.
+  #
+  # ⚠️ EXPÉRIMENTAL ET ACTUELLEMENT PEU FIABLE. Le modèle disponible sur MLX
+  # ne sépare que des voix très différentes (mesuré : au-delà d'environ 40 %
+  # d'écart de hauteur, soit près d'une octave). Une voix masculine et une voix
+  # féminine ne sont pas distinguées. Laisse à false jusqu'à ce qu'un moteur
+  # plus fiable soit intégré — cf. l'en-tête de diarizer.py pour les mesures.
   diarization: false
 
 offline:

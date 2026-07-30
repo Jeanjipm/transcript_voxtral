@@ -79,7 +79,7 @@ from inference_worker import (
     InferenceWorker,
 )
 from model_manager import find_model
-from transcriber import Transcriber, make_transcriber
+from transcriber import Transcriber, make_transcriber, repo_for_task
 import updater
 
 
@@ -201,7 +201,8 @@ class VoxtralApp(rumps.App):
 
         # 2) Composants audio + transcription
         self.recorder = AudioRecorder(
-            start_retries=self.config.recording.start_retries
+            start_retries=self.config.recording.start_retries,
+            silence_padding_ms=self.config.recording.silence_padding_ms,
         )
         self.feedback = AudioFeedback(self.config)
         self.transcriber: Transcriber = make_transcriber(self.config)
@@ -225,6 +226,7 @@ class VoxtralApp(rumps.App):
                 on_recording_kept=self._on_recording_kept,
             ),
             max_duration_s=self.config.recording.max_duration_s,
+            tail_padding_ms=self.config.recording.tail_padding_ms,
         )
         self.dictation.start()
 
@@ -321,6 +323,7 @@ class VoxtralApp(rumps.App):
         # second modèle (~3 Go) qu'on ne veut pas payer si la fonctionnalité
         # n'est jamais utilisée.
         self._file_transcriber: "Transcriber | None" = None
+        self._file_repo: str | None = None
 
         # 4) Raccourci global. on_start/on_stop tournent DANS le callback de
         # l'event tap macOS : ils ne font qu'une mise en file (cf. la docstring
@@ -640,15 +643,21 @@ class VoxtralApp(rumps.App):
         mêmes poids.
         """
         cfg = self.config.file_transcription
-        if cfg.model == self.config.model.name:
+        # Un modèle turbo ne sait pas traduire : on le corrige avant de
+        # construire quoi que ce soit, sinon l'utilisateur obtiendrait du texte
+        # dans la langue d'origine sans le moindre avertissement.
+        repo = repo_for_task(cfg.model, self.config.transcription.task)
+
+        if repo == self.config.model.name:
             return self.transcriber
-        if self._file_transcriber is None:
+        if self._file_transcriber is None or self._file_repo != repo:
             hf_offline.refresh(
-                cfg.model, prefer_offline=self.config.offline.prefer_offline
+                repo, prefer_offline=self.config.offline.prefer_offline
             )
             file_config = load_config()
-            file_config.model.name = cfg.model
+            file_config.model.name = repo
             self._file_transcriber = make_transcriber(file_config)
+            self._file_repo = repo
         return self._file_transcriber
 
     def _run_file_transcription(self, work):  # noqa: ANN001, ANN202

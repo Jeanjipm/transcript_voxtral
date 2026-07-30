@@ -69,6 +69,28 @@ class TranscriptionResult:
 # d'anglais pour task="translate".
 WHISPER_REPO = "mlx-community/whisper-large-v3-mlx"
 
+# Modèle imposé dès qu'on traduit, quelle que soit la config : les variantes
+# « turbo » sont distillées pour la transcription seule et rendent la langue
+# source au lieu de l'anglais quand on demande task="translate".
+WHISPER_TRANSLATE_REPO = WHISPER_REPO
+
+
+def repo_for_task(repo: str, task: str) -> str:
+    """Corrige le modèle si la tâche demandée n'est pas supportée par lui.
+
+    Évite un piège silencieux : un utilisateur qui règle la traduction et
+    laisse le modèle fichier par défaut (turbo) obtiendrait du texte dans la
+    langue d'origine, sans aucun message d'erreur.
+    """
+    if task == "translate" and "turbo" in repo.lower():
+        print(
+            f"[transcriber] '{repo}' ne sait pas traduire (modèle distillé) — "
+            f"repli sur {WHISPER_TRANSLATE_REPO}.",
+            file=sys.stderr,
+        )
+        return WHISPER_TRANSLATE_REPO
+    return repo
+
 
 class Transcriber(ABC):
     """Interface commune à tous les backends de transcription."""

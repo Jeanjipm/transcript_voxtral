@@ -463,3 +463,47 @@ def test_stop_keeps_audio_when_device_vanished(
     assert rec.is_recording is False
     assert rec._stream is None  # stream jeté, le prochain start reconstruira
     wav_path.unlink()
+
+
+# ---- Rembourrage de silence (fins de phrase tronquées) ----
+
+
+def test_silence_padding_extends_both_ends(mock_inputstream):
+    """Les modèles perdent des phonèmes quand la parole commence ou finit pile
+    au bord du fichier. On rembourre des deux côtés."""
+    import soundfile as _sf
+
+    rec = AudioRecorder(silence_padding_ms=250)
+    rec.start()
+    rec._on_audio(np.ones((16_000, 1), dtype="int16"), 16_000, None, None)
+    wav = rec.stop()
+
+    # 1 s de signal + 2 x 250 ms de silence
+    assert _sf.info(str(wav)).frames == 16_000 + 2 * 4_000
+    wav.unlink()
+
+
+def test_no_padding_when_disabled(mock_inputstream):
+    import soundfile as _sf
+
+    rec = AudioRecorder(silence_padding_ms=0)
+    rec.start()
+    rec._on_audio(np.ones((16_000, 1), dtype="int16"), 16_000, None, None)
+    wav = rec.stop()
+
+    assert _sf.info(str(wav)).frames == 16_000
+    wav.unlink()
+
+
+def test_padding_skipped_on_empty_recording(mock_inputstream):
+    """Un enregistrement vide doit rester vide : rembourrer du néant
+    produirait un WAV de silence pur que le pipeline prendrait pour de
+    l'audio à transcrire."""
+    import soundfile as _sf
+
+    rec = AudioRecorder(silence_padding_ms=250)
+    rec.start()
+    wav = rec.stop()
+
+    assert _sf.info(str(wav)).frames == 0
+    wav.unlink()
