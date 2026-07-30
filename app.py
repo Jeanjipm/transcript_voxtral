@@ -13,6 +13,7 @@ pour ne pas geler la menu bar.
 from __future__ import annotations
 
 import faulthandler
+import os
 import signal
 import subprocess
 import sys
@@ -63,7 +64,12 @@ import updater
 # Capture les crashs natifs (segfault MLX/pyobjc, OOM soft, etc.) en écrivant
 # la stack C/Python dans stderr (→ voxtral.log). faulthandler est actif aussi
 # longtemps que le process tourne.
-faulthandler.enable(sys.stderr)
+try:
+    faulthandler.enable(sys.stderr)
+except (RuntimeError, ValueError, AttributeError):
+    # Idem plus bas : sans fileno() réel sur stderr, faulthandler refuse.
+    # Pas bloquant, on perd juste les stacks natives.
+    pass
 
 
 def _log_exception(exc_type, exc_value, exc_tb) -> None:
@@ -80,17 +86,27 @@ threading.excepthook = lambda args: _log_exception(
 )
 
 
-def _log_signal(signum, frame) -> None:
-    print(f"[crash] signal {signum} reçu, stack:", file=sys.stderr)
-    traceback.print_stack(frame, file=sys.stderr)
-    sys.stderr.flush()
-    sys.exit(128 + signum)
-
-
-# SIGKILL ne se catch pas (kernel), mais SIGTERM/SIGHUP (arrêt propre,
-# logout, rotation logs) si. On logue avant de mourir.
+# SIGTERM/SIGHUP : on veut logger la stack avant de mourir, MAIS sans jamais
+# empêcher le process de mourir.
+#
+# Pourquoi pas signal.signal() (ce qu'on faisait avant) : un handler Python
+# ne s'exécute qu'à une frontière de bytecode DU THREAD PRINCIPAL. Or notre
+# main thread passe sa vie dans NSApp().run(), bloqué dans mach_msg2_trap :
+# le handler ne tournait donc jamais, alors qu'il avait déjà remplacé
+# l'action par défaut du signal. Résultat : `kill` et « Quitter » étaient
+# sans effet, seul « Forcer à quitter » (SIGKILL) fonctionnait.
+#
+# faulthandler.register pose un handler en C : il écrit immédiatement la
+# stack de tous les threads sans attendre l'interpréteur, puis chain=True
+# rétablit l'action précédente (ici SIG_DFL) et se re-signale → le process
+# meurt vraiment. On garde le diagnostic, on retrouve la tuabilité.
 for _sig in (signal.SIGTERM, signal.SIGHUP):
-    signal.signal(_sig, _log_signal)
+    try:
+        faulthandler.register(_sig, file=sys.stderr, all_threads=True, chain=True)
+    except (RuntimeError, ValueError, AttributeError):
+        # stderr sans fileno() réel (lancement sans redirection) : on laisse
+        # l'action par défaut, qui tue le process — c'est le comportement sûr.
+        pass
 
 
 # Menu bar only, pas de Dock.
@@ -671,13 +687,39 @@ class VoxtralApp(rumps.App):
             ),
         )
 
-    def quit_app(self, _sender: rumps.MenuItem) -> None:
-        self.hotkey.stop()
-        # Libère proprement le stream micro (kept-warm entre les dictées,
-        # cf. AudioRecorder.start). Sans ça on laisse fuiter le device
-        # CoreAudio jusqu'à ce que macOS le récupère à terme.
-        self.recorder.shutdown()
+    def quit_app(self, _sender: "rumps.MenuItem | None") -> None:
+        """Quitte l'app sans jamais bloquer le main thread.
+
+        Les deux libérations d'ici peuvent bloquer plusieurs secondes :
+        `listener.stop()` attend jusqu'à 1 s la fin du tour de CFRunLoop de
+        pynput, et `Pa_CloseStream` peut se coincer si le périphérique audio
+        a disparu. Les faire sur le main thread, c'est exactement le
+        « Python ne répond plus » qu'on cherche à supprimer — on les délègue
+        donc à un thread, et on ne les attend pas.
+        """
+        threading.Thread(
+            target=self._safe_release_resources, daemon=True, name="quit-release"
+        ).start()
+
+        # Filet de sécurité : si la descente de NSApp se coince (thread MLX
+        # dans Metal, CoreAudio bloqué), on tue le process à la main. Sans
+        # ça l'utilisateur retombe sur « Forcer à quitter ».
+        killer = threading.Timer(3.0, lambda: os._exit(0))
+        killer.daemon = True
+        killer.start()
+
         rumps.quit_application()
+
+    def _safe_release_resources(self) -> None:
+        """Libère raccourci + micro, hors main thread, sans jamais lever."""
+        try:
+            self.hotkey.stop()
+        except Exception:
+            traceback.print_exc()
+        try:
+            self.recorder.shutdown()
+        except Exception:
+            traceback.print_exc()
 
     # ------------------------------------------------------------------
     # Helpers UI
