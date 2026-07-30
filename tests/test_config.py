@@ -10,6 +10,7 @@ from config import (
     Config,
     HotkeyConfig,
     ModelConfig,
+    OfflineConfig,
     SoundsConfig,
     TranscriptionConfig,
     UIConfig,
@@ -81,6 +82,7 @@ def test_dict_to_config_with_full_dict():
         "sounds": {"enabled": False, "volume": 0.8},
         "ui": {"auto_paste": False},
         "updates": {"auto_check": False},
+        "offline": {"prefer_offline": False},
     }
     cfg = _dict_to_config(data)
     assert cfg.model.name == "test/model"
@@ -91,6 +93,7 @@ def test_dict_to_config_with_full_dict():
     assert cfg.sounds.volume == 0.8
     assert cfg.ui.auto_paste is False
     assert cfg.updates.auto_check is False
+    assert cfg.offline.prefer_offline is False
 
 
 def test_dict_to_config_with_empty_dict_uses_defaults():
@@ -167,6 +170,7 @@ def test_save_and_reload_roundtrip(tmp_path: Path):
         sounds=SoundsConfig(enabled=False, volume=0.3),
         ui=UIConfig(auto_paste=False),
         updates=UpdatesConfig(auto_check=False),
+        offline=OfflineConfig(prefer_offline=False),
     )
     save_config(cfg, user_path=user_path)
 
@@ -177,6 +181,7 @@ def test_save_and_reload_roundtrip(tmp_path: Path):
     assert reloaded.sounds.enabled is False
     assert reloaded.ui.auto_paste is False
     assert reloaded.updates.auto_check is False
+    assert reloaded.offline.prefer_offline is False
 
 
 def test_save_config_creates_parent_dir(tmp_path: Path):

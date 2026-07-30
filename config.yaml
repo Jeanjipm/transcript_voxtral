@@ -42,3 +42,11 @@ updates:
   # forcer un check via ce même menu.
   # Mettre à false si tu ne veux aucun appel réseau (mode 100% offline).
   auto_check: true
+
+offline:
+  # Si true (défaut) : quand le modèle est déjà téléchargé, plus aucun
+  # accès réseau au chargement. Corrige le cas « pas de Wi-Fi » ou
+  # « Mac qui sort de veille », où charger un modèle pourtant présent sur
+  # le disque échouait après plusieurs secondes de tentatives.
+  # Le téléchargement d'un nouveau modèle reste évidemment autorisé.
+  prefer_offline: true

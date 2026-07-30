@@ -1,10 +1,16 @@
 """
 Gestion des modèles : téléchargement / mise à jour depuis HuggingFace.
 
-Stockage : ~/.voxtral/models/<repo_id>/  (snapshot complet du repo HF).
+Stockage : le cache HuggingFace standard (~/.cache/huggingface/hub), et lui
+seul.
 
-On utilise `huggingface_hub.snapshot_download` qui gère le cache, le
-déduplication, la reprise, et les hashs.
+Pourquoi pas ~/.voxtral/models/ comme avant : `snapshot_download(local_dir=…)`
+copie les fichiers dans le dossier demandé SANS peupler le cache HF, alors
+que tous les `from_pretrained(repo_id)` à l'exécution résolvent via le
+cache. On stockait donc chaque modèle deux fois — 8 Go de doublon constatés
+sur une installation réelle — dont une copie que rien ne lisait jamais.
+On s'en tient au cache : `snapshot_download` y gère déjà la déduplication
+par hash, la reprise de téléchargement et les révisions.
 """
 
 from __future__ import annotations
@@ -14,6 +20,8 @@ from pathlib import Path
 from typing import Callable
 
 from huggingface_hub import snapshot_download
+
+import hf_offline
 
 
 # Catalogue des modèles connus, exposé dans l'UI Préférences.
@@ -71,53 +79,43 @@ def model_local_path(repo_id: str, models_root: Path) -> Path:
     return models_root.expanduser() / safe
 
 
-def is_downloaded(repo_id: str, models_root: Path) -> bool:
-    """True si le modèle est présent localement (soit dans ~/.voxtral/models,
-    soit dans le cache HF global ~/.cache/huggingface/hub).
+def is_downloaded(repo_id: str, models_root: Path) -> bool:  # noqa: ARG001
+    """True si le modèle est utilisable hors-ligne, c'est-à-dire présent dans
+    le cache HuggingFace.
 
-    Les deux chemins coexistent : `download_model.py` et `install.sh`
-    écrivent dans `models_root`, alors que les `from_pretrained` lazy
-    (changement de modèle via Préférences → 1re transcription) atterrissent
-    dans le cache HF global. Un seul des deux suffit pour considérer le
-    modèle utilisable.
+    On ne regarde QUE le cache, délibérément : c'est le seul endroit que
+    `from_pretrained` sait lire. L'ancienne version répondait True quand le
+    modèle était dans `models_root` mais absent du cache — un état où l'app
+    croyait pouvoir travailler hors-ligne alors que le chargement partait
+    quand même sur le réseau.
+
+    `models_root` est conservé dans la signature pour ne pas casser les
+    appelants (`settings_ui`, `download_model.py`) mais n'est plus consulté.
     """
-    # 1) Dossier custom Voxtral
-    path = model_local_path(repo_id, models_root)
-    if path.exists():
-        for p in path.rglob("*"):
-            if p.is_file() and p.stat().st_size > 0:
-                return True
-    # 2) Cache HF global
-    try:
-        from huggingface_hub import try_to_load_from_cache
-    except ImportError:
-        return False
-    result = try_to_load_from_cache(repo_id=repo_id, filename="config.json")
-    return isinstance(result, (str, bytes))
+    return hf_offline.is_model_cached(repo_id)
 
 
 def download_model(
     repo_id: str,
-    models_root: Path,
+    models_root: Path,  # noqa: ARG001 — conservé pour compat. des appelants
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     """
-    Télécharge (ou met à jour) un modèle HuggingFace dans
-    `models_root/<repo_safe>/`. Retourne le chemin local.
+    Télécharge (ou met à jour) un modèle HuggingFace dans le cache HF.
+    Retourne le chemin local du snapshot.
 
     `progress_callback(current_bytes, total_bytes)` est invoqué périodiquement
     si fourni — pour brancher une barre de progression dans l'UI.
     Note : `snapshot_download` gère lui-même la progression via `tqdm` ;
     le callback ici est best-effort (HF Hub ne propose pas d'API officielle
     de callback fin par fichier).
-    """
-    dest = model_local_path(repo_id, models_root)
-    dest.parent.mkdir(parents=True, exist_ok=True)
 
-    local_path = snapshot_download(
-        repo_id=repo_id,
-        local_dir=str(dest),
-    )
+    `allow_network()` est indispensable : le reste de l'app tourne en mode
+    hors-ligne forcé (cf. hf_offline), qui ferait échouer ce téléchargement.
+    """
+    with hf_offline.allow_network():
+        local_path = snapshot_download(repo_id=repo_id)
+
     if progress_callback is not None:
         # Best-effort : on signale juste la fin (100%).
         progress_callback(1, 1)

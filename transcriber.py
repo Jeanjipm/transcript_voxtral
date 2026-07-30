@@ -18,6 +18,7 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+import hf_offline
 from config import Config
 
 
@@ -92,10 +93,15 @@ class VoxtralTranscriber(Transcriber):
             VoxtralProcessor,
         )
 
-        self._model = VoxtralForConditionalGeneration.from_pretrained(
-            self.model_repo
-        )
-        self._processor = VoxtralProcessor.from_pretrained(self.model_repo)
+        # On passe le chemin du snapshot local plutôt que l'identifiant du
+        # repo quand le modèle est en cache : sinon mistral_common appelle
+        # list_repo_files() sans condition et le chargement échoue dès qu'il
+        # n'y a pas de réseau, alors que tout est sur le disque
+        # (cf. hf_offline.resolve_local_path).
+        source = hf_offline.resolve_local_path(self.model_repo)
+
+        self._model = VoxtralForConditionalGeneration.from_pretrained(source)
+        self._processor = VoxtralProcessor.from_pretrained(source)
 
     def preload(self) -> None:
         """Charge le modèle Voxtral en mémoire dès le démarrage."""
@@ -181,7 +187,9 @@ class WhisperTranscriber(Transcriber):
 
         result = mlx_whisper.transcribe(
             audio,
-            path_or_hf_repo=self.model_repo,
+            # Même raison que pour Voxtral : un chemin local évite tout appel
+            # réseau (cf. hf_offline.resolve_local_path).
+            path_or_hf_repo=hf_offline.resolve_local_path(self.model_repo),
             language=whisper_lang,
             task=task,
         )

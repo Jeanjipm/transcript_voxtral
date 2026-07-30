@@ -79,6 +79,16 @@ class UpdatesConfig:
 
 
 @dataclass
+class OfflineConfig:
+    # Quand le modèle est déjà téléchargé, coupe tout accès réseau au
+    # chargement. Sans ça, charger un modèle pourtant présent sur le disque
+    # déclenche une requête vers huggingface.co, qui échoue dès qu'il n'y a
+    # pas de réseau (ou au réveil du Mac, DNS pas encore prêt) — c'était la
+    # cause des échecs de préchargement du modèle. Cf. hf_offline.py.
+    prefer_offline: bool = True
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
@@ -86,6 +96,7 @@ class Config:
     sounds: SoundsConfig = field(default_factory=SoundsConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     updates: UpdatesConfig = field(default_factory=UpdatesConfig)
+    offline: OfflineConfig = field(default_factory=OfflineConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -116,6 +127,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         sounds=_build(SoundsConfig, data.get("sounds", {})),
         ui=_build(UIConfig, data.get("ui", {})),
         updates=_build(UpdatesConfig, data.get("updates", {})),
+        offline=_build(OfflineConfig, data.get("offline", {})),
     )
 
 

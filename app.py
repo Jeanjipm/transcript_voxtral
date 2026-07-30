@@ -34,6 +34,14 @@ warnings.filterwarnings(
     "ignore", message=r".*resource_tracker.*leaked semaphore.*"
 )
 
+import hf_offline
+
+# Doit être appelé AVANT tout import qui tire huggingface_hub
+# (model_manager, transcriber) : la constante HF_HUB_OFFLINE de hf_hub est
+# figée à son import, donc poser la variable d'environnement après coup
+# serait sans effet sur cette constante.
+hf_offline.install_early()
+
 import rumps
 import soundfile as sf
 from AppKit import (
@@ -153,6 +161,13 @@ class VoxtralApp(rumps.App):
         # 1) Config
         ensure_user_config_exists()
         self.config: Config = load_config()
+
+        # 1b) Mode hors-ligne HuggingFace, maintenant qu'on connaît le modèle.
+        # Si le modèle est en cache, plus aucune requête réseau ne part au
+        # chargement ; sinon on laisse le réseau pour le téléchargement.
+        hf_offline.refresh(
+            self.config.model.name, prefer_offline=self.config.offline.prefer_offline
+        )
 
         # 2) Composants audio + transcription
         self.recorder = AudioRecorder()
@@ -300,6 +315,13 @@ class VoxtralApp(rumps.App):
             # Réutiliser l'instance préserve le cache NSSound pré-chargé.
             new_feedback = self.feedback
         if new_config.model.name != old.model.name:
+            # Ré-évaluer AVANT de construire le transcriber : si l'utilisateur
+            # vient de choisir un modèle pas encore téléchargé, il faut
+            # re-autoriser le réseau, sinon le téléchargement est bloqué.
+            hf_offline.refresh(
+                new_config.model.name,
+                prefer_offline=new_config.offline.prefer_offline,
+            )
             new_transcriber = make_transcriber(new_config)
         else:
             new_transcriber = self.transcriber
