@@ -14,11 +14,49 @@ mlx-voxtral est en panne, on swap d'une seule ligne (`make_transcriber`).
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
+import hf_offline
 from config import Config
+
+
+AUDIO_SAMPLE_RATE = 16_000
+
+
+@dataclass(frozen=True)
+class Segment:
+    """Un passage transcrit, horodaté en secondes depuis le début de l'audio.
+
+    `speaker` reste None sauf si l'identification des locuteurs a tourné
+    (cf. diarizer.py) ; il est indexé à partir de 0 côté modèle et affiché
+    à partir de 1.
+    """
+
+    start: float
+    end: float
+    text: str
+    speaker: int | None = None
+
+
+@dataclass
+class TranscriptionResult:
+    """Résultat d'une transcription : le texte, et son découpage si connu.
+
+    `segments` est vide pour les backends sans horodatage (Voxtral) ; les
+    appelants qui en ont besoin — la transcription de fichiers longs, la
+    diarisation — doivent gérer ce cas.
+    """
+
+    text: str
+    segments: list[Segment] = field(default_factory=list)
+    language: str | None = None
 
 
 # Modèle Whisper utilisé pour :
@@ -30,6 +68,28 @@ from config import Config
 # la transcription uniquement et retourne la langue source au lieu
 # d'anglais pour task="translate".
 WHISPER_REPO = "mlx-community/whisper-large-v3-mlx"
+
+# Modèle imposé dès qu'on traduit, quelle que soit la config : les variantes
+# « turbo » sont distillées pour la transcription seule et rendent la langue
+# source au lieu de l'anglais quand on demande task="translate".
+WHISPER_TRANSLATE_REPO = WHISPER_REPO
+
+
+def repo_for_task(repo: str, task: str) -> str:
+    """Corrige le modèle si la tâche demandée n'est pas supportée par lui.
+
+    Évite un piège silencieux : un utilisateur qui règle la traduction et
+    laisse le modèle fichier par défaut (turbo) obtiendrait du texte dans la
+    langue d'origine, sans aucun message d'erreur.
+    """
+    if task == "translate" and "turbo" in repo.lower():
+        print(
+            f"[transcriber] '{repo}' ne sait pas traduire (modèle distillé) — "
+            f"repli sur {WHISPER_TRANSLATE_REPO}.",
+            file=sys.stderr,
+        )
+        return WHISPER_TRANSLATE_REPO
+    return repo
 
 
 class Transcriber(ABC):
@@ -52,12 +112,62 @@ class Transcriber(ABC):
     def preload(self) -> None:
         """Charge le modèle en mémoire de façon proactive.
 
-        Appelé typiquement en thread daemon au lancement de l'app, pour
-        que la 1re transcription ne paye pas le coût (5-15s pour un modèle
-        MLX 3B). Implémentation par défaut : no-op — surchargée par les
-        backends qui supportent le pré-chargement.
+        Appelé au lancement de l'app via l'inference-worker, pour que la 1re
+        transcription ne paye pas le coût (5-15s pour un modèle MLX 3B).
+        Implémentation par défaut : no-op — surchargée par les backends qui
+        supportent le pré-chargement.
         """
         return None
+
+    def transcribe_array(
+        self,
+        audio: np.ndarray,
+        sample_rate: int = AUDIO_SAMPLE_RATE,
+        language: str | None = None,
+        task: str = "transcribe",
+        initial_prompt: str | None = None,
+        max_new_tokens: int = 1024,
+    ) -> TranscriptionResult:
+        """Transcrit un tableau audio et retourne texte + segments horodatés.
+
+        Implémentation par défaut, pour les backends sans horodatage : on écrit
+        un WAV temporaire, on appelle `transcribe()`, et on retourne UN segment
+        couvrant tout le bloc. Ça permet à la transcription de fichiers longs
+        de fonctionner avec n'importe quel backend — simplement sans découpage
+        interne, donc avec des blocs qu'il faut garder courts.
+
+        `initial_prompt` est ignoré par défaut (les backends qui savent s'en
+        servir surchargent cette méthode).
+        """
+        if audio.size == 0:
+            return TranscriptionResult(text="", segments=[], language=language)
+
+        duration = audio.shape[0] / float(sample_rate)
+        fd, path_str = tempfile.mkstemp(suffix=".wav", prefix="voxtral_block_")
+        os.close(fd)
+        wav_path = Path(path_str)
+        try:
+            import soundfile as sf
+
+            sf.write(wav_path, audio, sample_rate, subtype="PCM_16")
+            text = self.transcribe(
+                wav_path,
+                language=language or "auto",
+                task=task,
+                max_new_tokens=max_new_tokens,
+            )
+        finally:
+            try:
+                wav_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        segments = (
+            [Segment(start=0.0, end=duration, text=text)] if text.strip() else []
+        )
+        return TranscriptionResult(
+            text=text, segments=segments, language=language
+        )
 
 
 class VoxtralTranscriber(Transcriber):
@@ -92,10 +202,15 @@ class VoxtralTranscriber(Transcriber):
             VoxtralProcessor,
         )
 
-        self._model = VoxtralForConditionalGeneration.from_pretrained(
-            self.model_repo
-        )
-        self._processor = VoxtralProcessor.from_pretrained(self.model_repo)
+        # On passe le chemin du snapshot local plutôt que l'identifiant du
+        # repo quand le modèle est en cache : sinon mistral_common appelle
+        # list_repo_files() sans condition et le chargement échoue dès qu'il
+        # n'y a pas de réseau, alors que tout est sur le disque
+        # (cf. hf_offline.resolve_local_path).
+        source = hf_offline.resolve_local_path(self.model_repo)
+
+        self._model = VoxtralForConditionalGeneration.from_pretrained(source)
+        self._processor = VoxtralProcessor.from_pretrained(source)
 
     def preload(self) -> None:
         """Charge le modèle Voxtral en mémoire dès le démarrage."""
@@ -120,12 +235,19 @@ class VoxtralTranscriber(Transcriber):
             )
 
         self._ensure_loaded()
-        assert self._model is not None and self._processor is not None
+        if self._model is None or self._processor is None:
+            raise RuntimeError("Modèle Voxtral non chargé.")
+
+        # "auto" doit devenir None : apply_transcrition_request ne saute le
+        # bloc de langue que si l'argument est None, sinon il tokenise
+        # littéralement « lang:auto » dans le prompt et pollue la sortie
+        # (cf. processing_voxtral.py ~ligne 265).
+        voxtral_lang = None if language in (None, "", "auto") else language
 
         # NB : la méthode upstream s'écrit bien "transcrition" (typo du
         # package mzbac).
         inputs = self._processor.apply_transcrition_request(
-            language=language,
+            language=voxtral_lang,
             audio=str(wav_path),
         )
         # mlx-voxtral retourne un TranscriptionInputs (objet, pas dict) ;
@@ -174,18 +296,81 @@ class WhisperTranscriber(Transcriber):
         audio, sr = sf.read(str(wav_path), dtype="float32")
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
-        assert sr == 16_000, f"Whisper attend 16 kHz, pas {sr} Hz"
+        if sr != AUDIO_SAMPLE_RATE:
+            # Un `assert` disparaîtrait sous `-O` et ne porte aucun message
+            # utile. Les fichiers arbitraires doivent passer par
+            # audio_convert.ensure_16k_mono avant d'arriver ici.
+            raise ValueError(
+                f"Whisper attend un audio à {AUDIO_SAMPLE_RATE} Hz, "
+                f"reçu {sr} Hz."
+            )
 
         # Whisper utilise None pour la détection automatique
-        whisper_lang = None if language == "auto" else language
+        whisper_lang = None if language in (None, "", "auto") else language
 
         result = mlx_whisper.transcribe(
             audio,
-            path_or_hf_repo=self.model_repo,
+            # Même raison que pour Voxtral : un chemin local évite tout appel
+            # réseau (cf. hf_offline.resolve_local_path).
+            path_or_hf_repo=hf_offline.resolve_local_path(self.model_repo),
             language=whisper_lang,
             task=task,
         )
         return str(result.get("text", "")).strip()
+
+    def transcribe_array(
+        self,
+        audio: np.ndarray,
+        sample_rate: int = AUDIO_SAMPLE_RATE,
+        language: str | None = None,
+        task: str = "transcribe",
+        initial_prompt: str | None = None,
+        max_new_tokens: int = 1024,  # noqa: ARG002 — non utilisé par Whisper
+    ) -> TranscriptionResult:
+        """Transcrit un tableau audio en exploitant le long-form de Whisper.
+
+        Contrairement à l'implémentation par défaut, on récupère ici de vrais
+        segments horodatés : `mlx_whisper` découpe nativement par fenêtres de
+        30 s et rend `result["segments"]` avec `start`/`end`. C'est ce qui rend
+        possibles la transcription de fichiers longs et la diarisation.
+
+        On passe l'array directement plutôt qu'un chemin : `mlx_whisper`
+        décode les chemins via ffmpeg, absent de la machine.
+        """
+        import mlx_whisper  # type: ignore[import-not-found]
+
+        if audio.size == 0:
+            return TranscriptionResult(text="", segments=[], language=language)
+        if sample_rate != AUDIO_SAMPLE_RATE:
+            raise ValueError(
+                f"Whisper attend un audio à {AUDIO_SAMPLE_RATE} Hz, "
+                f"reçu {sample_rate} Hz."
+            )
+
+        whisper_lang = None if language in (None, "", "auto") else language
+
+        result = mlx_whisper.transcribe(
+            audio,
+            path_or_hf_repo=hf_offline.resolve_local_path(self.model_repo),
+            language=whisper_lang,
+            task=task,
+            initial_prompt=initial_prompt,
+        )
+
+        segments = [
+            Segment(
+                start=float(seg.get("start", 0.0)),
+                end=float(seg.get("end", 0.0)),
+                text=str(seg.get("text", "")).strip(),
+            )
+            for seg in result.get("segments", [])
+            if str(seg.get("text", "")).strip()
+        ]
+        return TranscriptionResult(
+            text=str(result.get("text", "")).strip(),
+            segments=segments,
+            language=result.get("language") or whisper_lang,
+        )
 
 
 def make_transcriber(config: Config) -> Transcriber:

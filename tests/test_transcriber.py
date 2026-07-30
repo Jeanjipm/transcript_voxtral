@@ -208,3 +208,33 @@ def test_transcriber_preload_default_is_noop():
     """Sous-classe qui n'override pas preload → no-op silencieux."""
     t = _DummyTranscriber()
     assert t.preload() is None
+
+
+# ---- repo_for_task : garde-fou traduction / modèles turbo ----
+
+
+def test_turbo_is_replaced_for_translation(capsys):
+    """Un modèle turbo est distillé pour la transcription seule et rend la
+    langue source au lieu de l'anglais. Sans ce garde-fou, un utilisateur qui
+    règle la traduction obtiendrait du texte non traduit, sans erreur."""
+    from transcriber import WHISPER_TRANSLATE_REPO, repo_for_task
+
+    result = repo_for_task("mlx-community/whisper-large-v3-turbo", "translate")
+
+    assert result == WHISPER_TRANSLATE_REPO
+    assert "ne sait pas traduire" in capsys.readouterr().err
+
+
+def test_turbo_is_kept_for_transcription():
+    from transcriber import repo_for_task
+
+    repo = "mlx-community/whisper-large-v3-turbo"
+    assert repo_for_task(repo, "transcribe") == repo
+
+
+def test_non_turbo_model_is_never_touched():
+    from transcriber import repo_for_task
+
+    repo = "mlx-community/whisper-large-v3-mlx"
+    assert repo_for_task(repo, "translate") == repo
+    assert repo_for_task(repo, "transcribe") == repo

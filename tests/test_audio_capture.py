@@ -292,3 +292,218 @@ def test_is_recording_returns_current_state(
     assert rec.is_recording is True
     rec.stop()
     assert rec.is_recording is False
+
+
+# ---- Régression sprint 5 / cause 2 : le drapeau _recording bloqué à True ----
+
+
+def test_start_resets_recording_flag_when_stream_start_fails(
+    rec: AudioRecorder, mock_inputstream
+):
+    """Régression cause 2 : si stream.start() lève, _recording NE DOIT PAS
+    rester à True.
+
+    L'ancienne version posait le drapeau avant de démarrer le stream et ne
+    le rattrapait jamais : l'app affichait ensuite l'icône « enregistrement »
+    et ne captait plus rien, définitivement.
+    """
+    rec.start_retries = 0  # pas de reprise, on veut l'échec sec
+    mock_inputstream.return_value.start.side_effect = (
+        audio_capture.sd.PortAudioError("device disparu")
+    )
+
+    with pytest.raises(audio_capture.sd.PortAudioError):
+        rec.start()
+
+    assert rec.is_recording is False
+
+
+def test_start_works_again_after_a_failed_start(rec: AudioRecorder):
+    """Régression cause 2 : une dictée doit redevenir possible après un échec."""
+    factory = MagicMock(name="InputStreamFactory")
+    failing = MagicMock(name="failing")
+    failing.start.side_effect = audio_capture.sd.PortAudioError("boom")
+    healthy = MagicMock(name="healthy")
+    factory.side_effect = [failing, healthy]
+
+    with patch("audio_capture.sd.InputStream", factory):
+        rec.start_retries = 0
+        with pytest.raises(audio_capture.sd.PortAudioError):
+            rec.start()
+        # 2e essai : nouveau stream, sain
+        rec.start()
+        assert rec.is_recording is True
+        healthy.start.assert_called_once()
+
+
+def test_start_retry_rebuilds_stream_after_device_change(
+    rec: AudioRecorder, monkeypatch: pytest.MonkeyPatch
+):
+    """Changement de périphérique : le 1er start échoue, on reconstruit un
+    stream neuf et le 2e réussit."""
+    factory = MagicMock(name="InputStreamFactory")
+    failing = MagicMock(name="failing")
+    failing.start.side_effect = audio_capture.sd.PortAudioError("stale device")
+    healthy = MagicMock(name="healthy")
+    factory.side_effect = [failing, healthy]
+    monkeypatch.setattr("audio_capture.sd.InputStream", factory)
+
+    reinit = MagicMock(name="reinit")
+    monkeypatch.setattr(AudioRecorder, "_reinit_portaudio", staticmethod(reinit))
+
+    rec.start()
+
+    assert rec.is_recording is True
+    assert factory.call_count == 2  # stream reconstruit
+    reinit.assert_called_once()  # cache de périphériques purgé
+    healthy.start.assert_called_once()
+
+
+def test_start_raises_after_exhausting_retries(
+    rec: AudioRecorder, mock_inputstream, monkeypatch: pytest.MonkeyPatch
+):
+    """Deux échecs = micro réellement indisponible : ça doit remonter en
+    erreur visible, pas boucler."""
+    monkeypatch.setattr(
+        AudioRecorder, "_reinit_portaudio", staticmethod(MagicMock())
+    )
+    mock_inputstream.return_value.start.side_effect = (
+        audio_capture.sd.PortAudioError("pas de micro")
+    )
+
+    with pytest.raises(audio_capture.sd.PortAudioError):
+        rec.start()
+    assert rec.is_recording is False
+
+
+# ---- Régression sprint 5 / cause 3 : verrous et thread temps-réel ----
+
+
+def test_on_audio_takes_no_lock(rec: AudioRecorder, mock_inputstream):
+    """Régression cause 3 : _on_audio tourne dans le thread temps-réel
+    CoreAudio et ne doit prendre AUCUN verrou.
+
+    On tient le verrou d'état, puis on appelle _on_audio depuis un autre
+    thread : s'il tentait de l'acquérir, il resterait bloqué.
+    """
+    import threading
+
+    rec.start()
+    done = threading.Event()
+
+    def feed() -> None:
+        rec._on_audio(np.ones((10, 1), dtype="int16"), 10, None, None)
+        done.set()
+
+    with rec._state_lock:
+        t = threading.Thread(target=feed, daemon=True)
+        t.start()
+        assert done.wait(timeout=1.0), "_on_audio a bloqué sur le verrou"
+
+    rec.stop().unlink()
+
+
+def test_prewarm_does_not_hold_lock_during_construction(
+    rec: AudioRecorder, monkeypatch: pytest.MonkeyPatch
+):
+    """Régression cause 3 : la construction du stream (~4,1 s) ne doit pas se
+    faire sous verrou, sinon un appui sur le raccourci s'y bloque — et le
+    callback clavier de macOS n'a qu'environ 1 seconde de budget."""
+    observed: dict[str, bool] = {}
+
+    def slow_factory(**_kwargs):
+        # Pendant la « construction », le verrou doit être libre.
+        acquired = rec._state_lock.acquire(blocking=False)
+        observed["lock_free"] = acquired
+        if acquired:
+            rec._state_lock.release()
+        return MagicMock(name="stream")
+
+    monkeypatch.setattr("audio_capture.sd.InputStream", slow_factory)
+    rec.prewarm()
+
+    assert observed.get("lock_free") is True
+
+
+def test_start_rebinds_chunks_instead_of_clearing(
+    rec: AudioRecorder, mock_inputstream
+):
+    """start() doit RÉASSIGNER _chunks, pas le vider : un callback temps-réel
+    retardataire garde une référence à l'ancienne liste et doit écrire
+    dedans, sans polluer la nouvelle dictée."""
+    rec.start()
+    old_list = rec._chunks
+    rec.stop().unlink()
+
+    rec.start()
+    assert rec._chunks is not old_list
+
+    # Le retardataire écrit dans l'ancienne liste : la nouvelle reste intacte.
+    old_list.append(np.ones((5, 1), dtype="int16"))
+    assert rec._chunks == []
+    rec.stop().unlink()
+
+
+def test_stop_keeps_audio_when_device_vanished(
+    rec: AudioRecorder, mock_inputstream
+):
+    """Casque débranché en pleine dictée : stream.stop() lève, mais on doit
+    quand même récupérer ce qui a été capté avant la coupure."""
+    rec.start()
+    rec._on_audio(np.ones((100, 1), dtype="int16"), 100, None, None)
+    mock_inputstream.return_value.stop.side_effect = (
+        audio_capture.sd.PortAudioError("device disparu")
+    )
+
+    wav_path = rec.stop()
+
+    import soundfile as _sf
+
+    assert _sf.info(str(wav_path)).frames == 100  # l'audio capté est préservé
+    assert rec.is_recording is False
+    assert rec._stream is None  # stream jeté, le prochain start reconstruira
+    wav_path.unlink()
+
+
+# ---- Rembourrage de silence (fins de phrase tronquées) ----
+
+
+def test_silence_padding_extends_both_ends(mock_inputstream):
+    """Les modèles perdent des phonèmes quand la parole commence ou finit pile
+    au bord du fichier. On rembourre des deux côtés."""
+    import soundfile as _sf
+
+    rec = AudioRecorder(silence_padding_ms=250)
+    rec.start()
+    rec._on_audio(np.ones((16_000, 1), dtype="int16"), 16_000, None, None)
+    wav = rec.stop()
+
+    # 1 s de signal + 2 x 250 ms de silence
+    assert _sf.info(str(wav)).frames == 16_000 + 2 * 4_000
+    wav.unlink()
+
+
+def test_no_padding_when_disabled(mock_inputstream):
+    import soundfile as _sf
+
+    rec = AudioRecorder(silence_padding_ms=0)
+    rec.start()
+    rec._on_audio(np.ones((16_000, 1), dtype="int16"), 16_000, None, None)
+    wav = rec.stop()
+
+    assert _sf.info(str(wav)).frames == 16_000
+    wav.unlink()
+
+
+def test_padding_skipped_on_empty_recording(mock_inputstream):
+    """Un enregistrement vide doit rester vide : rembourrer du néant
+    produirait un WAV de silence pur que le pipeline prendrait pour de
+    l'audio à transcrire."""
+    import soundfile as _sf
+
+    rec = AudioRecorder(silence_padding_ms=250)
+    rec.start()
+    wav = rec.stop()
+
+    assert _sf.info(str(wav)).frames == 0
+    wav.unlink()

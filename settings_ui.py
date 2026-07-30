@@ -1,24 +1,55 @@
 """
 Fenêtre de paramètres Voxtral Dictée — tkinter (stdlib, zéro install).
 
-6 onglets : Modèle, Langue, Raccourci, Sons, Avancé, À propos.
-
 Lancée en sous-processus depuis app.py (cf. commentaire dans app.py).
-Sauvegarde dans ~/.voxtral/config.yaml ; un redémarrage de l'app menu
-bar peut être nécessaire pour appliquer certains changements (ex. modèle).
+Sauvegarde dans ~/.voxtral/config.yaml ; l'app menu bar recharge d'elle-même
+en 2-3 s.
+
+## Organisation
+
+Les onglets suivent ce que l'utilisateur VEUT FAIRE, pas le type technique du
+réglage. L'ancienne version avait huit onglets (Modèle, Langue, Raccourci,
+Sons, Fichiers, Stockage, Avancé, À propos) qui éclataient une même tâche à
+plusieurs endroits : régler sa dictée demandait de visiter trois onglets.
+
+    Dictée   — tout le trajet raccourci → parole → texte collé
+    Fichiers — transcrire un enregistrement existant
+    Modèles  — quel modèle pour quoi, et la place qu'ils prennent
+    Avancé   — réglages fins dont personne n'a besoin au quotidien
+    À propos
+
+## Deux règles suivies partout
+
+1. **Jamais de code technique affiché.** Les listes montrent « Français » et
+   « ⌥ Option droite », pas `fr` et `alt_r`. Les libellés existaient déjà dans
+   le code mais n'étaient pas utilisés — on voyait les codes bruts.
+2. **Rien ne se passe en silence.** Choisir un modèle absent propose son
+   téléchargement avec une progression réelle, plutôt que de laisser l'app
+   figée plusieurs minutes au premier usage sans explication.
 """
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from config import Config, load_config, save_config
 from hotkey_manager import display_combo, validate_combo
 from model_manager import (
-    AVAILABLE_MODELS,
+    USAGE_DICTATION,
+    USAGE_FILES,
+    ModelInfo,
+    cached_size_bytes,
+    delete_cached_model,
+    download_model,
+    find_model,
+    format_size,
     is_downloaded,
+    list_available_models,
+    models_in_use,
+    scan_cached_models,
 )
 
 
@@ -53,10 +84,10 @@ KNOWN_SYSTEM_CONFLICTS: set[str] = {
 
 # Touches "single-key tenue" proposées dans le sélecteur
 SINGLE_KEY_OPTIONS: list[tuple[str, str]] = [
-    ("alt_r", "⌥ Option droite (recommandé — talkie-walkie)"),
-    ("cmd_r", "⌘ Cmd droite"),
-    ("ctrl_r", "⌃ Ctrl droite"),
-    ("shift_r", "⇧ Shift droite"),
+    ("alt_r", "⌥ Option droite  (recommandé)"),
+    ("cmd_r", "⌘ Commande droite"),
+    ("ctrl_r", "⌃ Contrôle droite"),
+    ("shift_r", "⇧ Majuscule droite"),
     ("f13", "F13"),
     ("f14", "F14"),
     ("f15", "F15"),
@@ -67,346 +98,725 @@ SINGLE_KEY_OPTIONS: list[tuple[str, str]] = [
 ]
 
 
-# Langues exposées dans l'UI (reflète Voxtral § F3)
+REPO_URL = "https://github.com/Jeanjipm/transcript_voxtral"
+
+
 LANGUAGE_OPTIONS: list[tuple[str, str]] = [
-    ("auto", "Auto-détection"),
+    ("auto", "Détection automatique"),
     ("fr", "Français"),
-    ("en", "English"),
-    ("de", "Deutsch"),
-    ("es", "Español"),
-    ("it", "Italiano"),
-    ("pt", "Português"),
-    ("nl", "Nederlands"),
-    ("hi", "हिन्दी"),
+    ("en", "Anglais"),
+    ("de", "Allemand"),
+    ("es", "Espagnol"),
+    ("it", "Italien"),
+    ("pt", "Portugais"),
+    ("nl", "Néerlandais"),
+    ("hi", "Hindi"),
 ]
+
+
+class LabelledChoice:
+    """Combobox qui affiche un libellé lisible et retourne un code technique.
+
+    Sans ça, la liste des langues affichait « fr » et celle des raccourcis
+    « alt_r » — les libellés lisibles existaient dans le code mais n'étaient
+    jamais montrés.
+    """
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        options: list[tuple[str, str]],
+        current: str,
+        width: int = 30,
+    ) -> None:
+        self._options = options
+        self._by_label = {label: code for code, label in options}
+        self._by_code = {code: label for code, label in options}
+        # Une valeur de config hors liste (éditée à la main) ne doit pas
+        # disparaître silencieusement : on l'affiche telle quelle.
+        initial = self._by_code.get(current, current)
+        self.var = tk.StringVar(value=initial)
+        self.widget = ttk.Combobox(
+            parent,
+            textvariable=self.var,
+            values=[label for _, label in options],
+            state="readonly",
+            width=width,
+        )
+
+    def grid(self, **kwargs) -> "LabelledChoice":  # noqa: ANN003
+        self.widget.grid(**kwargs)
+        return self
+
+    def get_code(self) -> str:
+        return self._by_label.get(self.var.get(), self.var.get())
+
+    def set_code(self, code: str) -> None:
+        self.var.set(self._by_code.get(code, code))
+
+
+class DownloadDialog:
+    """Fenêtre modale de téléchargement, avec progression réelle.
+
+    La progression vient de la taille du dossier sur le disque, comparée au
+    poids annoncé du modèle. C'est approximatif au pourcent près, mais c'est
+    une vraie mesure — et surtout ça ne dépend pas des barres tqdm internes
+    de huggingface_hub, qu'on ne peut pas capter proprement.
+    """
+
+    POLL_MS = 400
+
+    def __init__(self, parent: tk.Tk, model: ModelInfo) -> None:
+        self.model = model
+        self.expected = int(model.size_gb * 1_000_000_000)
+        self.error: Exception | None = None
+        self._done = threading.Event()
+
+        self.win = tk.Toplevel(parent)
+        self.win.title("Téléchargement du modèle")
+        self.win.geometry("420x160")
+        self.win.transient(parent)
+        self.win.grab_set()
+        # Pas de fermeture par la croix : interrompre un snapshot_download en
+        # cours laisserait un cache partiel.
+        self.win.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        ttk.Label(self.win, text=model.label, font=("", 13, "bold")).pack(
+            pady=(18, 4)
+        )
+        self.status = ttk.Label(
+            self.win, text=f"Préparation… ({model.size_gb:.1f} Go à récupérer)"
+        )
+        self.status.pack()
+
+        self.bar = ttk.Progressbar(
+            self.win, orient=tk.HORIZONTAL, length=340, mode="determinate",
+            maximum=100,
+        )
+        self.bar.pack(pady=14)
+
+        ttk.Label(
+            self.win,
+            text="Tu peux laisser cette fenêtre, le téléchargement continue.",
+            foreground="gray",
+        ).pack()
+
+    def run(self) -> bool:
+        """Lance le téléchargement et attend. True si réussi."""
+        thread = threading.Thread(target=self._worker, daemon=True)
+        thread.start()
+        self._poll()
+        self.win.wait_window()
+        return self.error is None
+
+    def _worker(self) -> None:
+        try:
+            download_model(self.model.repo_id)
+        except Exception as exc:  # noqa: BLE001
+            self.error = exc
+        finally:
+            self._done.set()
+
+    def _poll(self) -> None:
+        if self._done.is_set():
+            self.win.grab_release()
+            self.win.destroy()
+            return
+
+        size = cached_size_bytes(self.model.repo_id)
+        pct = min(99, int(100 * size / self.expected)) if self.expected else 0
+        self.bar["value"] = pct
+        self.status.configure(
+            text=f"{format_size(size)} sur {self.model.size_gb:.1f} Go — {pct} %"
+        )
+        self.win.after(self.POLL_MS, self._poll)
 
 
 class SettingsWindow:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Voxtral — Préférences")
-        self.root.geometry("560x440")
-        self.root.minsize(520, 400)
+        # Plus grand qu'avant : l'onglet Modèles liste plusieurs modèles avec
+        # leur description, et l'ancienne taille les tronquait.
+        self.root.geometry("640x600")
+        self.root.minsize(600, 520)
 
         self.config: Config = load_config()
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self._build_model_tab()
-        self._build_language_tab()
-        self._build_hotkey_tab()
-        self._build_sounds_tab()
+        self._build_dictation_tab()
+        self._build_files_tab()
+        self._build_models_tab()
         self._build_advanced_tab()
         self._build_about_tab()
 
-        # Boutons globaux
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        ttk.Button(btn_frame, text="Annuler", command=self.root.destroy).pack(
-            side=tk.RIGHT, padx=(5, 0)
-        )
+        # Ordre macOS : l'action principale est la plus à droite. L'ancienne
+        # version les avait inversés.
         ttk.Button(btn_frame, text="Enregistrer", command=self._save).pack(
             side=tk.RIGHT
         )
-
-    # ------------------------------------------------------------------
-    # Onglets
-    # ------------------------------------------------------------------
-
-    def _build_model_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Modèle")
-
-        ttk.Label(frame, text="Modèle de transcription :").grid(
-            row=0, column=0, sticky="w", pady=(0, 5)
+        ttk.Button(btn_frame, text="Annuler", command=self.root.destroy).pack(
+            side=tk.RIGHT, padx=(0, 8)
         )
 
-        self.model_var = tk.StringVar(value=self.config.model.name)
-        for i, m in enumerate(AVAILABLE_MODELS, start=1):
-            downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
-            tag = "   📥 téléchargé" if downloaded else ""
-            label = f"{m.label} — {m.size_gb:.1f} Go{tag}\n   {m.description}"
-            ttk.Radiobutton(
-                frame,
-                text=label,
-                variable=self.model_var,
-                value=m.repo_id,
-            ).grid(row=i, column=0, sticky="w", pady=3)
+    # ------------------------------------------------------------------
+    # Onglet Dictée — tout le trajet raccourci → parole → texte collé
+    # ------------------------------------------------------------------
 
+    def _build_dictation_tab(self) -> None:
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Dictée")
+
+        # --- Raccourci ---
+        ttk.Label(frame, text="Raccourci", font=("", 12, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
         ttk.Label(
             frame,
-            text=(
-                "Le modèle est téléchargé automatiquement au premier usage, "
-                "ou en avance via :\n  python download_model.py --model NOM"
-            ),
+            text="Maintiens la touche pour parler, relâche pour transcrire.",
             foreground="gray",
-            justify=tk.LEFT,
-        ).grid(row=len(AVAILABLE_MODELS) + 1, column=0, sticky="w", pady=(15, 0))
-
-    def _build_language_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Langue")
-
-        ttk.Label(frame, text="Langue de transcription :").grid(
-            row=0, column=0, sticky="w"
-        )
-        self.lang_var = tk.StringVar(value=self.config.transcription.language)
-        lang_combo = ttk.Combobox(
-            frame,
-            textvariable=self.lang_var,
-            values=[code for code, _ in LANGUAGE_OPTIONS],
-            state="readonly",
-            width=20,
-        )
-        lang_combo.grid(row=0, column=1, sticky="w", padx=(10, 0))
-
-        ttk.Label(frame, text="Tâche :").grid(
-            row=1, column=0, sticky="w", pady=(15, 0)
-        )
-        self.task_var = tk.StringVar(value=self.config.transcription.task)
-        ttk.Radiobutton(
-            frame,
-            text="Transcription (texte dans la langue parlée)",
-            variable=self.task_var,
-            value="transcribe",
-        ).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Radiobutton(
-            frame,
-            text="Traduction (vers anglais)",
-            variable=self.task_var,
-            value="translate",
-        ).grid(row=3, column=0, columnspan=2, sticky="w")
-
-    def _build_hotkey_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Raccourci")
-
-        ttk.Label(frame, text="Type de raccourci :").grid(
-            row=0, column=0, sticky="w"
-        )
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
         self.hotkey_type_var = tk.StringVar(
             value="single" if "+" not in self.config.hotkey.combo else "combo"
         )
         ttk.Radiobutton(
-            frame,
-            text="Touche unique tenue (mode talkie-walkie)",
-            variable=self.hotkey_type_var,
-            value="single",
-            command=self._on_hotkey_type_change,
-        ).grid(row=1, column=0, columnspan=2, sticky="w")
-        ttk.Radiobutton(
-            frame,
-            text="Combinaison de touches",
-            variable=self.hotkey_type_var,
-            value="combo",
-            command=self._on_hotkey_type_change,
+            frame, text="Une seule touche, tenue", variable=self.hotkey_type_var,
+            value="single", command=self._on_hotkey_type_change,
         ).grid(row=2, column=0, columnspan=2, sticky="w")
 
-        # Sélecteur single-key
-        ttk.Label(frame, text="Touche :").grid(
-            row=3, column=0, sticky="w", pady=(15, 0)
-        )
         single_default = (
             self.config.hotkey.combo
             if "+" not in self.config.hotkey.combo
             else "alt_r"
         )
-        self.single_key_var = tk.StringVar(value=single_default)
-        self.single_combo = ttk.Combobox(
-            frame,
-            textvariable=self.single_key_var,
-            values=[code for code, _ in SINGLE_KEY_OPTIONS],
-            state="readonly",
-            width=20,
-        )
-        self.single_combo.grid(row=3, column=1, sticky="w", padx=(10, 0), pady=(15, 0))
+        self.single_key = LabelledChoice(
+            frame, SINGLE_KEY_OPTIONS, single_default, width=28
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=(24, 0), pady=(2, 8))
 
-        # Champ combinaison libre
-        ttk.Label(frame, text="Combinaison :").grid(
-            row=4, column=0, sticky="w", pady=(10, 0)
-        )
-        # Défaut : alt+space (= option+space). 2 touches, ergonomique,
-        # pas de conflit macOS (remplace juste l'insertion d'espace
-        # insécable, peu utilisée).
+        ttk.Radiobutton(
+            frame, text="Combinaison de touches", variable=self.hotkey_type_var,
+            value="combo", command=self._on_hotkey_type_change,
+        ).grid(row=4, column=0, columnspan=2, sticky="w")
+
         combo_default = (
             self.config.hotkey.combo
             if "+" in self.config.hotkey.combo
             else "alt+space"
         )
         self.combo_var = tk.StringVar(value=combo_default)
-        self.combo_entry = ttk.Entry(frame, textvariable=self.combo_var, width=22)
+        self.combo_entry = ttk.Entry(frame, textvariable=self.combo_var, width=26)
         self.combo_entry.grid(
-            row=4, column=1, sticky="w", padx=(10, 0), pady=(10, 0)
+            row=5, column=0, sticky="w", padx=(24, 0), pady=(2, 0)
         )
         ttk.Label(
-            frame,
-            text="Format : 'alt+space' (recommandé), 'cmd+backslash', 'ctrl+shift'…",
-            foreground="gray",
-        ).grid(row=5, column=1, sticky="w", padx=(10, 0))
+            frame, text="par exemple  alt+space", foreground="gray",
+        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=(24, 0))
 
-        ttk.Label(
-            frame,
-            text="Mode push-to-talk : maintenir pour enregistrer, relâcher pour transcrire.",
-            foreground="gray",
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(15, 0))
-
-        self.hotkey_warning = ttk.Label(frame, text="", foreground="orange")
+        self.hotkey_warning = ttk.Label(frame, text="", foreground="#c25e00")
         self.hotkey_warning.grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(15, 0)
+            row=7, column=0, columnspan=2, sticky="w", pady=(6, 14)
         )
 
-        # Watchers
-        self.combo_var.trace_add("write", lambda *_: self._update_hotkey_warning())
-        self.single_key_var.trace_add("write", lambda *_: self._update_hotkey_warning())
-        self.hotkey_type_var.trace_add("write", lambda *_: self._update_hotkey_warning())
+        # --- Langue ---
+        ttk.Label(frame, text="Langue", font=("", 12, "bold")).grid(
+            row=8, column=0, columnspan=2, sticky="w"
+        )
+        self.lang = LabelledChoice(
+            frame, LANGUAGE_OPTIONS, self.config.transcription.language, width=28
+        ).grid(row=9, column=0, sticky="w", pady=(4, 4))
 
+        self.task_var = tk.StringVar(value=self.config.transcription.task)
+        ttk.Radiobutton(
+            frame, text="Écrire dans la langue parlée", variable=self.task_var,
+            value="transcribe",
+        ).grid(row=10, column=0, columnspan=2, sticky="w")
+        ttk.Radiobutton(
+            frame, text="Traduire vers l'anglais", variable=self.task_var,
+            value="translate",
+        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 14))
+
+        # --- Résultat ---
+        ttk.Label(frame, text="Résultat", font=("", 12, "bold")).grid(
+            row=12, column=0, columnspan=2, sticky="w"
+        )
+        self.autopaste_var = tk.BooleanVar(value=self.config.ui.auto_paste)
+        ttk.Checkbutton(
+            frame,
+            text="Coller directement à la position du curseur",
+            variable=self.autopaste_var,
+        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(
+            frame,
+            text="Décoché, le texte est seulement copié dans le presse-papier.",
+            foreground="gray",
+        ).grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 14))
+
+        # --- Sons ---
+        ttk.Label(frame, text="Sons", font=("", 12, "bold")).grid(
+            row=15, column=0, columnspan=2, sticky="w"
+        )
+        self.sounds_enabled_var = tk.BooleanVar(value=self.config.sounds.enabled)
+        ttk.Checkbutton(
+            frame, text="Signal sonore au début et à la fin",
+            variable=self.sounds_enabled_var,
+        ).grid(row=16, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        volume_row = ttk.Frame(frame)
+        volume_row.grid(row=17, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(volume_row, text="Volume").pack(side=tk.LEFT)
+        self.volume_var = tk.DoubleVar(value=self.config.sounds.volume * 100)
+        ttk.Scale(
+            volume_row, from_=0, to=100, orient=tk.HORIZONTAL,
+            variable=self.volume_var, length=200,
+            command=lambda _v: self._update_volume_label(),
+        ).pack(side=tk.LEFT, padx=(10, 8))
+        self.volume_label = ttk.Label(volume_row, text="", width=5)
+        self.volume_label.pack(side=tk.LEFT)
+        ttk.Button(volume_row, text="Écouter", command=self._preview_sound).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+        self._update_volume_label()
+
+        self.combo_var.trace_add("write", lambda *_: self._update_hotkey_warning())
+        self.single_key.var.trace_add(
+            "write", lambda *_: self._update_hotkey_warning()
+        )
         self._on_hotkey_type_change()
         self._update_hotkey_warning()
 
+    def _update_volume_label(self) -> None:
+        self.volume_label.configure(text=f"{int(self.volume_var.get())} %")
+
+    def _preview_sound(self) -> None:
+        """Joue le son au volume choisi. Sans ça on règle un volume à l'aveugle."""
+        try:
+            from audio_feedback import AudioFeedback
+
+            cfg = load_config()
+            cfg.sounds.enabled = True
+            cfg.sounds.volume = float(self.volume_var.get()) / 100.0
+            AudioFeedback(cfg).play_start()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showwarning("Son indisponible", str(exc))
+
     def _on_hotkey_type_change(self) -> None:
         is_single = self.hotkey_type_var.get() == "single"
-        if is_single:
-            self.single_combo.configure(state="readonly")
-            self.combo_entry.configure(state="disabled")
-        else:
-            self.single_combo.configure(state="disabled")
-            self.combo_entry.configure(state="normal")
+        self.single_key.widget.configure(state="readonly" if is_single else "disabled")
+        self.combo_entry.configure(state="disabled" if is_single else "normal")
 
     def _update_hotkey_warning(self) -> None:
         combo = self._current_combo()
         if combo.lower() in KNOWN_SYSTEM_CONFLICTS:
             self.hotkey_warning.configure(
-                text=f"⚠ Conflit système connu : {display_combo(combo)} est "
-                "déjà pris par macOS."
+                text=f"⚠ {display_combo(combo)} est déjà utilisé par macOS."
             )
         else:
             self.hotkey_warning.configure(text="")
 
     def _current_combo(self) -> str:
         if self.hotkey_type_var.get() == "single":
-            return self.single_key_var.get().strip()
+            return self.single_key.get_code().strip()
         return self.combo_var.get().strip()
 
-    def _build_sounds_tab(self) -> None:
+    # ------------------------------------------------------------------
+    # Onglet Fichiers
+    # ------------------------------------------------------------------
+
+    def _build_files_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Sons")
+        self.notebook.add(frame, text="Fichiers")
+        cfg = self.config.file_transcription
 
-        self.sounds_enabled_var = tk.BooleanVar(value=self.config.sounds.enabled)
-        ttk.Checkbutton(
+        ttk.Label(
             frame,
-            text="Activer les sons (Tink au début, Pop à la fin)",
-            variable=self.sounds_enabled_var,
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
+            text="Réglages de « Transcrire un fichier audio… » dans le menu.",
+            foreground="gray",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
-        ttk.Label(frame, text="Volume :").grid(
-            row=1, column=0, sticky="w", pady=(15, 0)
+        ttk.Label(frame, text="Dossier des transcriptions", font=("", 12, "bold")).grid(
+            row=1, column=0, columnspan=2, sticky="w"
         )
-        self.volume_var = tk.DoubleVar(value=self.config.sounds.volume * 100)
-        ttk.Scale(
+        self.output_dir_var = tk.StringVar(value=cfg.output_dir)
+        ttk.Entry(frame, textvariable=self.output_dir_var, width=38).grid(
+            row=2, column=0, sticky="w", pady=(4, 0)
+        )
+        ttk.Button(frame, text="Choisir…", command=self._pick_output_dir).grid(
+            row=2, column=1, sticky="w", padx=(8, 0), pady=(4, 0)
+        )
+        ttk.Button(frame, text="Ouvrir", command=self._open_output_dir).grid(
+            row=3, column=1, sticky="w", padx=(8, 0), pady=(4, 14)
+        )
+
+        self.timestamps_var = tk.BooleanVar(value=cfg.include_timestamps)
+        ttk.Checkbutton(
+            frame, text="Indiquer l'heure de chaque paragraphe — [00:12:34]",
+            variable=self.timestamps_var,
+        ).grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(
             frame,
-            from_=0,
-            to=100,
-            orient=tk.HORIZONTAL,
-            variable=self.volume_var,
-            length=300,
-        ).grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(15, 0))
+            text="Pratique pour retrouver un passage dans un long enregistrement.",
+            foreground="gray",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 14))
+
+        ttk.Label(frame, text="Refuser les fichiers de plus de").grid(
+            row=6, column=0, sticky="w"
+        )
+        self.file_max_hours_var = tk.DoubleVar(value=cfg.max_duration_s / 3600.0)
+        limit_row = ttk.Frame(frame)
+        limit_row.grid(row=7, column=0, sticky="w", pady=(4, 0))
+        ttk.Spinbox(
+            limit_row, from_=0.5, to=12.0, increment=0.5,
+            textvariable=self.file_max_hours_var, width=6,
+        ).pack(side=tk.LEFT)
+        ttk.Label(limit_row, text="heures").pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Label(
+            frame,
+            text="Garde-fou : évite de lancer un long traitement par erreur.",
+            foreground="gray",
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+    def _pick_output_dir(self) -> None:
+        chosen = filedialog.askdirectory(
+            title="Dossier des transcriptions",
+            initialdir=str(self.config.file_transcription.resolved_output_dir),
+        )
+        if chosen:
+            self.output_dir_var.set(chosen)
+
+    def _open_output_dir(self) -> None:
+        """Ouvre le dossier dans le Finder — « où sont mes fichiers ? »."""
+        import subprocess
+        from pathlib import Path
+
+        target = Path(self.output_dir_var.get()).expanduser()
+        target.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen(["open", str(target)])
+
+    # ------------------------------------------------------------------
+    # Onglet Modèles — choix + place occupée, au même endroit
+    # ------------------------------------------------------------------
+
+    def _build_models_tab(self) -> None:
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Modèles")
+
+        self.model_var = tk.StringVar(value=self.config.model.name)
+        self.file_model_var = tk.StringVar(
+            value=self.config.file_transcription.model
+        )
+
+        row = self._build_model_section(
+            frame, row=0, title="Pour la dictée",
+            variable=self.model_var,
+            models=list_available_models(USAGE_DICTATION),
+        )
+        row = self._build_model_section(
+            frame, row=row, title="Pour les fichiers audio",
+            variable=self.file_model_var,
+            models=list_available_models(USAGE_FILES),
+            note="Seuls ces modèles indiquent à quel moment chaque phrase est dite.",
+        )
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
+            row=row, column=0, sticky="ew", pady=12
+        )
+        self._storage_frame = ttk.Frame(frame)
+        self._storage_frame.grid(row=row + 1, column=0, sticky="w")
+        self._render_storage()
+
+    def _build_model_section(
+        self,
+        parent: tk.Widget,
+        row: int,
+        title: str,
+        variable: tk.StringVar,
+        models: list[ModelInfo],
+        note: str | None = None,
+    ) -> int:
+        ttk.Label(parent, text=title, font=("", 12, "bold")).grid(
+            row=row, column=0, sticky="w", pady=(0, 4)
+        )
+        row += 1
+
+        for m in models:
+            downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
+            mark = "✓ sur ton Mac" if downloaded else f"⤓ {m.size_gb:.1f} Go à télécharger"
+            ttk.Radiobutton(
+                parent,
+                text=f"{m.label}   —   {mark}\n     {m.description}",
+                variable=variable,
+                value=m.repo_id,
+                command=self._render_storage,
+            ).grid(row=row, column=0, sticky="w", pady=2)
+            row += 1
+
+        if note:
+            ttk.Label(parent, text=note, foreground="gray").grid(
+                row=row, column=0, sticky="w", pady=(0, 12)
+            )
+            row += 1
+        return row
+
+    def _render_storage(self) -> None:
+        """(Re)dessine le bloc « place occupée ».
+
+        Rappelé à chaque changement de sélection : un modèle qu'on vient de
+        désélectionner devient supprimable immédiatement, sans avoir à fermer
+        et rouvrir la fenêtre.
+        """
+        frame = self._storage_frame
+        for child in frame.winfo_children():
+            child.destroy()
+
+        cached = scan_cached_models()
+        in_use = models_in_use(self.model_var.get(), self.file_model_var.get())
+        total = sum(c.size_bytes for c in cached)
+
+        ttk.Label(
+            frame, text=f"Place occupée sur le disque : {format_size(total)}",
+            font=("", 12, "bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+        if not cached:
+            ttk.Label(
+                frame, text="Aucun modèle téléchargé pour l'instant.",
+                foreground="gray",
+            ).grid(row=1, column=0, sticky="w")
+            return
+
+        for i, entry in enumerate(cached, start=1):
+            used = entry.repo_id in in_use
+            ttk.Label(frame, text=entry.size_str, width=9).grid(
+                row=i, column=0, sticky="e", padx=(0, 10), pady=1
+            )
+            ttk.Label(
+                frame, text=entry.label + ("   (en service)" if used else "")
+            ).grid(row=i, column=1, sticky="w", pady=1)
+
+            if used:
+                ttk.Label(frame, text="", width=10).grid(row=i, column=2)
+            else:
+                ttk.Button(
+                    frame, text="Supprimer", width=10,
+                    command=lambda e=entry: self._delete_model(e),
+                ).grid(row=i, column=2, padx=(15, 0))
+
+        ttk.Label(
+            frame,
+            text=(
+                "Un modèle « en service » sert à la dictée, aux fichiers ou à\n"
+                "la traduction. Supprimer les autres est sans risque : ils se\n"
+                "re-téléchargent si tu les resélectionnes."
+            ),
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=len(cached) + 1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+    def _delete_model(self, entry) -> None:  # noqa: ANN001
+        if not messagebox.askyesno(
+            "Supprimer ce modèle ?",
+            f"{entry.label}\n\n{entry.size_str} seront libérés. Le modèle se "
+            f"re-téléchargera si tu le resélectionnes plus tard.",
+        ):
+            return
+        try:
+            freed = delete_cached_model(entry.repo_id)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Suppression impossible", str(exc))
+            return
+        messagebox.showinfo("Modèle supprimé", f"{format_size(freed)} libérés.")
+        self._render_storage()
+
+    # ------------------------------------------------------------------
+    # Onglet Avancé
+    # ------------------------------------------------------------------
 
     def _build_advanced_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(frame, text="Avancé")
 
-        ttk.Label(frame, text="Longueur max (tokens) :").grid(
-            row=0, column=0, sticky="w"
+        ttk.Label(
+            frame,
+            text="Ces réglages conviennent tels quels dans la quasi-totalité\n"
+                 "des cas. À ne toucher qu'en cas de souci précis.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
+
+        ttk.Label(frame, text="Fin de phrase conservée (millisecondes) :").grid(
+            row=1, column=0, sticky="w"
+        )
+        self.tail_var = tk.IntVar(value=self.config.recording.tail_padding_ms)
+        ttk.Spinbox(
+            frame, from_=0, to=1500, increment=50,
+            textvariable=self.tail_var, width=8,
+        ).grid(row=1, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="On continue d'enregistrer ce délai après que tu as relâché la\n"
+                 "touche. Augmente si tes fins de phrase sont encore coupées.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
+        ttk.Label(frame, text="Durée maximale d'une dictée (secondes) :").grid(
+            row=3, column=0, sticky="w"
+        )
+        self.max_rec_var = tk.IntVar(value=self.config.recording.max_duration_s)
+        ttk.Spinbox(
+            frame, from_=30, to=1800, increment=30,
+            textvariable=self.max_rec_var, width=8,
+        ).grid(row=3, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="Coupe-circuit si le relâchement de touche n'est jamais reçu.\n"
+                 "L'audio est conservé dans ~/.voxtral/recordings/.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
+        ttk.Label(frame, text="Longueur maximale du texte (jetons) :").grid(
+            row=5, column=0, sticky="w"
         )
         self.tokens_var = tk.IntVar(value=self.config.transcription.max_new_tokens)
         ttk.Spinbox(
-            frame,
-            from_=128,
-            to=4096,
-            increment=128,
-            textvariable=self.tokens_var,
-            width=8,
-        ).grid(row=0, column=1, sticky="w", padx=(10, 0))
+            frame, from_=128, to=4096, increment=128,
+            textvariable=self.tokens_var, width=8,
+        ).grid(row=5, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="Tronque la transcription si elle dépasse. 1024 ≈ 12 min de parole.",
+            text="1024 ≈ 5 minutes de texte. Pour un enregistrement long,\n"
+                 "utilise « Transcrire un fichier audio… » plutôt que la dictée.",
             foreground="gray",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 15))
+            justify=tk.LEFT,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
-        self.autopaste_var = tk.BooleanVar(value=self.config.ui.auto_paste)
+        self.autocheck_var = tk.BooleanVar(value=self.config.updates.auto_check)
         ttk.Checkbutton(
-            frame,
-            text="Coller automatiquement à la position du curseur",
-            variable=self.autopaste_var,
-        ).grid(row=2, column=0, columnspan=2, sticky="w")
+            frame, text="Vérifier les mises à jour au démarrage",
+            variable=self.autocheck_var,
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
+
+    # ------------------------------------------------------------------
+    # Onglet À propos
+    # ------------------------------------------------------------------
 
     def _build_about_tab(self) -> None:
         frame = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(frame, text="À propos")
 
+        ttk.Label(frame, text="Voxtral Dictée", font=("", 16, "bold")).pack(
+            anchor="w"
+        )
         ttk.Label(
             frame,
-            text="Voxtral Dictée",
-            font=("Helvetica", 16, "bold"),
-        ).pack(anchor="w")
-        ttk.Label(frame, text="Version 0.1.0").pack(anchor="w", pady=(5, 0))
-        ttk.Label(frame, text="Développé par Jeanjipm").pack(anchor="w")
+            text="Dictée vocale 100 % locale sur Apple Silicon.\n"
+                 "Aucune donnée ne quitte ton Mac.",
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(6, 14))
+
+        ttk.Label(frame, text="Aide-mémoire", font=("", 12, "bold")).pack(anchor="w")
         ttk.Label(
             frame,
             text=(
-                "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
-                "Aucune donnée ne quitte votre Mac."
+                "• Maintiens le raccourci, parle, relâche — le texte s'écrit.\n"
+                "• Pour un enregistrement déjà fait : menu → Transcrire un\n"
+                "  fichier audio…\n"
+                "• Les réglages s'appliquent seuls en quelques secondes."
             ),
             justify=tk.LEFT,
-        ).pack(anchor="w", pady=(15, 0))
+        ).pack(anchor="w", pady=(4, 14))
 
-        link_frame = ttk.Frame(frame)
-        link_frame.pack(anchor="w", pady=(20, 0))
-        self._link_button(
-            link_frame,
-            "GitHub",
-            "https://github.com/Jeanjipm/transcript_voxtral",
-        ).pack(side=tk.LEFT)
+        self._link_button(frame, "Code source et documentation", REPO_URL)
 
     def _link_button(self, parent: tk.Widget, text: str, url: str) -> ttk.Button:
-        return ttk.Button(parent, text=text, command=lambda: webbrowser.open(url))
+        button = ttk.Button(parent, text=text, command=lambda: webbrowser.open(url))
+        button.pack(anchor="w", pady=2)
+        return button
 
     # ------------------------------------------------------------------
     # Sauvegarde
     # ------------------------------------------------------------------
 
     def _save(self) -> None:
-        # Valide le raccourci AVANT tout : un combo invalide sauvegardé
-        # ferait planter l'app au prochain démarrage dans _parse_key.
         combo = self._current_combo()
         error = validate_combo(combo)
         if error is not None:
             messagebox.showerror(
                 "Raccourci invalide",
-                f"{error}\n\nFormat attendu : 'alt_r', 'alt+space', "
-                "'cmd+shift+h'. Jetons valides : cmd, option (= alt), "
-                "ctrl, shift, space, enter, tab, esc, f13-f19, ou une lettre.",
+                f"{error}\n\nExemples valides : alt+space, cmd+shift+h, f13, "
+                f"ou une seule touche tenue.",
             )
-            self.notebook.select(2)  # onglet Raccourci
+            self.notebook.select(0)
             return
 
-        # Reconstitue Config depuis les widgets
+        # Proposer le téléchargement AVANT d'enregistrer : découvrir au premier
+        # usage que l'app se fige plusieurs minutes sans explication est la
+        # pire des surprises.
+        for repo in (self.model_var.get(), self.file_model_var.get()):
+            if not self._ensure_downloaded(repo):
+                return
+
         cfg = self.config
         cfg.model.name = self.model_var.get()
-        cfg.transcription.language = self.lang_var.get()
+        cfg.transcription.language = self.lang.get_code()
         cfg.transcription.task = self.task_var.get()
         cfg.transcription.max_new_tokens = int(self.tokens_var.get())
         cfg.hotkey.combo = combo
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
+        cfg.updates.auto_check = bool(self.autocheck_var.get())
+        cfg.recording.tail_padding_ms = int(self.tail_var.get())
+        cfg.recording.max_duration_s = int(self.max_rec_var.get())
+        cfg.file_transcription.model = self.file_model_var.get()
+        cfg.file_transcription.output_dir = self.output_dir_var.get().strip()
+        cfg.file_transcription.include_timestamps = bool(self.timestamps_var.get())
+        cfg.file_transcription.max_duration_s = int(
+            float(self.file_max_hours_var.get()) * 3600
+        )
 
         save_config(cfg)
-        # Pas de popup de confirmation : le hot-reload applique les
-        # changements d'ici 2-3s sans intervention de l'utilisateur.
         self.root.destroy()
+
+    def _ensure_downloaded(self, repo_id: str) -> bool:
+        """Propose de télécharger un modèle absent. False = annuler la sauvegarde.
+
+        Répondre « Plus tard » enregistre quand même : le modèle se
+        téléchargera au premier usage, simplement sans progression visible.
+        """
+        if is_downloaded(repo_id, self.config.model.resolved_path):
+            return True
+        model = find_model(repo_id)
+        if model is None:
+            return True
+
+        answer = messagebox.askyesnocancel(
+            "Télécharger ce modèle ?",
+            f"{model.label} n'est pas encore sur ton Mac "
+            f"({model.size_gb:.1f} Go).\n\n"
+            f"Le télécharger maintenant ? Sinon il sera récupéré à sa première "
+            f"utilisation, ce qui rendra cette première fois très lente.",
+        )
+        if answer is None:  # Annuler
+            return False
+        if not answer:  # Plus tard
+            return True
+
+        dialog = DownloadDialog(self.root, model)
+        if not dialog.run():
+            messagebox.showerror(
+                "Téléchargement échoué",
+                f"{dialog.error}\n\nVérifie ta connexion internet. Le réglage "
+                f"n'a pas été enregistré.",
+            )
+            return False
+        return True
 
 
 def main() -> None:

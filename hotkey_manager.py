@@ -15,9 +15,21 @@ on_start qu'au premier).
 
 from __future__ import annotations
 
+import sys
+import threading
+import time
 from typing import Callable
 
 from pynput import keyboard
+
+
+# Intervalle minimum entre deux réarmements du listener. Empêche une cause de
+# blocage persistante de faire boucler la reconstruction du tap.
+_REARM_MIN_INTERVAL_S = 10.0
+
+# Attente maximale de la fin du thread listener. pynput sort de sa boucle au
+# tour de CFRunLoop suivant, soit jusqu'à 1 s ; on laisse une marge.
+_LISTENER_JOIN_TIMEOUT_S = 2.0
 
 
 # Mapping nom config → pynput.Key (ou caractère). Les alias "option"
@@ -115,6 +127,7 @@ class HotkeyManager:
         self._listener: keyboard.Listener | None = None
         self._active = False  # True pendant qu'on enregistre
         self._pressed: set[keyboard.Key | str] = set()
+        self._last_rearm_at = 0.0
         self._configure(combo)
 
     def _configure(self, combo: str) -> None:
@@ -147,16 +160,75 @@ class HotkeyManager:
     def stop(self) -> None:
         if self._listener is None:
             return
-        self._listener.stop()
+
+        # `pynput.keyboard.Listener` EST un Thread, et son callback tourne sur
+        # lui. S'arrêter depuis son propre thread se bloquerait sur le join
+        # ci-dessous. On transforme donc la règle « jamais depuis le callback »
+        # en garde vérifiée plutôt qu'en simple commentaire.
+        if threading.current_thread() is self._listener:
+            print(
+                "[HotkeyManager] stop() appelé depuis le thread du listener — "
+                "ignoré (utilise le thread dictation-worker).",
+                file=sys.stderr,
+            )
+            return
+
+        listener = self._listener
         self._listener = None
         self._pressed.clear()
         self._active = False
+
+        listener.stop()
+        # Sans ce join, `update_binding` peut laisser deux listeners vivants
+        # en parallèle jusqu'à 1 s (le tour de CFRunLoop de pynput), ce qui
+        # délivre les appuis en double. La machine à états les tolère, mais
+        # autant ne pas les créer.
+        try:
+            listener.join(timeout=_LISTENER_JOIN_TIMEOUT_S)
+        except RuntimeError:
+            # join() sur un thread jamais démarré : sans conséquence.
+            pass
 
     def update_binding(self, combo: str) -> None:
         """Reconfigure le raccourci sans redémarrer l'app."""
         self.stop()
         self._configure(combo)
         self.start()
+
+    def rearm(self) -> bool:
+        """Recrée le listener — donc un CGEventTap neuf — après un blocage.
+
+        macOS désactive un event tap dont le callback dépasse environ une
+        seconde, en émettant `kCGEventTapDisabledByTimeout`. pynput 1.8.1 ne
+        traite jamais cet événement : le tap reste mort et le raccourci est
+        perdu jusqu'au redémarrage de l'app.
+
+        On ne peut pas le réactiver proprement : pynput garde le tap dans une
+        variable locale de `ListenerMixin._run`, donc `CGEventTapEnable` est
+        hors d'atteinte, et `listener.running` reste `True` sur un tap mort —
+        aucune détection directe n'est possible. La seule issue est de
+        reconstruire le listener.
+
+        Limité par `_REARM_MIN_INTERVAL_S` : sans ça, une cause de blocage
+        persistante ferait boucler la reconstruction.
+
+        NE JAMAIS appeler depuis le callback du tap (cf. le garde dans
+        `stop()`) : réservé au thread `dictation-worker`.
+
+        Retourne True si le réarmement a bien eu lieu.
+        """
+        now = time.monotonic()
+        if now - self._last_rearm_at < _REARM_MIN_INTERVAL_S:
+            return False
+        self._last_rearm_at = now
+
+        print(
+            "[HotkeyManager] réarmement du raccourci (event tap probablement "
+            "désactivé par macOS).",
+            file=sys.stderr,
+        )
+        self.update_binding(self.combo)
+        return True
 
     def _normalize(self, key: object) -> keyboard.Key | str | None:
         """Normalise key (KeyCode → char str, Key → Key, autre → None)."""
