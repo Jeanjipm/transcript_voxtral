@@ -518,3 +518,127 @@ def test_display_combo_verbose_names_the_side():
 
 def test_display_combo_verbose_leaves_combinations_compact():
     assert display_combo("cmd+shift+h", verbose=True) == "⌘⇧H"
+
+
+# ---- Régression : le crash à la fermeture des Préférences ----
+#
+# macOS tue le processus (SIGTRAP, `dispatch_assert_queue_fail` sous
+# HIToolbox) quand pynput interroge le Text Services Manager hors de la file
+# principale alors que la liste des sources de saisie doit être reconstruite —
+# ce qui arrive quand l'application active change, typiquement à la fermeture
+# de la fenêtre de réglages. Or c'est `Listener._run`, sur le thread du
+# listener, qui fait cet appel. Donc : ne jamais refabriquer de listener sur
+# ces chemins-là.
+
+
+def test_update_binding_does_not_recreate_the_listener(distinct_listeners):
+    """LE test de non-régression du crash. Changer de raccourci doit
+    reconfigurer en place, pas fabriquer un tap neuf."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+    listener = mgr._listener
+
+    mgr.update_binding("f13")
+
+    assert len(distinct_listeners) == 1, "aucun nouveau listener ne doit naître"
+    assert mgr._listener is listener
+    listener.stop.assert_not_called()
+
+
+def test_update_binding_still_changes_what_triggers(distinct_listeners):
+    """Reconfigurer en place doit rester fonctionnellement équivalent."""
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+    mgr.update_binding("ctrl_l")
+
+    _press(mgr, "alt_r")
+    assert starts == []
+    _press(mgr, "ctrl_l")
+    assert starts == [1]
+
+
+def test_pause_does_not_touch_the_listener(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    listener = mgr._listener
+
+    mgr.pause()
+    mgr.resume()
+
+    assert len(distinct_listeners) == 1
+    assert mgr._listener is listener
+    listener.stop.assert_not_called()
+
+
+def test_paused_hotkey_does_not_trigger(distinct_listeners):
+    """Sans ça, appuyer sur ⌥ droite pour l'enregistrer dans les Préférences
+    lancerait une dictée, qui viendrait coller son texte dans la fenêtre."""
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+    mgr.pause()
+
+    _press(mgr, "alt_r")
+    _release(mgr, "alt_r")
+
+    assert starts == []
+    assert mgr.is_paused is True
+
+
+def test_resume_restores_the_hotkey(distinct_listeners):
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+    mgr.pause()
+    mgr.resume()
+
+    _press(mgr, "alt_r")
+
+    assert starts == [1]
+    assert mgr.is_paused is False
+
+
+def test_pause_closes_a_dictation_in_progress(distinct_listeners):
+    """Si on met en pause pendant un enregistrement, le relâchement ne sera
+    jamais vu : il faut refermer soi-même, sinon la machine à états croit
+    qu'on enregistre encore et le micro reste ouvert."""
+    stops: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: None, on_stop=lambda: stops.append(1))
+    mgr.start()
+    _press(mgr, "alt_r")
+    assert mgr._active is True
+
+    mgr.pause()
+
+    assert stops == [1]
+    assert mgr._active is False
+
+
+def test_pause_is_idempotent(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    mgr.pause()
+    mgr.pause()  # ne doit pas lever ni re-notifier
+    assert mgr.is_paused is True
+
+
+def test_resume_without_pause_is_harmless(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    mgr.resume()
+    assert mgr.is_paused is False
+
+
+def test_release_left_over_from_pause_is_ignored(distinct_listeners):
+    """Touche relâchée pendant la pause : au retour, on ne doit pas croire
+    qu'une dictée était en cours."""
+    stops: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: None, on_stop=lambda: stops.append(1))
+    mgr.start()
+    mgr.pause()
+    _release(mgr, "alt_r")
+    mgr.resume()
+    _release(mgr, "alt_r")
+
+    assert stops == []

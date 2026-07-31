@@ -237,6 +237,32 @@ class HotkeyManager:
         mgr.start()
         ...
         mgr.stop()
+
+    ## Un seul listener pour toute la session
+
+    Règle de conception, apprise par un crash : **on ne détruit pas un
+    listener pour en refabriquer un**. Ni pour changer de raccourci, ni pour
+    suspendre temporairement la dictée.
+
+    Pourquoi. `pynput.keyboard.Listener._run` ouvre un contexte de
+    disposition clavier (`keycode_context`) qui appelle Carbon
+    `TISGetInputSourceProperty` — et il le fait depuis le thread du listener,
+    pas depuis celui qui a construit l'objet. Or macOS exige que le Text
+    Services Manager soit interrogé depuis la file principale quand sa liste
+    de sources de saisie doit être reconstruite. Quand ce n'est pas le cas,
+    HIToolbox ne rend pas une erreur : il déclenche
+    `dispatch_assert_queue_fail`, et le processus meurt sur SIGTRAP.
+
+    Ce qui invalide cette liste, c'est un changement d'application active —
+    typiquement la fermeture de la fenêtre de préférences. Fabriquer un
+    listener à cet instant précis, c'est exactement la recette du crash
+    observé (rapport `Python-2026-07-31-092748.ips`).
+
+    Conséquence : `update_binding` reconfigure en place, et la mise en pause
+    passe par un drapeau. Les callbacks lisent `self.combo` à chaque
+    événement, donc changer le raccourci ne demande aucun nouveau tap.
+    Reconstruire reste possible via `rearm()`, seul cas où c'est le but même
+    de l'opération — et c'est un chemin de récupération, pas un chemin normal.
     """
 
     def __init__(
@@ -249,6 +275,7 @@ class HotkeyManager:
         self.on_stop = on_stop
         self._listener: keyboard.Listener | None = None
         self._active = False  # True pendant qu'on enregistre
+        self._paused = False  # True quand la fenêtre de réglages est ouverte
         self._pressed: set[keyboard.Key | str] = set()
         self._last_rearm_at = 0.0
         self._configure(combo)
@@ -313,10 +340,50 @@ class HotkeyManager:
             pass
 
     def update_binding(self, combo: str) -> None:
-        """Reconfigure le raccourci sans redémarrer l'app."""
-        self.stop()
+        """Change le raccourci écouté, sans toucher au listener.
+
+        Les callbacks lisent `self.combo` à chaque événement : reconfigurer
+        les structures internes suffit, le tap en cours reconnaît le nouveau
+        raccourci dès l'appui suivant.
+
+        L'ancienne version arrêtait puis recréait le listener. Ça marchait,
+        mais c'était le chemin qui menait au crash décrit dans la docstring
+        de la classe — et il se déclenchait au pire moment, juste après la
+        fermeture de la fenêtre de préférences qui venait de changer le
+        raccourci. Appelable depuis n'importe quel thread.
+        """
         self._configure(combo)
-        self.start()
+        self._active = False
+
+    def pause(self) -> None:
+        """Suspend le raccourci sans démonter le listener.
+
+        Utilisé pendant que la fenêtre de réglages est ouverte : sans ça,
+        appuyer sur ⌥ droite pour l'enregistrer déclencherait une dictée.
+
+        Un drapeau plutôt qu'un `stop()` : arrêter puis relancer le listener
+        reviendrait à en fabriquer un neuf au retour, ce que la docstring de
+        la classe explique être mortel. Appelable depuis n'importe quel
+        thread, et instantané — pas d'attente de fin de thread.
+        """
+        self._paused = True
+        # Si une dictée était en cours au moment de la pause, on ne verra
+        # jamais le relâchement : on referme proprement plutôt que de laisser
+        # la machine à états croire qu'on enregistre toujours.
+        if self._active:
+            self._active = False
+            self._safe_call(self.on_stop)
+        self._pressed.clear()
+
+    def resume(self) -> None:
+        """Réactive le raccourci. Sans effet s'il n'était pas en pause."""
+        self._pressed.clear()
+        self._active = False
+        self._paused = False
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
 
     def rearm(self) -> bool:
         """Recrée le listener — donc un CGEventTap neuf — après un blocage.
@@ -338,6 +405,13 @@ class HotkeyManager:
         NE JAMAIS appeler depuis le callback du tap (cf. le garde dans
         `stop()`) : réservé au thread `dictation-worker`.
 
+        C'est le SEUL endroit qui refabrique un listener, et c'est assumé :
+        sans tap neuf, le raccourci reste mort. Le risque décrit dans la
+        docstring de la classe est accepté ici parce que l'alternative est
+        une app inutilisable, et parce qu'on n'arrive dans ce chemin qu'après
+        un dépassement de durée maximale — pas au fil de l'eau, et jamais au
+        moment où macOS change d'application active.
+
         Retourne True si le réarmement a bien eu lieu.
         """
         now = time.monotonic()
@@ -350,7 +424,9 @@ class HotkeyManager:
             "désactivé par macOS).",
             file=sys.stderr,
         )
-        self.update_binding(self.combo)
+        self.stop()
+        self._configure(self.combo)
+        self.start()
         return True
 
     def _normalize(self, key: object) -> keyboard.Key | str | None:
@@ -358,6 +434,8 @@ class HotkeyManager:
         return normalize_key(key)
 
     def _on_press(self, key: object) -> None:
+        if self._paused:
+            return
         norm = self._normalize(key)
         if norm is None:
             return
@@ -383,6 +461,8 @@ class HotkeyManager:
             self._safe_call(self.on_start)
 
     def _on_release(self, key: object) -> None:
+        if self._paused:
+            return
         norm = self._normalize(key)
         if norm is None:
             return

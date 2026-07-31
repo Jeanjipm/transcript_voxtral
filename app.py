@@ -827,12 +827,18 @@ class VoxtralApp(rumps.App):
         dicter pendant qu'on règle. C'est aussi ce qu'on veut — le raccourci
         ne doit pas se déclencher pendant qu'on tape dans un champ.
 
-        Tourne dans un thread dédié : `HotkeyManager.stop()` attend la fin du
-        thread listener (jusqu'à 2 s), ce qui est hors budget pour le main
-        thread de rumps.
+        `pause()` / `resume()` et non `stop()` / `start()` : reconstruire le
+        listener au retour faisait mourir l'app sur SIGTRAP, parce que la
+        fermeture de la fenêtre change l'application active et que pynput
+        interroge alors le Text Services Manager hors de la file principale
+        (détails dans la docstring de `HotkeyManager`). Le drapeau est en
+        prime instantané, là où `stop()` attendait jusqu'à 2 s.
+
+        Tourne quand même dans un thread dédié : c'est `proc.wait()` qui
+        bloque, et il n'a rien à faire sur le main thread de rumps.
         """
         try:
-            self.hotkey.stop()
+            self.hotkey.pause()
         except Exception:
             traceback.print_exc()
         self._set_hotkey_title("Raccourci : en pause (Préférences ouvertes)")
@@ -840,13 +846,11 @@ class VoxtralApp(rumps.App):
         try:
             proc.wait()
         finally:
-            # `start()` est idempotent : si `_reload_config` a déjà reconstruit
-            # le listener entre-temps, cet appel ne fait rien.
             try:
-                self.hotkey.start()
+                self.hotkey.resume()
             except Exception:
                 traceback.print_exc()
-            # On relit la config plutôt que de mémoriser l'ancien libellé : le
+            # On relit le combo plutôt que de mémoriser l'ancien libellé : le
             # raccourci vient peut-être justement d'être changé.
             self._set_hotkey_title(
                 f"Raccourci : {display_combo(self.hotkey.combo)}"
