@@ -28,6 +28,11 @@ from pynput import keyboard
 # blocage persistante de faire boucler la reconstruction du tap.
 _REARM_MIN_INTERVAL_S = 10.0
 
+# Au-delà de ce délai, deux appuis consécutifs sans relâchement ne peuvent
+# pas être de l'auto-répétition système (quelques dizaines de ms) : c'est
+# qu'un relâchement s'est perdu. Cf. la garde dans `_on_press`.
+_STALE_PRESS_S = 1.0
+
 # Attente maximale de la fin du thread listener. pynput sort de sa boucle au
 # tour de CFRunLoop suivant, soit jusqu'à 1 s ; on laisse une marge.
 _LISTENER_JOIN_TIMEOUT_S = 2.0
@@ -277,6 +282,9 @@ class HotkeyManager:
         self._active = False  # True pendant qu'on enregistre
         self._paused = False  # True quand la fenêtre de réglages est ouverte
         self._pressed: set[keyboard.Key | str] = set()
+        # Date du dernier appui vu pour chaque touche, pour distinguer
+        # l'auto-répétition d'un relâchement perdu (cf. `_on_press`).
+        self._last_press_at: dict[keyboard.Key | str, float] = {}
         self._last_rearm_at = 0.0
         self._configure(combo)
 
@@ -296,6 +304,7 @@ class HotkeyManager:
             self._final_key = parse_key(final)
 
         self._pressed.clear()
+        self._last_press_at.clear()
 
     def start(self) -> None:
         if self._listener is not None:
@@ -326,6 +335,7 @@ class HotkeyManager:
         listener = self._listener
         self._listener = None
         self._pressed.clear()
+        self._last_press_at.clear()
         self._active = False
 
         listener.stop()
@@ -374,10 +384,12 @@ class HotkeyManager:
             self._active = False
             self._safe_call(self.on_stop)
         self._pressed.clear()
+        self._last_press_at.clear()
 
     def resume(self) -> None:
         """Réactive le raccourci. Sans effet s'il n'était pas en pause."""
         self._pressed.clear()
+        self._last_press_at.clear()
         self._active = False
         self._paused = False
 
@@ -440,8 +452,47 @@ class HotkeyManager:
         if norm is None:
             return
 
-        # Anti-rebond auto-repeat : si déjà dans le set, on ignore
+        now = time.monotonic()
+        previous = self._last_press_at.get(norm)
+        self._last_press_at[norm] = now
+
+        # Anti-rebond auto-repeat : si déjà dans le set, on ignore.
         already_pressed = norm in self._pressed
+
+        # …sauf si l'appui précédent est trop vieux pour être une répétition.
+        #
+        # C'EST LE CORRECTIF D'UN BLOCAGE SILENCIEUX ET DÉFINITIF. Une touche
+        # n'est retirée de `_pressed` que par son relâchement. Or macOS perd
+        # des relâchements : pendant une désactivation brève du tap, pendant
+        # un réarmement, ou quand une autre application capture l'événement.
+        # Le relâchement perdu laissait la touche dans `_pressed` À VIE, donc
+        # tous les appuis suivants sortaient ici même — on tenait la touche et
+        # il ne se passait plus rien, sans le moindre message, jusqu'au
+        # redémarrage de l'app. C'est le symptôme rapporté en usage réel.
+        #
+        # Le départage se fait sur le temps, et il est net : l'auto-répétition
+        # du système arrive toutes les quelques dizaines de millisecondes,
+        # là où un humain qui réappuie met au moins deux ou trois centièmes de
+        # seconde — en pratique beaucoup plus. Une seconde d'écart ne peut
+        # donc pas être une répétition.
+        #
+        # Détail qui compte pour le raccourci par défaut : sur macOS les
+        # touches de modification (⌥ ⌘ ⌃ ⇧) N'ONT PAS d'auto-répétition du
+        # tout — les tenir n'émet qu'un seul appui. Pour « ⌥ droite », cette
+        # garde ne protégeait donc de rien, mais pouvait tuer le raccourci.
+        if already_pressed and (
+            previous is None or now - previous > _STALE_PRESS_S
+        ):
+            print(
+                f"[{time.strftime('%H:%M:%S')}] [raccourci] relâchement perdu "
+                f"détecté, resynchronisation",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._pressed.discard(norm)
+            self._active = False
+            already_pressed = False
+
         self._pressed.add(norm)
         if already_pressed:
             return

@@ -302,6 +302,9 @@ class VoxtralApp(rumps.App):
             self.file_item,
             self.file_cancel_item,
             None,
+            rumps.MenuItem(
+                "Réactiver le raccourci", callback=self.rearm_hotkey_manual
+            ),
             rumps.MenuItem("Préférences…", callback=self.open_preferences),
             self.updates_item,
             None,
@@ -789,6 +792,43 @@ class VoxtralApp(rumps.App):
     # ------------------------------------------------------------------
     # Items de menu
     # ------------------------------------------------------------------
+
+    def rearm_hotkey_manual(self, _sender: rumps.MenuItem) -> None:
+        """Reconstruit l'écoute clavier à la demande.
+
+        Filet pour le cas qu'aucun code ne peut détecter : macOS a désactivé
+        l'event tap et plus AUCUN événement clavier ne nous parvient. La
+        resynchronisation d'`_on_press` ne peut rien y faire — elle a besoin
+        d'un appui pour se déclencher, et justement il n'arrive plus. La
+        surveillance de durée maximale non plus, puisqu'elle suppose un
+        enregistrement en cours.
+
+        Jusqu'ici la seule issue était de redémarrer l'app. Le menu, lui,
+        reste cliquable.
+
+        Le travail part sur un thread : `rearm()` détruit et recrée le
+        listener, ce qui attend la fin d'un thread (jusqu'à 2 s) — hors budget
+        pour le main thread de rumps.
+        """
+        threading.Thread(
+            target=self._rearm_and_report, name="rearm-manual", daemon=True
+        ).start()
+
+    def _rearm_and_report(self) -> None:
+        try:
+            # `rearm()` s'auto-limite à un réarmement toutes les 10 s ; sur une
+            # action explicite de l'utilisateur, ce garde-fou n'a pas lieu
+            # d'être — il est là contre les boucles automatiques.
+            self.hotkey._last_rearm_at = 0.0
+            done = self.hotkey.rearm()
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            self._show_error("Réactivation du raccourci", str(exc))
+            return
+        if done:
+            self._set_hotkey_title(
+                f"Raccourci : {display_combo(self.hotkey.combo)}"
+            )
 
     def open_preferences(self, _sender: rumps.MenuItem) -> None:
         # On lance settings_ui.py dans un sous-processus : tkinter ne

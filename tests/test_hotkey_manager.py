@@ -642,3 +642,107 @@ def test_release_left_over_from_pause_is_ignored(distinct_listeners):
     _release(mgr, "alt_r")
 
     assert stops == []
+
+
+# ---- Régression : le raccourci mort après un relâchement perdu ----
+#
+# Symptôme rapporté en usage réel : « on continue d'être appuyé et rien ne se
+# passe », de façon intermittente et sans aucun message. Cause : une touche
+# n'est retirée de `_pressed` que par son relâchement, et macOS en perd
+# (désactivation brève du tap, réarmement, autre app qui capture). Le
+# relâchement perdu laissait la touche dans `_pressed` À VIE, donc tous les
+# appuis suivants sortaient sur l'anti-rebond auto-repeat.
+
+
+def test_lost_release_does_not_kill_the_hotkey(distinct_listeners, monkeypatch):
+    """LE test de non-régression. Un relâchement perdu ne doit pas rendre le
+    raccourci définitivement muet."""
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    assert starts == [1]
+    # …et le relâchement n'arrive jamais.
+
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert starts == [1, 1], "le second appui doit repartir, pas être jeté"
+
+
+def test_autorepeat_is_still_filtered(distinct_listeners, monkeypatch):
+    """La resynchronisation ne doit pas casser l'anti-rebond : l'auto-répétition
+    du système arrive toutes les quelques dizaines de millisecondes."""
+    starts: list[int] = []
+    mgr = HotkeyManager("h", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "h")
+    for _ in range(20):
+        faux_temps[0] += 0.05          # 50 ms, cadence typique du système
+        _press(mgr, "h")
+
+    assert starts == [1], "un seul démarrage malgré 21 appuis"
+
+
+def test_held_modifier_is_not_resynced_spuriously(distinct_listeners, monkeypatch):
+    """Sur macOS les modificateurs n'ont PAS d'auto-répétition : tenir ⌥ droite
+    n'émet qu'un appui. Aucun second appui ne doit donc survenir pendant une
+    dictée, même longue — et si le système en émet un, c'est bien qu'il a perdu
+    le relâchement."""
+    starts: list[int] = []
+    stops: list[int] = []
+    mgr = HotkeyManager(
+        "alt_r", on_start=lambda: starts.append(1), on_stop=lambda: stops.append(1)
+    )
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 30.0              # dictée de 30 s
+    _release(mgr, "alt_r")
+
+    assert starts == [1]
+    assert stops == [1]
+
+
+def test_resync_clears_the_active_flag(distinct_listeners, monkeypatch):
+    """Après resynchronisation, l'état interne doit être cohérent : sinon le
+    relâchement suivant serait à son tour ignoré."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert mgr._active is True
+    _release(mgr, "alt_r")
+    assert mgr._active is False
+    assert mgr._pressed == set()
+
+
+def test_resync_is_logged(distinct_listeners, monkeypatch, capsys):
+    """Le blocage était invisible ; sa correction doit être traçable."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert "relâchement perdu" in capsys.readouterr().err
