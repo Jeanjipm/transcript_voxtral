@@ -30,6 +30,7 @@ plusieurs endroits : régler sa dictée demandait de visiter trois onglets.
 
 from __future__ import annotations
 
+import copy
 import queue
 import threading
 import tkinter as tk
@@ -260,8 +261,38 @@ class SettingsWindow:
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _close(self) -> None:
+        """Fermeture par la croix, Cmd+W ou « Annuler ».
+
+        On propose d'enregistrer plutôt que de tout jeter. Fermer une fenêtre
+        de réglages après y avoir coché quelque chose et retrouver l'ancien
+        état sans un mot est le genre de silence qui fait croire à un bug —
+        et ça s'est produit.
+        """
         self._end_capture(None)
+
+        if self._has_unsaved_changes():
+            answer = messagebox.askyesnocancel(
+                "Enregistrer les modifications ?",
+                "Tu as changé des réglages sans les enregistrer.",
+                default=messagebox.YES,
+            )
+            if answer is None:  # Annuler : on reste dans la fenêtre
+                return
+            if answer:
+                self._save()
+                return
+
         self.root.destroy()
+
+    def _has_unsaved_changes(self) -> bool:
+        """Compare l'état de la fenêtre à la config chargée à l'ouverture."""
+        try:
+            return self._collect() != self.config.to_dict()
+        except Exception:  # noqa: BLE001
+            # Un champ en cours de saisie peut être invalide (Spinbox vide).
+            # Dans le doute on considère qu'il y a des modifications : mieux
+            # vaut une question de trop qu'un réglage perdu.
+            return True
 
     # ------------------------------------------------------------------
     # Onglet Dictée — tout le trajet raccourci → parole → texte collé
@@ -943,12 +974,25 @@ class SettingsWindow:
             if not self._ensure_downloaded(repo):
                 return
 
-        cfg = self.config
+        cfg = self._collect_config()
+        save_config(cfg)
+        # La fenêtre reflète désormais ce qui est sur le disque : sans cette
+        # ligne, `_has_unsaved_changes` croirait encore à des modifications.
+        self.config = cfg
+        self.root.destroy()
+
+    def _collect_config(self) -> Config:
+        """Config décrite par l'état actuel de la fenêtre.
+
+        Travaille sur une copie : `_has_unsaved_changes` a besoin de comparer
+        à la config d'origine, donc on ne peut pas muter celle-ci au passage.
+        """
+        cfg = copy.deepcopy(self.config)
         cfg.model.name = self.model_var.get()
         cfg.transcription.language = self.lang.get_code()
         cfg.transcription.task = self.task_var.get()
         cfg.transcription.max_new_tokens = int(self.tokens_var.get())
-        cfg.hotkey.combo = combo
+        cfg.hotkey.combo = self._current_combo()
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
@@ -962,9 +1006,10 @@ class SettingsWindow:
         cfg.file_transcription.max_duration_s = int(
             float(self.file_max_hours_var.get()) * 3600
         )
+        return cfg
 
-        save_config(cfg)
-        self.root.destroy()
+    def _collect(self) -> dict:
+        return self._collect_config().to_dict()
 
     def _ensure_downloaded(self, repo_id: str) -> bool:
         """Propose de télécharger un modèle absent. False = annuler la sauvegarde.

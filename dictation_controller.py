@@ -41,6 +41,22 @@ Le flux clavier est intrinsèquement lacunaire — macOS peut perdre un
 relâchement pendant un réarmement du tap. Toute transition illégale de la
 machine à états **logue et abandonne, sans jamais lever**. Une exception
 qui s'échapperait tuerait l'unique thread micro.
+
+## Enregistrer et transcrire sont indépendants
+
+Le micro est libre dès que le WAV est écrit ; l'inférence, elle, continue
+sur son propre thread. Un nouvel appui est donc accepté pendant qu'une
+transcription tourne encore, et `_in_flight` compte celles qui restent en
+vol pour que l'état affiché reste juste.
+
+Ça n'a pas toujours été le cas, et le refus coûtait cher. Enchaîner deux
+dictées — le réflexe naturel quand on réfléchit à voix haute — voyait le
+second appui jeté en silence : ni son, ni icône rouge, rien. On parlait
+plusieurs secondes dans le vide avant de comprendre. Vu de l'utilisateur,
+c'est indistinguable d'une app bloquée, et c'est bien comme ça que le bug a
+été rapporté. La justification d'alors — « deux textes ne doivent jamais
+courir au presse-papier » — était fausse : l'`inference-worker` est à thread
+unique, il sérialise les transcriptions et l'ordre est préservé.
 """
 
 from __future__ import annotations
@@ -166,6 +182,11 @@ class DictationController:
         # en RECORDING sans jamais recevoir de stop.
         self._stop_requested = False
         self._recording_started_at = 0.0
+        # Transcriptions soumises et pas encore terminées. Il peut y en avoir
+        # plusieurs : on accepte de redémarrer une dictée pendant qu'une
+        # transcription tourne encore (cf. `_handle_start`), donc l'état
+        # affiché ne peut plus se déduire du seul `_state`.
+        self._in_flight = 0
 
     # ---- Cycle de vie ----
 
@@ -278,13 +299,32 @@ class DictationController:
     # ---- Transitions ----
 
     def _handle_start(self) -> None:
-        if self._state is not State.IDLE:
-            # Appui en double (auto-repeat, ou appui reçu juste après un
-            # réarmement du tap), ou transcription encore en cours : on
-            # abandonne. Deux textes ne doivent jamais courir au
-            # presse-papier.
+        if self._state not in (State.IDLE, State.PENDING):
+            # Appui en double : auto-repeat, ou appui reçu juste après un
+            # réarmement du tap. Rien à faire, on enregistre déjà.
             self._log_drop("start", self._state)
             return
+
+        # PENDING est accepté, et c'est un correctif, pas un détail.
+        #
+        # La version précédente refusait de démarrer tant que la transcription
+        # précédente tournait, au motif que « deux textes ne doivent jamais
+        # courir au presse-papier ». Ce raisonnement était faux : les
+        # transcriptions passent par un worker à thread unique qui les
+        # sérialise, donc les textes arrivent dans l'ordre de toute façon.
+        #
+        # Le prix de ce refus, lui, était réel et invisible. Enchaîner deux
+        # dictées — ce qu'on fait naturellement quand on réfléchit à voix
+        # haute — voyait le second appui jeté sans aucun signal : pas de son,
+        # pas d'icône rouge, rien. L'utilisateur parlait dans le vide pendant
+        # plusieurs secondes, puis relâchait dans le vide aussi. Vu de
+        # l'extérieur, c'est exactement la signature d'une app bloquée, et
+        # c'est ce qui a été observé en usage réel (deux occurrences dans
+        # voxtral.log : « start ignorée en état pending » suivi de
+        # « stop ignorée en état idle »).
+        #
+        # Le micro est libre dès que le WAV est écrit : il n'y a aucune raison
+        # matérielle d'attendre la fin de l'inférence pour réenregistrer.
 
         self._stop_requested = False
         self._state = State.ARMING
@@ -336,10 +376,11 @@ class DictationController:
         duration = self._safe_duration(wav_path)
         if duration < MIN_DICTATION_DURATION_S:
             self._unlink(wav_path)
-            self._cb.on_state_change(State.IDLE, "État : prêt")
+            self._settle()
             return
 
         self._feedback.play_stop()
+        self._in_flight += 1
         self._state = State.PENDING
         self._cb.on_state_change(State.PENDING, "État : transcription…")
         self._cb.submit_transcription(wav_path)
@@ -355,9 +396,26 @@ class DictationController:
         self._enqueue(_Command.TRANSCRIPTION_DONE)
 
     def _handle_transcription_done(self) -> None:
-        if self._state is State.PENDING:
+        self._in_flight = max(0, self._in_flight - 1)
+        # Une transcription qui se termine ne doit RIEN dire quand une
+        # nouvelle dictée a déjà commencé : sinon l'icône repasserait au vert
+        # « prêt » alors que le micro est ouvert et que l'utilisateur parle.
+        if self._state in (State.PENDING, State.IDLE):
+            self._settle()
+
+    def _settle(self) -> None:
+        """Repose l'état affiché en tenant compte des transcriptions en vol.
+
+        Depuis qu'on peut réenregistrer pendant une transcription, « plus
+        d'enregistrement en cours » ne veut plus dire « prêt » : il peut
+        rester du travail côté inférence.
+        """
+        if self._in_flight > 0:
+            self._state = State.PENDING
+            self._cb.on_state_change(State.PENDING, "État : transcription…")
+        else:
             self._state = State.IDLE
-        self._cb.on_state_change(State.IDLE, "État : prêt")
+            self._cb.on_state_change(State.IDLE, "État : prêt")
 
     def _handle_device_changed(self) -> None:
         """Périphérique audio changé : on repart d'un stream propre.
@@ -413,7 +471,7 @@ class DictationController:
         # pire qu'un fichier orphelin, et coller cinq minutes de bruit pire
         # encore. On ne colle donc rien, et on confie le fichier à l'appelant.
         kept = self._keep_recording(wav_path)
-        self._cb.on_state_change(State.IDLE, "État : prêt")
+        self._settle()
         self._cb.on_error(
             "Enregistrement trop long",
             f"L'enregistrement a été coupé après {int(elapsed)} s car le "
@@ -449,7 +507,7 @@ class DictationController:
             traceback.print_exc()
         self._state = State.IDLE
         try:
-            self._cb.on_state_change(State.IDLE, "État : prêt")
+            self._settle()
         except Exception:  # noqa: BLE001
             traceback.print_exc()
 
