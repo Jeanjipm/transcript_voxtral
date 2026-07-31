@@ -248,51 +248,33 @@ class SettingsWindow:
 
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        # Ordre macOS : l'action principale est la plus à droite. L'ancienne
-        # version les avait inversés.
-        ttk.Button(btn_frame, text="Enregistrer", command=self._save).pack(
+        ttk.Label(
+            btn_frame,
+            text="Les réglages s'enregistrent en fermant la fenêtre.",
+            foreground="gray",
+        ).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="Fermer", command=self._close).pack(
             side=tk.RIGHT
         )
-        ttk.Button(btn_frame, text="Annuler", command=self._close).pack(
-            side=tk.RIGHT, padx=(0, 8)
-        )
-        # Fermer par la croix doit passer par le même chemin : sinon une
-        # capture en cours laisserait un écouteur clavier global derrière elle.
+        # La croix et Cmd+W passent par le même chemin, pour qu'il n'existe
+        # qu'une seule façon de sortir — et donc qu'un seul comportement.
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _close(self) -> None:
-        """Fermeture par la croix, Cmd+W ou « Annuler ».
+        """Fermer la fenêtre enregistre. Il n'y a rien d'autre à faire.
 
-        On propose d'enregistrer plutôt que de tout jeter. Fermer une fenêtre
-        de réglages après y avoir coché quelque chose et retrouver l'ancien
-        état sans un mot est le genre de silence qui fait croire à un bug —
-        et ça s'est produit.
+        Il y a eu ici, successivement, deux mauvaises réponses. D'abord des
+        boutons Enregistrer / Annuler : fermer par la croix jetait tout en
+        silence, ce qui a fait croire qu'une case ne s'enregistrait pas.
+        Puis une modale « Enregistrer les modifications ? » : une question de
+        plus à laquelle la réponse est toujours oui.
+
+        Un panneau de réglages n'a pas de brouillon à valider. On change un
+        réglage parce qu'on le veut ; le rôle de la fenêtre est de l'appliquer,
+        pas de demander confirmation. C'est aussi ce que fait Réglages Système.
         """
         self._end_capture(None)
-
-        if self._has_unsaved_changes():
-            answer = messagebox.askyesnocancel(
-                "Enregistrer les modifications ?",
-                "Tu as changé des réglages sans les enregistrer.",
-                default=messagebox.YES,
-            )
-            if answer is None:  # Annuler : on reste dans la fenêtre
-                return
-            if answer:
-                self._save()
-                return
-
-        self.root.destroy()
-
-    def _has_unsaved_changes(self) -> bool:
-        """Compare l'état de la fenêtre à la config chargée à l'ouverture."""
-        try:
-            return self._collect() != self.config.to_dict()
-        except Exception:  # noqa: BLE001
-            # Un champ en cours de saisie peut être invalide (Spinbox vide).
-            # Dans le doute on considère qu'il y a des modifications : mieux
-            # vaut une question de trop qu'un réglage perdu.
-            return True
+        self._save()
 
     # ------------------------------------------------------------------
     # Onglet Dictée — tout le trajet raccourci → parole → texte collé
@@ -976,16 +958,15 @@ class SettingsWindow:
 
         cfg = self._collect_config()
         save_config(cfg)
-        # La fenêtre reflète désormais ce qui est sur le disque : sans cette
-        # ligne, `_has_unsaved_changes` croirait encore à des modifications.
         self.config = cfg
         self.root.destroy()
 
     def _collect_config(self) -> Config:
         """Config décrite par l'état actuel de la fenêtre.
 
-        Travaille sur une copie : `_has_unsaved_changes` a besoin de comparer
-        à la config d'origine, donc on ne peut pas muter celle-ci au passage.
+        Travaille sur une copie plutôt que de muter `self.config` : une
+        sauvegarde interrompue (téléchargement annulé, raccourci refusé) ne
+        doit pas laisser la fenêtre dans un état à moitié appliqué.
         """
         cfg = copy.deepcopy(self.config)
         cfg.model.name = self.model_var.get()
@@ -1007,9 +988,6 @@ class SettingsWindow:
             float(self.file_max_hours_var.get()) * 3600
         )
         return cfg
-
-    def _collect(self) -> dict:
-        return self._collect_config().to_dict()
 
     def _ensure_downloaded(self, repo_id: str) -> bool:
         """Propose de télécharger un modèle absent. False = annuler la sauvegarde.

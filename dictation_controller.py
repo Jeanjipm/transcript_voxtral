@@ -326,9 +326,11 @@ class DictationController:
         # Le micro est libre dès que le WAV est écrit : il n'y a aucune raison
         # matérielle d'attendre la fin de l'inférence pour réenregistrer.
 
+        self._trace("appui reçu")
         self._stop_requested = False
         self._state = State.ARMING
         self._feedback.play_start()
+        t0 = time.monotonic()
 
         try:
             self._recorder.start()
@@ -343,6 +345,7 @@ class DictationController:
 
         self._recording_started_at = time.monotonic()
         self._state = State.RECORDING
+        self._trace(f"micro ouvert en {(time.monotonic() - t0) * 1000:.0f} ms")
         self._cb.on_state_change(State.RECORDING, "État : écoute en cours…")
 
         # Le relâchement a pu arriver pendant l'ouverture du micro (qui peut
@@ -374,7 +377,9 @@ class DictationController:
         self._state = State.IDLE
 
         duration = self._safe_duration(wav_path)
+        self._trace(f"relâchement, {duration:.1f} s enregistrées")
         if duration < MIN_DICTATION_DURATION_S:
+            self._trace("trop court, dictée jetée")
             self._unlink(wav_path)
             self._settle()
             return
@@ -383,6 +388,7 @@ class DictationController:
         self._in_flight += 1
         self._state = State.PENDING
         self._cb.on_state_change(State.PENDING, "État : transcription…")
+        self._trace("envoyé à la transcription")
         self._cb.submit_transcription(wav_path)
 
     def notify_transcription_done(self) -> None:
@@ -397,6 +403,7 @@ class DictationController:
 
     def _handle_transcription_done(self) -> None:
         self._in_flight = max(0, self._in_flight - 1)
+        self._trace("transcription terminée")
         # Une transcription qui se termine ne doit RIEN dire quand une
         # nouvelle dictée a déjà commencé : sinon l'icône repasserait au vert
         # « prêt » alors que le micro est ouvert et que l'utilisateur parle.
@@ -526,9 +533,32 @@ class DictationController:
         except OSError:
             pass
 
+    def _trace(self, message: str) -> None:
+        """Trace horodatée du cycle de vie d'une dictée.
+
+        Existe parce qu'un blocage rapporté en usage réel n'avait laissé
+        AUCUNE trace : ni erreur, ni commande jetée, ni crash. Impossible de
+        savoir si l'appui était arrivé, si le micro s'était ouvert, ni
+        combien de temps l'enregistrement avait duré — donc impossible
+        d'enquêter autrement qu'en devinant.
+
+        Une ligne par étape, horodatée à la milliseconde, avec l'état et le
+        nombre de transcriptions en vol. Le volume est négligeable (quelques
+        lignes par dictée) et c'est la différence entre un diagnostic et une
+        hypothèse.
+        """
+        stamp = time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"
+        print(
+            f"[{stamp}] [dictee] {message} "
+            f"(état={self._state.value}, en vol={self._in_flight})",
+            file=sys.stderr,
+            flush=True,
+        )
+
     @staticmethod
     def _log_drop(command: str, state: State) -> None:
         print(
-            f"[dictation] commande '{command}' ignorée en état {state.value}",
+            f"[{time.strftime('%H:%M:%S')}] "
+            f"[dictee] commande '{command}' ignorée en état {state.value}",
             file=sys.stderr,
         )
