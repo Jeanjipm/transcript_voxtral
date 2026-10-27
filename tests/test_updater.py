@@ -288,8 +288,8 @@ def test_apply_update_success(monkeypatch: pytest.MonkeyPatch):
     assert isinstance(result, ApplyResult)
     assert result.success is True
     assert result.requires_restart is True
-    # 2 appels : fetch + pull
-    assert fake_run.call_count == 2
+    # 3 appels : rev-parse (branche courante) + fetch + pull
+    assert fake_run.call_count == 3
 
 
 def test_apply_update_failure_on_pull_error(monkeypatch: pytest.MonkeyPatch):
@@ -358,3 +358,78 @@ def test_update_info_requires_manual_action_false_when_empty():
     )
     assert info.requires_manual_action is False
     assert info.risky_files == []
+
+
+# ---- La branche suivie est celle du checkout, pas toujours main ----
+#
+# Régression : le Mac de l'auteur est installé sur une branche de
+# fonctionnalité (cf. CLAUDE.md, déploiement par `git checkout <branch>`).
+# L'updater comparait et tirait `main` : check muet, pull impossible.
+
+
+def _git_by_args(mapping: dict[str, str]):
+    """subprocess.run factice : rend `stdout` selon le sous-commande git."""
+    def fake_run(args, **kwargs):
+        for key, out in mapping.items():
+            if key in args:
+                return MagicMock(stdout=out)
+        return MagicMock(stdout="")
+    return fake_run
+
+
+def test_get_current_branch_reads_head(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        subprocess, "run", _git_by_args({"--abbrev-ref": "feature/capteur-raccourci\n"})
+    )
+    assert updater.get_current_branch() == "feature/capteur-raccourci"
+
+
+def test_get_current_branch_falls_back_to_main_when_detached(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _git_by_args({"--abbrev-ref": "HEAD\n"}))
+    assert updater.get_current_branch() == "main"
+
+
+def test_get_current_branch_falls_back_to_main_without_git(monkeypatch):
+    def raise_fnf(*args, **kwargs):
+        raise FileNotFoundError("git")
+    monkeypatch.setattr(subprocess, "run", raise_fnf)
+    assert updater.get_current_branch() == "main"
+
+
+def test_check_for_update_compares_against_the_current_branch(
+    monkeypatch: pytest.MonkeyPatch, fake_compare_response_with_update,
+):
+    seen: dict[str, str] = {}
+
+    def fake_http(url):
+        seen["url"] = url
+        return fake_compare_response_with_update
+
+    monkeypatch.setattr(updater, "get_local_sha", lambda: "local123")
+    monkeypatch.setattr(updater, "get_current_branch", lambda: "feature/capteur-raccourci")
+    monkeypatch.setattr(updater, "_http_get_json", fake_http)
+
+    info = check_for_update()
+    assert info is not None
+    assert info.branch == "feature/capteur-raccourci"
+    # Le « / » de la branche est encodé, sinon l'API le lit comme un chemin.
+    assert seen["url"].endswith("/compare/local123...feature%2Fcapteur-raccourci")
+
+
+def test_apply_update_pulls_the_current_branch(monkeypatch: pytest.MonkeyPatch):
+    captured: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        captured.append(list(args))
+        if "--abbrev-ref" in args:
+            return MagicMock(stdout="feature/sprint-6a\n")
+        return MagicMock(stdout="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = apply_update()
+
+    assert result.success is True
+    fetches = [c for c in captured if "fetch" in c]
+    pulls = [c for c in captured if "pull" in c]
+    assert fetches == [["git", "fetch", "origin", "feature/sprint-6a"]]
+    assert pulls == [["git", "pull", "--ff-only", "origin", "feature/sprint-6a"]]
