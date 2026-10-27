@@ -109,6 +109,18 @@ class Transcriber(ABC):
     def is_available(self) -> bool:
         """True si le backend peut être utilisé (modèle + lib OK)."""
 
+    def repo_for(self, task: str) -> str:  # noqa: ARG002 — la tâche compte pour les sous-classes
+        """Le modèle réellement sollicité pour `task`, délégation comprise.
+
+        Ce n'est pas toujours `model_repo` : Voxtral délègue la traduction à
+        Whisper Large V3, et un Whisper « turbo » est remplacé par large-v3
+        pour la même raison. C'est ce modèle-là qu'il faut vérifier dans le
+        cache avant d'annoncer « téléchargement » — ou pas — à l'utilisateur.
+
+        Par défaut : le modèle du backend, quelle que soit la tâche.
+        """
+        return str(getattr(self, "model_repo", ""))
+
     def preload(self) -> None:
         """Charge le modèle en mémoire de façon proactive.
 
@@ -209,12 +221,18 @@ class VoxtralTranscriber(Transcriber):
         # (cf. hf_offline.resolve_local_path).
         source = hf_offline.resolve_local_path(self.model_repo)
 
-        self._model = VoxtralForConditionalGeneration.from_pretrained(source)
-        self._processor = VoxtralProcessor.from_pretrained(source)
+        with hf_offline.network_if_missing(self.model_repo):
+            self._model = VoxtralForConditionalGeneration.from_pretrained(source)
+            self._processor = VoxtralProcessor.from_pretrained(source)
 
     def preload(self) -> None:
         """Charge le modèle Voxtral en mémoire dès le démarrage."""
         self._ensure_loaded()
+
+    def repo_for(self, task: str) -> str:
+        if task == "translate":
+            return WHISPER_TRANSLATE_REPO
+        return self.model_repo
 
     def transcribe(
         self,
@@ -228,7 +246,9 @@ class VoxtralTranscriber(Transcriber):
             # On délègue à Whisper large-v3 (le turbo est distillé pour la
             # transcription uniquement et retourne la langue source).
             if self._whisper_for_translate is None:
-                self._whisper_for_translate = WhisperTranscriber(WHISPER_REPO)
+                self._whisper_for_translate = WhisperTranscriber(
+                    WHISPER_TRANSLATE_REPO
+                )
             return self._whisper_for_translate.transcribe(
                 wav_path, language=language, task="translate",
                 max_new_tokens=max_new_tokens,
@@ -279,6 +299,9 @@ class WhisperTranscriber(Transcriber):
             return False
         return True
 
+    def repo_for(self, task: str) -> str:
+        return repo_for_task(self.model_repo, task)
+
     def transcribe(
         self,
         wav_path: Path,
@@ -308,14 +331,18 @@ class WhisperTranscriber(Transcriber):
         # Whisper utilise None pour la détection automatique
         whisper_lang = None if language in (None, "", "auto") else language
 
-        result = mlx_whisper.transcribe(
-            audio,
-            # Même raison que pour Voxtral : un chemin local évite tout appel
-            # réseau (cf. hf_offline.resolve_local_path).
-            path_or_hf_repo=hf_offline.resolve_local_path(self.model_repo),
-            language=whisper_lang,
-            task=task,
-        )
+        # Un « turbo » ne sait pas traduire : même règle que pour les fichiers,
+        # sinon la dictée traduite revenait dans la langue d'origine.
+        repo = self.repo_for(task)
+        with hf_offline.network_if_missing(repo):
+            result = mlx_whisper.transcribe(
+                audio,
+                # Même raison que pour Voxtral : un chemin local évite tout
+                # appel réseau (cf. hf_offline.resolve_local_path).
+                path_or_hf_repo=hf_offline.resolve_local_path(repo),
+                language=whisper_lang,
+                task=task,
+            )
         return str(result.get("text", "")).strip()
 
     def transcribe_array(
@@ -349,13 +376,15 @@ class WhisperTranscriber(Transcriber):
 
         whisper_lang = None if language in (None, "", "auto") else language
 
-        result = mlx_whisper.transcribe(
-            audio,
-            path_or_hf_repo=hf_offline.resolve_local_path(self.model_repo),
-            language=whisper_lang,
-            task=task,
-            initial_prompt=initial_prompt,
-        )
+        repo = self.repo_for(task)
+        with hf_offline.network_if_missing(repo):
+            result = mlx_whisper.transcribe(
+                audio,
+                path_or_hf_repo=hf_offline.resolve_local_path(repo),
+                language=whisper_lang,
+                task=task,
+                initial_prompt=initial_prompt,
+            )
 
         segments = [
             Segment(

@@ -283,6 +283,42 @@ def models_in_use(
     return in_use
 
 
+def translation_repo_for(repo_id: str, task: str) -> str | None:
+    """Le modèle supplémentaire qu'exige `task` avec ce modèle, ou None.
+
+    Demander la traduction avec un modèle qui ne sait pas traduire (Voxtral,
+    un Whisper « turbo ») fait travailler Whisper Large V3 à sa place. Il
+    faut donc l'avoir sur le disque — c'est ce que les Préférences doivent
+    vérifier au moment de l'enregistrement, sinon la première dictée traduite
+    échoue avec une erreur de mode hors-ligne qui ne dit rien à personne.
+
+    Pour un modèle hors catalogue (édité à la main), on applique les mêmes
+    règles que le moteur : seul un Whisper non-turbo traduit lui-même.
+    """
+    if task != "translate":
+        return None
+    from transcriber import WHISPER_TRANSLATE_REPO
+
+    info = find_model(repo_id)
+    if info is not None:
+        can_translate = info.can_translate
+    else:
+        lower = repo_id.lower()
+        can_translate = "whisper" in lower and "turbo" not in lower
+    return None if can_translate else WHISPER_TRANSLATE_REPO
+
+
+def required_repos(dictation_repo: str, file_repo: str, task: str) -> list[str]:
+    """Tous les modèles dont la configuration a besoin, sans doublon et dans
+    l'ordre où les proposer au téléchargement."""
+    repos = [dictation_repo, file_repo]
+    for repo in (dictation_repo, file_repo):
+        extra = translation_repo_for(repo, task)
+        if extra is not None and extra not in repos:
+            repos.append(extra)
+    return repos
+
+
 def download_model(
     repo_id: str,
     models_root: Path | None = None,  # noqa: ARG001 — compat. des appelants

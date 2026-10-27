@@ -183,6 +183,27 @@ def allow_network() -> Iterator[None]:
         set_offline(previous)
 
 
+@contextlib.contextmanager
+def network_if_missing(repo_id: str) -> Iterator[None]:
+    """Autorise le réseau le temps du bloc si, et seulement si, `repo_id`
+    n'est pas en cache.
+
+    Pour les chargements de modèle « à la demande » : la délégation de la
+    traduction vers Whisper Large V3, le modèle de diarisation. Le mode
+    hors-ligne est posé au démarrage d'après le modèle de DICTÉE ; un second
+    modèle absent du cache se heurtait alors à `OfflineModeIsEnabled`, une
+    erreur sans rapport visible avec ce que l'utilisateur venait de faire.
+
+    Quand le modèle est déjà là, le bloc tourne tel quel, hors-ligne compris :
+    on ne rouvre jamais le réseau sans raison.
+    """
+    if is_model_cached(repo_id):
+        yield
+        return
+    with allow_network():
+        yield
+
+
 def install_early() -> None:
     """Pose le mode hors-ligne AVANT le premier import de huggingface_hub.
 

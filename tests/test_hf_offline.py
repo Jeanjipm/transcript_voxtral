@@ -171,3 +171,29 @@ def test_install_early_respects_user_override(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv(hf_offline.ENV_VAR, "0")
     hf_offline.install_early()
     assert os.environ[hf_offline.ENV_VAR] == "0"
+
+
+# ---- network_if_missing ----
+
+
+def test_network_if_missing_opens_network_for_an_absent_model(fake_hub):
+    """Modèle absent du cache : le réseau est ouvert le temps du bloc, puis
+    l'état précédent (hors-ligne) est rétabli."""
+    fake_hub.try_to_load_from_cache.return_value = None
+    hf_offline.set_offline(True)
+
+    with hf_offline.network_if_missing("org/absent"):
+        assert hf_offline.is_offline() is False
+
+    assert hf_offline.is_offline() is True
+
+
+def test_network_if_missing_keeps_offline_for_a_cached_model(fake_hub):
+    """Modèle en cache : on ne rouvre jamais le réseau sans raison."""
+    fake_hub.try_to_load_from_cache.return_value = "/cache/models--x/snapshots/a/config.json"
+    hf_offline.set_offline(True)
+
+    with hf_offline.network_if_missing("org/present"):
+        assert hf_offline.is_offline() is True
+
+    assert hf_offline.is_offline() is True

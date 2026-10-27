@@ -541,8 +541,13 @@ class VoxtralApp(rumps.App):
         `from_pretrained` / `mlx_whisper` ne bloquent pendant plusieurs
         minutes. Best-effort : en cas de doute on suppose « en cache »
         (pas d'animation → pas de faux signal).
+
+        On interroge le transcriber plutôt que `config.model.name` : en
+        traduction, c'est Whisper Large V3 qui travaille, pas le modèle
+        configuré — et c'était précisément lui qui manquait au cache.
         """
-        return not hf_offline.is_model_cached(self.config.model.name)
+        repo = self.transcriber.repo_for(self.config.transcription.task)
+        return not hf_offline.is_model_cached(repo)
 
     def _transcribe_and_paste(self, wav_path: Path) -> None:
         """Transcrit puis colle. Tourne sur l'inference-worker.

@@ -52,6 +52,7 @@ from model_manager import (
     is_downloaded,
     list_available_models,
     models_in_use,
+    required_repos,
     scan_cached_models,
 )
 
@@ -951,8 +952,12 @@ class SettingsWindow:
 
         # Proposer le téléchargement AVANT d'enregistrer : découvrir au premier
         # usage que l'app se fige plusieurs minutes sans explication est la
-        # pire des surprises.
-        for repo in (self.model_var.get(), self.file_model_var.get()):
+        # pire des surprises. `required_repos` ajoute Whisper Large V3 quand la
+        # traduction est demandée avec un modèle qui ne sait pas traduire —
+        # sans ça la première dictée traduite échouait en mode hors-ligne.
+        for repo in required_repos(
+            self.model_var.get(), self.file_model_var.get(), self.task_var.get()
+        ):
             if not self._ensure_downloaded(repo):
                 return
 

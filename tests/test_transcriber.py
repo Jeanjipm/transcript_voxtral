@@ -238,3 +238,84 @@ def test_non_turbo_model_is_never_touched():
     repo = "mlx-community/whisper-large-v3-mlx"
     assert repo_for_task(repo, "translate") == repo
     assert repo_for_task(repo, "transcribe") == repo
+
+
+# ---- repo_for : le modèle réellement sollicité ----
+#
+# Régression : la traduction échouait en mode hors-ligne. L'app vérifiait le
+# cache pour `config.model.name` (Voxtral, présent) alors que c'est Whisper
+# Large V3 qui travaille en traduction — et lui n'était pas téléchargé.
+
+
+def test_voxtral_repo_for_translate_is_whisper_large_v3():
+    t = VoxtralTranscriber("mzbac/voxtral-mini-3b-8bit")
+    assert t.repo_for("translate") == transcriber.WHISPER_TRANSLATE_REPO
+    assert t.repo_for("transcribe") == "mzbac/voxtral-mini-3b-8bit"
+
+
+def test_whisper_turbo_repo_for_translate_is_large_v3():
+    t = WhisperTranscriber("mlx-community/whisper-large-v3-turbo")
+    assert t.repo_for("translate") == transcriber.WHISPER_TRANSLATE_REPO
+    assert t.repo_for("transcribe") == "mlx-community/whisper-large-v3-turbo"
+
+
+def test_whisper_large_v3_repo_for_is_itself():
+    t = WhisperTranscriber(WHISPER_REPO)
+    assert t.repo_for("translate") == WHISPER_REPO
+
+
+# ---- Whisper : le réseau est ouvert si le modèle manque ----
+
+
+@pytest.fixture
+def whisper_call(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """Un WAV 16 kHz réel et un mlx_whisper.transcribe espion qui note l'état
+    hors-ligne au moment de l'appel."""
+    import numpy as np
+    import soundfile as sf
+
+    import hf_offline
+
+    wav = tmp_path / "d.wav"
+    sf.write(wav, np.zeros((16_000, 1), dtype="int16"), 16_000, subtype="PCM_16")
+
+    seen: dict[str, object] = {}
+
+    def fake_transcribe(audio, **kwargs):
+        seen["offline"] = hf_offline.is_offline()
+        seen["repo"] = kwargs.get("path_or_hf_repo")
+        return {"text": " traduit ", "segments": []}
+
+    monkeypatch.setattr(sys.modules["mlx_whisper"], "transcribe", fake_transcribe)
+    # Rien n'est en cache : resolve_local_path rend le repo tel quel.
+    monkeypatch.setattr(hf_offline, "is_model_cached", lambda repo: False)
+    monkeypatch.setattr(hf_offline, "resolve_local_path", lambda repo: repo)
+    return wav, seen
+
+
+def test_whisper_translate_opens_network_when_model_missing(whisper_call):
+    """Hors-ligne au départ, Whisper Large V3 absent : l'appel doit se faire
+    réseau ouvert, et le mode hors-ligne revenir ensuite."""
+    import hf_offline
+
+    wav, seen = whisper_call
+    hf_offline.set_offline(True)
+
+    text = WhisperTranscriber("mlx-community/whisper-large-v3-turbo").transcribe(
+        wav, language="fr", task="translate"
+    )
+
+    assert text == "traduit"
+    assert seen["offline"] is False
+    assert seen["repo"] == transcriber.WHISPER_TRANSLATE_REPO, (
+        "un turbo ne traduit pas : la dictée doit basculer sur large-v3"
+    )
+    assert hf_offline.is_offline() is True
+
+
+def test_whisper_transcribe_uses_its_own_repo(whisper_call):
+    wav, seen = whisper_call
+    WhisperTranscriber("mlx-community/whisper-large-v3-turbo").transcribe(
+        wav, language="fr", task="transcribe"
+    )
+    assert seen["repo"] == "mlx-community/whisper-large-v3-turbo"

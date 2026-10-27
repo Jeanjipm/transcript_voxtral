@@ -279,3 +279,47 @@ def test_download_model_does_not_require_models_root(monkeypatch: pytest.MonkeyP
 
     param = inspect.signature(mm.download_model).parameters["models_root"]
     assert param.default is None
+
+
+# ---- required_repos : ce que les Préférences doivent vérifier ----
+#
+# Régression : « Traduire vers l'anglais » avec Voxtral n'avait jamais proposé
+# de télécharger Whisper Large V3, et la première dictée traduite échouait.
+
+
+def test_required_repos_without_translation_is_just_the_two_models():
+    from model_manager import required_repos
+
+    assert required_repos("a/dictee", "b/fichiers", "transcribe") == [
+        "a/dictee", "b/fichiers",
+    ]
+
+
+def test_required_repos_adds_large_v3_for_voxtral_translation():
+    from model_manager import required_repos
+    from transcriber import WHISPER_TRANSLATE_REPO
+
+    repos = required_repos(
+        "mzbac/voxtral-mini-3b-8bit", "mlx-community/whisper-large-v3-turbo",
+        "translate",
+    )
+    assert repos[-1] == WHISPER_TRANSLATE_REPO
+    assert repos.count(WHISPER_TRANSLATE_REPO) == 1
+
+
+def test_required_repos_does_not_duplicate_large_v3():
+    from model_manager import required_repos
+    from transcriber import WHISPER_TRANSLATE_REPO
+
+    repos = required_repos(WHISPER_TRANSLATE_REPO, WHISPER_TRANSLATE_REPO, "translate")
+    assert repos == [WHISPER_TRANSLATE_REPO, WHISPER_TRANSLATE_REPO]
+
+
+def test_translation_repo_for_unknown_models_follows_engine_rules():
+    from model_manager import translation_repo_for
+    from transcriber import WHISPER_TRANSLATE_REPO
+
+    assert translation_repo_for("someone/voxtral-custom", "translate") == WHISPER_TRANSLATE_REPO
+    assert translation_repo_for("someone/whisper-turbo-fr", "translate") == WHISPER_TRANSLATE_REPO
+    assert translation_repo_for("someone/whisper-medium", "translate") is None
+    assert translation_repo_for("someone/voxtral-custom", "transcribe") is None
