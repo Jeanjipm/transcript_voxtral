@@ -133,10 +133,20 @@ _kbd.Key = _Key
 _KEY_NAMES = (
     "alt_l", "alt_r", "alt", "cmd_l", "cmd_r", "cmd", "ctrl_l", "ctrl_r",
     "ctrl", "shift_l", "shift_r", "shift", "space", "enter", "tab", "esc",
-    "f13", "f14", "f15", "f16", "f17", "f18", "f19",
-)
+    "backspace", "delete", "caps_lock",
+    "up", "down", "left", "right", "home", "end", "page_up", "page_down",
+) + tuple(f"f{_i}" for _i in range(1, 21))
 for _name in _KEY_NAMES:
     setattr(_kbd.Key, _name, _Key(_name))
+
+
+# Sur macOS, pynput donne le MÊME code virtuel à la forme générique et à la
+# touche de gauche : `Key.alt` et `Key.alt_l` sont un seul et même objet
+# d'énumération (0x3A), idem cmd/ctrl/shift. C'est ce qui décide du nom
+# canonique produit par la capture de raccourci — un stub qui les garderait
+# distincts testerait une situation qui n'existe sur aucun Mac.
+for _generic in ("alt", "cmd", "ctrl", "shift"):
+    setattr(_kbd.Key, f"{_generic}_l", getattr(_kbd.Key, _generic))
 
 
 class _KeyCode:

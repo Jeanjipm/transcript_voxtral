@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from collections.abc import Sequence
 from typing import Callable
 
 from pynput import keyboard
@@ -27,42 +28,114 @@ from pynput import keyboard
 # blocage persistante de faire boucler la reconstruction du tap.
 _REARM_MIN_INTERVAL_S = 10.0
 
+# Au-delà de ce délai, deux appuis consécutifs sans relâchement ne peuvent
+# pas être de l'auto-répétition système (quelques dizaines de ms) : c'est
+# qu'un relâchement s'est perdu. Cf. la garde dans `_on_press`.
+_STALE_PRESS_S = 1.0
+
 # Attente maximale de la fin du thread listener. pynput sort de sa boucle au
 # tour de CFRunLoop suivant, soit jusqu'à 1 s ; on laisse une marge.
 _LISTENER_JOIN_TIMEOUT_S = 2.0
 
 
-# Mapping nom config → pynput.Key (ou caractère). Les alias "option"
-# pointent vers alt — sur les claviers macOS la touche est labellisée
-# "⌥ Option" et les utilisateurs tapent "option" plus souvent qu'"alt".
-_NAMED_KEYS: dict[str, keyboard.Key] = {
-    "alt_l": keyboard.Key.alt_l,
-    "alt_r": keyboard.Key.alt_r,
-    "alt": keyboard.Key.alt,
-    "option_l": keyboard.Key.alt_l,
-    "option_r": keyboard.Key.alt_r,
-    "option": keyboard.Key.alt,
-    "cmd_l": keyboard.Key.cmd_l,
-    "cmd_r": keyboard.Key.cmd_r,
-    "cmd": keyboard.Key.cmd,
-    "ctrl_l": keyboard.Key.ctrl_l,
-    "ctrl_r": keyboard.Key.ctrl_r,
-    "ctrl": keyboard.Key.ctrl,
-    "shift_l": keyboard.Key.shift_l,
-    "shift_r": keyboard.Key.shift_r,
-    "shift": keyboard.Key.shift,
-    "space": keyboard.Key.space,
-    "enter": keyboard.Key.enter,
-    "tab": keyboard.Key.tab,
-    "esc": keyboard.Key.esc,
-    "f13": keyboard.Key.f13,
-    "f14": keyboard.Key.f14,
-    "f15": keyboard.Key.f15,
-    "f16": keyboard.Key.f16,
-    "f17": keyboard.Key.f17,
-    "f18": keyboard.Key.f18,
-    "f19": keyboard.Key.f19,
+# Vocabulaire des touches nommées, dans l'ordre où on veut les voir gagner
+# quand plusieurs noms désignent la MÊME touche physique (cf. _TOKEN_BY_KEY).
+#
+# Détail macOS mesuré, et il compte : dans pynput, `Key.alt` et `Key.alt_l`
+# partagent le même code virtuel (0x3A) et sont donc le même objet — pareil
+# pour cmd/cmd_l, ctrl/ctrl_l, shift/shift_l. Autrement dit, sur un Mac,
+# écrire « cmd » dans la config désigne le Commande *gauche*, pas « l'un ou
+# l'autre ». Les touches de droite ont bien un code distinct (cmd_r = 0x36).
+_KEY_NAMES: tuple[str, ...] = (
+    # Modificateurs : la forme générique d'abord, c'est le nom canonique.
+    "cmd", "cmd_l", "cmd_r",
+    "ctrl", "ctrl_l", "ctrl_r",
+    "alt", "alt_l", "alt_r",
+    "shift", "shift_l", "shift_r",
+    # Touches ordinaires
+    "space", "enter", "tab", "esc", "backspace", "delete", "caps_lock",
+    "up", "down", "left", "right",
+    "home", "end", "page_up", "page_down",
+) + tuple(f"f{i}" for i in range(1, 21))
+
+
+# Les alias "option" pointent vers alt — sur les claviers macOS la touche est
+# labellisée "⌥ Option" et les utilisateurs tapent "option" plus souvent
+# qu'"alt". Ce sont des entrées acceptées en lecture, jamais produites.
+_KEY_ALIASES: dict[str, str] = {
+    "option": "alt",
+    "option_l": "alt_l",
+    "option_r": "alt_r",
 }
+
+
+def _build_named_keys() -> dict[str, keyboard.Key]:
+    """Construit le mapping nom → touche pynput, en sautant les absentes.
+
+    `getattr` plutôt qu'un dictionnaire littéral : toutes les touches
+    listées n'existent pas sur toutes les plateformes ni dans toutes les
+    versions de pynput, et un `AttributeError` à l'import rendrait l'app
+    non lançable pour une touche que personne n'utilise.
+    """
+    named: dict[str, keyboard.Key] = {}
+    for name in _KEY_NAMES:
+        key = getattr(keyboard.Key, name, None)
+        if key is not None:
+            named[name] = key
+    for alias, target in _KEY_ALIASES.items():
+        if target in named:
+            named[alias] = named[target]
+    return named
+
+
+_NAMED_KEYS: dict[str, keyboard.Key] = _build_named_keys()
+
+
+# Mapping inverse : touche pynput → nom canonique. Le `setdefault` est ce qui
+# fait le travail — plusieurs noms partageant un même objet touche, c'est le
+# premier de `_KEY_NAMES` qui l'emporte. Sans cet ordre explicite, le nom rendu
+# par la capture dépendrait de l'ordre d'itération d'un dictionnaire.
+_TOKEN_BY_KEY: dict[keyboard.Key, str] = {}
+for _token, _key in _NAMED_KEYS.items():
+    _TOKEN_BY_KEY.setdefault(_key, _token)
+
+
+# Modificateurs, par famille. Sert à deux choses : décider quel jeton est la
+# touche « finale » d'une combinaison, et ramener un raccourci à sa forme
+# générique pour la détection de conflits.
+_MODIFIER_FAMILIES: dict[str, str] = {
+    "cmd": "cmd", "cmd_l": "cmd", "cmd_r": "cmd",
+    "ctrl": "ctrl", "ctrl_l": "ctrl", "ctrl_r": "ctrl",
+    "alt": "alt", "alt_l": "alt", "alt_r": "alt",
+    "option": "alt", "option_l": "alt", "option_r": "alt",
+    "shift": "shift", "shift_l": "shift", "shift_r": "shift",
+}
+
+# Ordre d'écriture des modificateurs dans un raccourci. Choisi pour coller à
+# celui déjà utilisé dans `KNOWN_SYSTEM_CONFLICTS` (cmd+option+h,
+# cmd+ctrl+space, cmd+shift+h) : sinon la capture produirait des raccourcis
+# corrects mais dont la détection de conflit ne verrait rien.
+_MODIFIER_ORDER: tuple[str, ...] = ("cmd", "ctrl", "alt", "shift")
+
+
+def is_modifier(token: str) -> bool:
+    """True si le jeton désigne une touche de modification (⌘ ⌃ ⌥ ⇧)."""
+    return token.lower().strip() in _MODIFIER_FAMILIES
+
+
+def generic_combo(combo: str) -> str:
+    """Ramène un raccourci à sa forme sans gauche/droite ('cmd_r+space' →
+    'cmd+space').
+
+    macOS ne distingue pas les côtés pour ses propres raccourcis : ⌘ droite +
+    Espace ouvre Spotlight tout autant que ⌘ gauche. La détection de conflit
+    doit donc comparer sur cette forme, sinon elle laisse passer la moitié
+    des cas.
+    """
+    return "+".join(
+        _MODIFIER_FAMILIES.get(t.strip().lower(), t.strip().lower())
+        for t in combo.split("+")
+    )
 
 
 def parse_key(token: str) -> keyboard.Key | str:
@@ -102,6 +175,61 @@ def validate_combo(combo: str) -> str | None:
     return None
 
 
+def normalize_key(key: object) -> keyboard.Key | str | None:
+    """Normalise un événement pynput (KeyCode → char, Key → Key, sinon None).
+
+    Fonction de module et non méthode : l'enregistreur de raccourci
+    (`hotkey_capture`) doit normaliser exactement comme le fait la mise en
+    correspondance à l'exécution. Deux implémentations qui divergeraient d'un
+    cheveu donneraient un raccourci enregistré qui ne se déclenche jamais.
+    """
+    if isinstance(key, keyboard.Key):
+        return key
+    if isinstance(key, keyboard.KeyCode) and key.char is not None:
+        return key.char.lower()
+    return None
+
+
+def token_for_key(key: keyboard.Key | str) -> str | None:
+    """Nom de configuration d'une touche normalisée, ou None si inexprimable.
+
+    None signifie « cette touche n'a pas de nom dans notre vocabulaire » —
+    une touche média, un pavé numérique exotique. L'appelant doit le dire à
+    l'utilisateur plutôt que d'enregistrer un raccourci qui ne marchera pas.
+    """
+    if isinstance(key, str):
+        token = key.lower()
+        return token if len(token) == 1 and token != "+" else None
+    return _TOKEN_BY_KEY.get(key)
+
+
+def format_combo(tokens: Sequence[str]) -> str:
+    """Assemble des jetons en raccourci canonique ('h', 'cmd+shift+h').
+
+    Deux règles :
+    - la touche finale est la première non-modificateur ; s'il n'y en a pas,
+      c'est le dernier modificateur pressé (tenir ⌘ puis appuyer sur ⇧ donne
+      bien `cmd+shift`, pas `shift+cmd`) ;
+    - les modificateurs restants sont écrits dans `_MODIFIER_ORDER`, pour que
+      deux enregistrements des mêmes touches donnent toujours la même chaîne.
+    """
+    ordered = [t.lower().strip() for t in tokens if t and t.strip()]
+    if not ordered:
+        return ""
+    if len(ordered) == 1:
+        return ordered[0]
+
+    plain = [t for t in ordered if not is_modifier(t)]
+    final = plain[0] if plain else ordered[-1]
+    modifiers = [t for t in ordered if t != final]
+    modifiers.sort(
+        key=lambda t: _MODIFIER_ORDER.index(_MODIFIER_FAMILIES[t])
+        if t in _MODIFIER_FAMILIES
+        else len(_MODIFIER_ORDER)
+    )
+    return "+".join([*modifiers, final])
+
+
 class HotkeyManager:
     """Gestionnaire de raccourci global, mode push-to-talk uniquement.
 
@@ -114,6 +242,32 @@ class HotkeyManager:
         mgr.start()
         ...
         mgr.stop()
+
+    ## Un seul listener pour toute la session
+
+    Règle de conception, apprise par un crash : **on ne détruit pas un
+    listener pour en refabriquer un**. Ni pour changer de raccourci, ni pour
+    suspendre temporairement la dictée.
+
+    Pourquoi. `pynput.keyboard.Listener._run` ouvre un contexte de
+    disposition clavier (`keycode_context`) qui appelle Carbon
+    `TISGetInputSourceProperty` — et il le fait depuis le thread du listener,
+    pas depuis celui qui a construit l'objet. Or macOS exige que le Text
+    Services Manager soit interrogé depuis la file principale quand sa liste
+    de sources de saisie doit être reconstruite. Quand ce n'est pas le cas,
+    HIToolbox ne rend pas une erreur : il déclenche
+    `dispatch_assert_queue_fail`, et le processus meurt sur SIGTRAP.
+
+    Ce qui invalide cette liste, c'est un changement d'application active —
+    typiquement la fermeture de la fenêtre de préférences. Fabriquer un
+    listener à cet instant précis, c'est exactement la recette du crash
+    observé (rapport `Python-2026-07-31-092748.ips`).
+
+    Conséquence : `update_binding` reconfigure en place, et la mise en pause
+    passe par un drapeau. Les callbacks lisent `self.combo` à chaque
+    événement, donc changer le raccourci ne demande aucun nouveau tap.
+    Reconstruire reste possible via `rearm()`, seul cas où c'est le but même
+    de l'opération — et c'est un chemin de récupération, pas un chemin normal.
     """
 
     def __init__(
@@ -126,7 +280,11 @@ class HotkeyManager:
         self.on_stop = on_stop
         self._listener: keyboard.Listener | None = None
         self._active = False  # True pendant qu'on enregistre
+        self._paused = False  # True quand la fenêtre de réglages est ouverte
         self._pressed: set[keyboard.Key | str] = set()
+        # Date du dernier appui vu pour chaque touche, pour distinguer
+        # l'auto-répétition d'un relâchement perdu (cf. `_on_press`).
+        self._last_press_at: dict[keyboard.Key | str, float] = {}
         self._last_rearm_at = 0.0
         self._configure(combo)
 
@@ -145,7 +303,17 @@ class HotkeyManager:
             self._modifier_keys = {parse_key(t) for t in modifiers}
             self._final_key = parse_key(final)
 
+        # Les seules touches qu'on suit. Tout le reste du clavier est ignoré
+        # dès l'entrée des callbacks — cf. le pourquoi dans `_on_press`.
+        if self._target_key is not None:
+            self._relevant_keys: set[keyboard.Key | str] = {self._target_key}
+        else:
+            self._relevant_keys = set(self._modifier_keys)
+            if self._final_key is not None:
+                self._relevant_keys.add(self._final_key)
+
         self._pressed.clear()
+        self._last_press_at.clear()
 
     def start(self) -> None:
         if self._listener is not None:
@@ -176,6 +344,7 @@ class HotkeyManager:
         listener = self._listener
         self._listener = None
         self._pressed.clear()
+        self._last_press_at.clear()
         self._active = False
 
         listener.stop()
@@ -190,10 +359,52 @@ class HotkeyManager:
             pass
 
     def update_binding(self, combo: str) -> None:
-        """Reconfigure le raccourci sans redémarrer l'app."""
-        self.stop()
+        """Change le raccourci écouté, sans toucher au listener.
+
+        Les callbacks lisent `self.combo` à chaque événement : reconfigurer
+        les structures internes suffit, le tap en cours reconnaît le nouveau
+        raccourci dès l'appui suivant.
+
+        L'ancienne version arrêtait puis recréait le listener. Ça marchait,
+        mais c'était le chemin qui menait au crash décrit dans la docstring
+        de la classe — et il se déclenchait au pire moment, juste après la
+        fermeture de la fenêtre de préférences qui venait de changer le
+        raccourci. Appelable depuis n'importe quel thread.
+        """
         self._configure(combo)
-        self.start()
+        self._active = False
+
+    def pause(self) -> None:
+        """Suspend le raccourci sans démonter le listener.
+
+        Utilisé pendant que la fenêtre de réglages est ouverte : sans ça,
+        appuyer sur ⌥ droite pour l'enregistrer déclencherait une dictée.
+
+        Un drapeau plutôt qu'un `stop()` : arrêter puis relancer le listener
+        reviendrait à en fabriquer un neuf au retour, ce que la docstring de
+        la classe explique être mortel. Appelable depuis n'importe quel
+        thread, et instantané — pas d'attente de fin de thread.
+        """
+        self._paused = True
+        # Si une dictée était en cours au moment de la pause, on ne verra
+        # jamais le relâchement : on referme proprement plutôt que de laisser
+        # la machine à états croire qu'on enregistre toujours.
+        if self._active:
+            self._active = False
+            self._safe_call(self.on_stop)
+        self._pressed.clear()
+        self._last_press_at.clear()
+
+    def resume(self) -> None:
+        """Réactive le raccourci. Sans effet s'il n'était pas en pause."""
+        self._pressed.clear()
+        self._last_press_at.clear()
+        self._active = False
+        self._paused = False
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
 
     def rearm(self) -> bool:
         """Recrée le listener — donc un CGEventTap neuf — après un blocage.
@@ -215,6 +426,13 @@ class HotkeyManager:
         NE JAMAIS appeler depuis le callback du tap (cf. le garde dans
         `stop()`) : réservé au thread `dictation-worker`.
 
+        C'est le SEUL endroit qui refabrique un listener, et c'est assumé :
+        sans tap neuf, le raccourci reste mort. Le risque décrit dans la
+        docstring de la classe est accepté ici parce que l'alternative est
+        une app inutilisable, et parce qu'on n'arrive dans ce chemin qu'après
+        un dépassement de durée maximale — pas au fil de l'eau, et jamais au
+        moment où macOS change d'application active.
+
         Retourne True si le réarmement a bien eu lieu.
         """
         now = time.monotonic()
@@ -227,24 +445,77 @@ class HotkeyManager:
             "désactivé par macOS).",
             file=sys.stderr,
         )
-        self.update_binding(self.combo)
+        self.stop()
+        self._configure(self.combo)
+        self.start()
         return True
 
     def _normalize(self, key: object) -> keyboard.Key | str | None:
         """Normalise key (KeyCode → char str, Key → Key, autre → None)."""
-        if isinstance(key, keyboard.Key):
-            return key
-        if isinstance(key, keyboard.KeyCode) and key.char is not None:
-            return key.char.lower()
-        return None
+        return normalize_key(key)
 
     def _on_press(self, key: object) -> None:
+        if self._paused:
+            return
         norm = self._normalize(key)
         if norm is None:
             return
 
-        # Anti-rebond auto-repeat : si déjà dans le set, on ignore
+        # On ne suit QUE les touches du raccourci. Avant, `_pressed` mémorisait
+        # tout le clavier, identifié par le caractère produit — et le caractère
+        # dépend des modificateurs tenus à l'instant de l'événement. Sur un
+        # clavier AZERTY, un chiffre se tape Shift + touche : l'appui produit
+        # « 2 », le relâchement (Shift déjà lâché) produit « é ». Le « 2 »
+        # restait donc « enfoncé » pour toujours, et le prochain « 2 » tapé plus
+        # d'une seconde après déclenchait la resynchronisation ci-dessous,
+        # avec son `_active = False`. Mesuré sur le journal réel : 716 fausses
+        # alertes en trois mois, toutes pendant les heures de frappe, aucune
+        # pendant une dictée. Une touche étrangère au raccourci ne peut rien
+        # nous apprendre : on la laisse passer sans la regarder.
+        if norm not in self._relevant_keys:
+            return
+
+        now = time.monotonic()
+        previous = self._last_press_at.get(norm)
+        self._last_press_at[norm] = now
+
+        # Anti-rebond auto-repeat : si déjà dans le set, on ignore.
         already_pressed = norm in self._pressed
+
+        # …sauf si l'appui précédent est trop vieux pour être une répétition.
+        #
+        # C'EST LE CORRECTIF D'UN BLOCAGE SILENCIEUX ET DÉFINITIF. Une touche
+        # n'est retirée de `_pressed` que par son relâchement. Or macOS perd
+        # des relâchements : pendant une désactivation brève du tap, pendant
+        # un réarmement, ou quand une autre application capture l'événement.
+        # Le relâchement perdu laissait la touche dans `_pressed` À VIE, donc
+        # tous les appuis suivants sortaient ici même — on tenait la touche et
+        # il ne se passait plus rien, sans le moindre message, jusqu'au
+        # redémarrage de l'app. C'est le symptôme rapporté en usage réel.
+        #
+        # Le départage se fait sur le temps, et il est net : l'auto-répétition
+        # du système arrive toutes les quelques dizaines de millisecondes,
+        # là où un humain qui réappuie met au moins deux ou trois centièmes de
+        # seconde — en pratique beaucoup plus. Une seconde d'écart ne peut
+        # donc pas être une répétition.
+        #
+        # Détail qui compte pour le raccourci par défaut : sur macOS les
+        # touches de modification (⌥ ⌘ ⌃ ⇧) N'ONT PAS d'auto-répétition du
+        # tout — les tenir n'émet qu'un seul appui. Pour « ⌥ droite », cette
+        # garde ne protégeait donc de rien, mais pouvait tuer le raccourci.
+        if already_pressed and (
+            previous is None or now - previous > _STALE_PRESS_S
+        ):
+            print(
+                f"[{time.strftime('%H:%M:%S')}] [raccourci] relâchement perdu "
+                f"détecté, resynchronisation",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._pressed.discard(norm)
+            self._active = False
+            already_pressed = False
+
         self._pressed.add(norm)
         if already_pressed:
             return
@@ -264,8 +535,10 @@ class HotkeyManager:
             self._safe_call(self.on_start)
 
     def _on_release(self, key: object) -> None:
+        if self._paused:
+            return
         norm = self._normalize(key)
-        if norm is None:
+        if norm is None or norm not in self._relevant_keys:
             return
         self._pressed.discard(norm)
 
@@ -298,16 +571,50 @@ class HotkeyManager:
             traceback.print_exc()
 
 
-def display_combo(combo: str) -> str:
-    """Joli label pour l'UI (ex. 'alt_r' → '⌥ droite', 'cmd+shift+h' → '⌘⇧H')."""
-    pretty: dict[str, str] = {
-        "cmd": "⌘", "cmd_l": "⌘ gauche", "cmd_r": "⌘ droite",
-        "shift": "⇧", "shift_l": "⇧ gauche", "shift_r": "⇧ droite",
-        "alt": "⌥", "alt_l": "⌥ gauche", "alt_r": "⌥ droite",
-        "option": "⌥", "option_l": "⌥ gauche", "option_r": "⌥ droite",
-        "ctrl": "⌃", "ctrl_l": "⌃ gauche", "ctrl_r": "⌃ droite",
-        "space": "␣", "enter": "↩", "tab": "⇥", "esc": "⎋",
-    }
+_PRETTY_KEYS: dict[str, str] = {
+    "cmd": "⌘", "cmd_l": "⌘ gauche", "cmd_r": "⌘ droite",
+    "shift": "⇧", "shift_l": "⇧ gauche", "shift_r": "⇧ droite",
+    "alt": "⌥", "alt_l": "⌥ gauche", "alt_r": "⌥ droite",
+    "option": "⌥", "option_l": "⌥ gauche", "option_r": "⌥ droite",
+    "ctrl": "⌃", "ctrl_l": "⌃ gauche", "ctrl_r": "⌃ droite",
+    "space": "␣", "enter": "↩", "tab": "⇥", "esc": "⎋",
+    "backspace": "⌫", "delete": "⌦", "caps_lock": "⇪",
+    "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "home": "↖", "end": "↘", "page_up": "⇞", "page_down": "⇟",
+}
+
+# Libellés complets, pour la fenêtre de préférences : « ⌥ » tout seul dans un
+# champ ne dit pas à l'utilisateur quelle touche il vient d'enregistrer.
+# Rappel du mapping macOS : la forme générique EST la touche de gauche.
+_VERBOSE_KEYS: dict[str, str] = {
+    "cmd": "⌘ Commande gauche", "cmd_l": "⌘ Commande gauche",
+    "cmd_r": "⌘ Commande droite",
+    "ctrl": "⌃ Contrôle gauche", "ctrl_l": "⌃ Contrôle gauche",
+    "ctrl_r": "⌃ Contrôle droite",
+    "alt": "⌥ Option gauche", "alt_l": "⌥ Option gauche",
+    "alt_r": "⌥ Option droite",
+    "option": "⌥ Option gauche", "option_l": "⌥ Option gauche",
+    "option_r": "⌥ Option droite",
+    "shift": "⇧ Majuscule gauche", "shift_l": "⇧ Majuscule gauche",
+    "shift_r": "⇧ Majuscule droite",
+    "space": "␣ Espace", "enter": "↩ Entrée", "tab": "⇥ Tabulation",
+    "esc": "⎋ Échap", "backspace": "⌫ Retour arrière", "delete": "⌦ Suppr",
+    "caps_lock": "⇪ Verr. maj",
+}
+
+
+def display_combo(combo: str, verbose: bool = False) -> str:
+    """Joli label pour l'UI (ex. 'alt_r' → '⌥ droite', 'cmd+shift+h' → '⌘⇧H').
+
+    `verbose=True` donne le nom complet d'une touche seule (« ⌥ Option
+    droite ») : dans la fenêtre de préférences, le symbole seul ne suffit pas
+    à savoir ce qu'on vient d'enregistrer.
+    """
+    combo = combo.strip()
+    if not combo:
+        return ""
     if "+" not in combo:
-        return pretty.get(combo, combo.upper())
-    return "".join(pretty.get(t, t.upper()) for t in combo.split("+"))
+        if verbose and combo in _VERBOSE_KEYS:
+            return _VERBOSE_KEYS[combo]
+        return _PRETTY_KEYS.get(combo, combo.upper())
+    return "".join(_PRETTY_KEYS.get(t, t.upper()) for t in combo.split("+"))

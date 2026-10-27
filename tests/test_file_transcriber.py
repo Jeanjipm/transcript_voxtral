@@ -253,7 +253,7 @@ def test_progress_is_reported_and_monotonic(fake_audio):
     )
 
     assert seen
-    assert all(b >= a for (a, _), (b, _) in zip(seen, seen[1:]))
+    assert all(b >= a for (a, _), (b, _) in zip(seen, seen[1:], strict=False))
     assert seen[-1][0] <= seen[-1][1]  # jamais au-dessus du total
 
 

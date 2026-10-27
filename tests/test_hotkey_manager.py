@@ -14,6 +14,7 @@ from hotkey_manager import (
     _is_single_key,
     display_combo,
     parse_key,
+    token_for_key,
     validate_combo,
 )
 
@@ -441,3 +442,395 @@ def test_stop_survives_join_runtimeerror(distinct_listeners):
 
     mgr.stop()  # ne doit pas lever
     assert mgr._listener is None
+
+
+# ---- Sprint 6 : vocabulaire de touches et noms canoniques ----
+#
+# Ces fonctions existent pour l'enregistrement de raccourci
+# (cf. hotkey_capture.py). Elles sont testées ici parce que c'est
+# hotkey_manager qui possède le vocabulaire.
+
+
+def test_token_for_key_gives_the_canonical_name():
+    assert token_for_key(kbd.Key.alt_r) == "alt_r"
+    assert token_for_key(kbd.Key.f13) == "f13"
+
+
+def test_token_for_left_modifier_is_the_generic_name():
+    """Sur macOS, Key.alt et Key.alt_l sont un seul objet. Le nom rendu ne
+    doit pas dépendre de l'ordre d'itération d'un dictionnaire."""
+    assert token_for_key(kbd.Key.alt) == "alt"
+    assert token_for_key(kbd.Key.alt_l) == "alt"
+
+
+def test_token_for_key_accepts_a_character():
+    assert token_for_key("h") == "h"
+    assert token_for_key("H") == "h"
+
+
+def test_token_for_key_returns_none_when_unnameable():
+    """Une touche absente du vocabulaire n'est pas enregistrable : le None
+    est ce qui permet de le DIRE au lieu d'écrire un raccourci mort."""
+    assert token_for_key("+") is None
+    assert token_for_key("ab") is None
+
+
+def test_named_keys_cover_the_extended_vocabulary():
+    for token in ("f1", "f12", "up", "page_down", "backspace", "caps_lock"):
+        assert validate_combo(token) is None, token
+
+
+def test_format_combo_orders_modifiers_canonically():
+    assert hotkey_manager.format_combo(["shift", "cmd", "h"]) == "cmd+shift+h"
+    assert hotkey_manager.format_combo(["h", "shift", "cmd"]) == "cmd+shift+h"
+
+
+def test_format_combo_keeps_the_last_modifier_as_final():
+    """Sans non-modificateur, c'est le dernier pressé qui déclenche."""
+    assert hotkey_manager.format_combo(["cmd", "shift"]) == "cmd+shift"
+
+
+def test_format_combo_single_token_is_unchanged():
+    assert hotkey_manager.format_combo(["alt_r"]) == "alt_r"
+    assert hotkey_manager.format_combo([]) == ""
+
+
+def test_generic_combo_drops_the_side():
+    """macOS ne distingue pas les côtés pour SES raccourcis : ⌘ droite +
+    Espace ouvre Spotlight autant que ⌘ gauche. Sans cette normalisation, la
+    détection de conflit rate un cas sur deux."""
+    assert hotkey_manager.generic_combo("cmd_r+space") == "cmd+space"
+    assert hotkey_manager.generic_combo("option_r") == "alt"
+    assert hotkey_manager.generic_combo("cmd+shift+h") == "cmd+shift+h"
+
+
+def test_is_modifier():
+    assert hotkey_manager.is_modifier("cmd_r") is True
+    assert hotkey_manager.is_modifier("option") is True
+    assert hotkey_manager.is_modifier("space") is False
+
+
+def test_display_combo_verbose_names_the_side():
+    """« ⌥ » seul dans un champ ne dit pas quelle touche a été enregistrée."""
+    assert display_combo("alt_r", verbose=True) == "⌥ Option droite"
+    assert display_combo("alt", verbose=True) == "⌥ Option gauche"
+
+
+def test_display_combo_verbose_leaves_combinations_compact():
+    assert display_combo("cmd+shift+h", verbose=True) == "⌘⇧H"
+
+
+# ---- Régression : le crash à la fermeture des Préférences ----
+#
+# macOS tue le processus (SIGTRAP, `dispatch_assert_queue_fail` sous
+# HIToolbox) quand pynput interroge le Text Services Manager hors de la file
+# principale alors que la liste des sources de saisie doit être reconstruite —
+# ce qui arrive quand l'application active change, typiquement à la fermeture
+# de la fenêtre de réglages. Or c'est `Listener._run`, sur le thread du
+# listener, qui fait cet appel. Donc : ne jamais refabriquer de listener sur
+# ces chemins-là.
+
+
+def test_update_binding_does_not_recreate_the_listener(distinct_listeners):
+    """LE test de non-régression du crash. Changer de raccourci doit
+    reconfigurer en place, pas fabriquer un tap neuf."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+    listener = mgr._listener
+
+    mgr.update_binding("f13")
+
+    assert len(distinct_listeners) == 1, "aucun nouveau listener ne doit naître"
+    assert mgr._listener is listener
+    listener.stop.assert_not_called()
+
+
+def test_update_binding_still_changes_what_triggers(distinct_listeners):
+    """Reconfigurer en place doit rester fonctionnellement équivalent."""
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+    mgr.update_binding("ctrl_l")
+
+    _press(mgr, "alt_r")
+    assert starts == []
+    _press(mgr, "ctrl_l")
+    assert starts == [1]
+
+
+def test_pause_does_not_touch_the_listener(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    listener = mgr._listener
+
+    mgr.pause()
+    mgr.resume()
+
+    assert len(distinct_listeners) == 1
+    assert mgr._listener is listener
+    listener.stop.assert_not_called()
+
+
+def test_paused_hotkey_does_not_trigger(distinct_listeners):
+    """Sans ça, appuyer sur ⌥ droite pour l'enregistrer dans les Préférences
+    lancerait une dictée, qui viendrait coller son texte dans la fenêtre."""
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+    mgr.pause()
+
+    _press(mgr, "alt_r")
+    _release(mgr, "alt_r")
+
+    assert starts == []
+    assert mgr.is_paused is True
+
+
+def test_resume_restores_the_hotkey(distinct_listeners):
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+    mgr.pause()
+    mgr.resume()
+
+    _press(mgr, "alt_r")
+
+    assert starts == [1]
+    assert mgr.is_paused is False
+
+
+def test_pause_closes_a_dictation_in_progress(distinct_listeners):
+    """Si on met en pause pendant un enregistrement, le relâchement ne sera
+    jamais vu : il faut refermer soi-même, sinon la machine à états croit
+    qu'on enregistre encore et le micro reste ouvert."""
+    stops: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: None, on_stop=lambda: stops.append(1))
+    mgr.start()
+    _press(mgr, "alt_r")
+    assert mgr._active is True
+
+    mgr.pause()
+
+    assert stops == [1]
+    assert mgr._active is False
+
+
+def test_pause_is_idempotent(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    mgr.pause()
+    mgr.pause()  # ne doit pas lever ni re-notifier
+    assert mgr.is_paused is True
+
+
+def test_resume_without_pause_is_harmless(distinct_listeners):
+    mgr = _mgr()
+    mgr.start()
+    mgr.resume()
+    assert mgr.is_paused is False
+
+
+def test_release_left_over_from_pause_is_ignored(distinct_listeners):
+    """Touche relâchée pendant la pause : au retour, on ne doit pas croire
+    qu'une dictée était en cours."""
+    stops: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: None, on_stop=lambda: stops.append(1))
+    mgr.start()
+    mgr.pause()
+    _release(mgr, "alt_r")
+    mgr.resume()
+    _release(mgr, "alt_r")
+
+    assert stops == []
+
+
+# ---- Régression : le raccourci mort après un relâchement perdu ----
+#
+# Symptôme rapporté en usage réel : « on continue d'être appuyé et rien ne se
+# passe », de façon intermittente et sans aucun message. Cause : une touche
+# n'est retirée de `_pressed` que par son relâchement, et macOS en perd
+# (désactivation brève du tap, réarmement, autre app qui capture). Le
+# relâchement perdu laissait la touche dans `_pressed` À VIE, donc tous les
+# appuis suivants sortaient sur l'anti-rebond auto-repeat.
+
+
+def test_lost_release_does_not_kill_the_hotkey(distinct_listeners, monkeypatch):
+    """LE test de non-régression. Un relâchement perdu ne doit pas rendre le
+    raccourci définitivement muet."""
+    starts: list[int] = []
+    mgr = HotkeyManager("alt_r", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    assert starts == [1]
+    # …et le relâchement n'arrive jamais.
+
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert starts == [1, 1], "le second appui doit repartir, pas être jeté"
+
+
+def test_autorepeat_is_still_filtered(distinct_listeners, monkeypatch):
+    """La resynchronisation ne doit pas casser l'anti-rebond : l'auto-répétition
+    du système arrive toutes les quelques dizaines de millisecondes."""
+    starts: list[int] = []
+    mgr = HotkeyManager("h", on_start=lambda: starts.append(1), on_stop=lambda: None)
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "h")
+    for _ in range(20):
+        faux_temps[0] += 0.05          # 50 ms, cadence typique du système
+        _press(mgr, "h")
+
+    assert starts == [1], "un seul démarrage malgré 21 appuis"
+
+
+def test_held_modifier_is_not_resynced_spuriously(distinct_listeners, monkeypatch):
+    """Sur macOS les modificateurs n'ont PAS d'auto-répétition : tenir ⌥ droite
+    n'émet qu'un appui. Aucun second appui ne doit donc survenir pendant une
+    dictée, même longue — et si le système en émet un, c'est bien qu'il a perdu
+    le relâchement."""
+    starts: list[int] = []
+    stops: list[int] = []
+    mgr = HotkeyManager(
+        "alt_r", on_start=lambda: starts.append(1), on_stop=lambda: stops.append(1)
+    )
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 30.0              # dictée de 30 s
+    _release(mgr, "alt_r")
+
+    assert starts == [1]
+    assert stops == [1]
+
+
+def test_resync_clears_the_active_flag(distinct_listeners, monkeypatch):
+    """Après resynchronisation, l'état interne doit être cohérent : sinon le
+    relâchement suivant serait à son tour ignoré."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert mgr._active is True
+    _release(mgr, "alt_r")
+    assert mgr._active is False
+    assert mgr._pressed == set()
+
+
+def test_resync_is_logged(distinct_listeners, monkeypatch, capsys):
+    """Le blocage était invisible ; sa correction doit être traçable."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert "relâchement perdu" in capsys.readouterr().err
+
+
+# ---- Régression : fausses resynchronisations dues au reste du clavier ----
+#
+# Mesuré sur le journal réel : 716 « relâchement perdu détecté » en trois mois,
+# toutes pendant les heures de frappe et aucune pendant une dictée. Cause : on
+# suivait TOUTES les touches, identifiées par le caractère produit, qui dépend
+# des modificateurs tenus. Sur AZERTY un chiffre se tape Shift + touche :
+# l'appui produit « 2 », le relâchement (Shift lâché) produit « é », et le « 2 »
+# restait « enfoncé » à vie.
+
+
+def _azerty_digit(mgr: HotkeyManager, faux_temps: list[float]) -> None:
+    """Tape un « 2 » comme sur AZERTY : Shift tenu à l'appui, lâché avant le
+    relâchement de la touche, qui rend alors « é »."""
+    _press(mgr, "shift")
+    _press(mgr, "2")
+    faux_temps[0] += 0.05
+    _release(mgr, "shift")
+    _release(mgr, "é")
+
+
+def test_typing_on_azerty_never_triggers_a_resync(distinct_listeners, monkeypatch, capsys):
+    mgr = _mgr("alt_r")
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    for _ in range(5):
+        _azerty_digit(mgr, faux_temps)
+        faux_temps[0] += 3.0  # bien plus d'une seconde entre deux « 2 »
+
+    assert "relâchement perdu" not in capsys.readouterr().err
+    assert mgr._pressed == set(), "aucune touche étrangère au raccourci n'est suivie"
+
+
+def test_typing_during_a_dictation_does_not_cut_it(distinct_listeners, monkeypatch):
+    """Le pire cas de l'ancien comportement : un « 2 » resté « enfoncé » puis
+    retapé pendant qu'on tient ⌥ droite mettait `_active` à False, et le vrai
+    relâchement du raccourci était ignoré — enregistrement jusqu'au
+    coupe-circuit de 300 s."""
+    starts: list[int] = []
+    stops: list[int] = []
+    mgr = HotkeyManager(
+        "alt_r", on_start=lambda: starts.append(1), on_stop=lambda: stops.append(1)
+    )
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _azerty_digit(mgr, faux_temps)      # laisse un « 2 » fantôme (ancien code)
+    faux_temps[0] += 10.0
+
+    _press(mgr, "alt_r")                # dictée
+    faux_temps[0] += 2.0
+    _press(mgr, "2")                    # frappe pendant la dictée
+    _release(mgr, "2")
+    _release(mgr, "alt_r")
+
+    assert starts == [1]
+    assert stops == [1], "le relâchement du raccourci doit toujours être honoré"
+
+
+def test_a_real_lost_release_of_the_hotkey_is_still_resynced(distinct_listeners, monkeypatch, capsys):
+    """La garde reste active pour la touche du raccourci : c'est elle qu'on
+    protège."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert "relâchement perdu" in capsys.readouterr().err
+
+
+def test_combo_only_tracks_its_own_keys(distinct_listeners):
+    mgr = _mgr("cmd+shift+h")
+    mgr.start()
+
+    _press(mgr, "cmd")
+    _press(mgr, "shift")
+    _press(mgr, "j")                    # pas dans le raccourci
+
+    assert "j" not in mgr._pressed
+    assert mgr._pressed == {hotkey_manager.parse_key("cmd"), hotkey_manager.parse_key("shift")}

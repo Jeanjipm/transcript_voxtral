@@ -159,24 +159,191 @@ def test_diarize_raises_french_error_when_unavailable(
     assert "pip install" in message
 
 
-def test_diarize_maps_model_segments(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    """Les segments du modèle deviennent des SpeakerTurn triés, en filtrant les
-    intervalles vides."""
-    fake_seg = lambda s, e, spk: MagicMock(start=s, end=e, speaker=spk)  # noqa: E731
-    fake_model = MagicMock()
-    fake_model.generate.return_value = MagicMock(
-        segments=[
-            fake_seg(5.0, 9.0, 1),
-            fake_seg(0.0, 5.0, 0),
-            fake_seg(9.0, 9.0, 0),  # vide, doit être ignoré
-        ]
-    )
+def _fake_model(probs) -> MagicMock:
+    model = MagicMock()
+    model.generate.return_value = MagicMock(speaker_probs=probs)
+    # Force le repli de _frame_duration : un MagicMock rendrait un mock
+    # là où on attend un nombre.
+    model.config.processor_config.hop_length = 160
+    model.config.processor_config.sampling_rate = 16_000
+    model.config.fc_encoder_config.subsampling_factor = 8
+    return model
+
+
+def test_diarize_builds_turns_from_probabilities(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """`diarize` repart des probabilités brutes, pas des segments tout faits
+    de mlx-audio : ceux-ci sortent d'un seuillage trame à trame sans lissage
+    et donnaient des rafales de tours de 80 ms."""
+    # 50 trames de 80 ms : locuteur 0 pendant 2 s, puis locuteur 1 pendant 2 s.
+    probs = [[0.9, 0.0] for _ in range(25)] + [[0.0, 0.9] for _ in range(25)]
     fake_vad = MagicMock()
-    fake_vad.load.return_value = fake_model
+    fake_vad.load.return_value = _fake_model(probs)
     monkeypatch.setitem(sys.modules, "mlx_audio", MagicMock(vad=fake_vad))
     monkeypatch.setitem(sys.modules, "mlx_audio.vad", fake_vad)
     monkeypatch.setattr(diarizer, "is_available", lambda: True)
+    monkeypatch.setattr(diarizer, "_audio_duration", lambda _p: 4.0)
 
     turns = diarizer.diarize(tmp_path / "a.wav")
 
-    assert [(t.start, t.speaker) for t in turns] == [(0.0, 0), (5.0, 1)]
+    assert [(t.speaker, round(t.start, 2), round(t.end, 2)) for t in turns] == [
+        (0, 0.0, 2.0),
+        (1, 2.0, 4.0),
+    ]
+
+
+def test_diarize_downloads_when_the_model_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """Le mode hors-ligne est activé au démarrage pour que la dictée ne
+    dépende jamais du réseau. Sans la parenthèse `allow_network`, le tout
+    premier usage de la diarisation échouerait sur une erreur hors sujet."""
+    import hf_offline
+
+    fake_vad = MagicMock()
+    fake_vad.load.return_value = _fake_model([[0.9, 0.0]] * 20)
+    monkeypatch.setitem(sys.modules, "mlx_audio", MagicMock(vad=fake_vad))
+    monkeypatch.setitem(sys.modules, "mlx_audio.vad", fake_vad)
+    monkeypatch.setattr(diarizer, "is_available", lambda: True)
+    monkeypatch.setattr(diarizer, "_audio_duration", lambda _p: 1.6)
+    monkeypatch.setattr(hf_offline, "is_model_cached", lambda _r: False)
+
+    ouvert: list[bool] = []
+    monkeypatch.setattr(
+        hf_offline, "allow_network", lambda: _Recording(ouvert)
+    )
+
+    diarizer.diarize(tmp_path / "a.wav")
+
+    assert ouvert == [True], "le réseau doit être rouvert le temps du téléchargement"
+    fake_vad.load.assert_called_once_with(diarizer.DEFAULT_MODEL)
+
+
+class _Recording:
+    """Contexte factice qui note son ouverture."""
+
+    def __init__(self, journal: list[bool]) -> None:
+        self._journal = journal
+
+    def __enter__(self):  # noqa: ANN204
+        self._journal.append(True)
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+
+# ---- turns_from_probs : la mise en forme des tours ----
+
+
+def _probs(sequence: list[int | None], speakers: int = 4) -> list[list[float]]:
+    """Construit une matrice de probabilités depuis une suite d'étiquettes."""
+    rows = []
+    for label in sequence:
+        row = [0.02] * speakers
+        if label is not None:
+            row[label] = 0.9
+        rows.append(row)
+    return rows
+
+
+def test_turns_follow_the_dominant_channel():
+    turns = diarizer.turns_from_probs(_probs([0] * 20 + [1] * 20), frame_s=0.1)
+    assert [(t.speaker, round(t.start, 1), round(t.end, 1)) for t in turns] == [
+        (0, 0.0, 2.0),
+        (1, 2.0, 4.0),
+    ]
+
+
+def test_silence_is_not_attributed():
+    """Sous le seuil, aucun canal ne gagne : le silence reste du silence."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 20 + [None] * 20 + [0] * 20), frame_s=0.1, max_gap_s=0.5
+    )
+    assert len(turns) == 2, "un silence de 2 s sépare bien deux tours"
+
+
+def test_short_gap_is_closed():
+    """Une respiration au milieu d'une phrase ne fait pas deux tours."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 20 + [None] * 3 + [0] * 20), frame_s=0.1, max_gap_s=0.5
+    )
+    assert len(turns) == 1
+
+
+def test_isolated_frame_is_smoothed_away():
+    """Le modèle décide trame par trame : une bascule isolée en plein milieu
+    d'une phrase produirait un tour de 100 ms attribué à quelqu'un d'autre."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 20 + [1] + [0] * 20), frame_s=0.1
+    )
+    assert [t.speaker for t in turns] == [0]
+
+
+def test_short_turn_is_dropped():
+    """Artefact de transition mesuré : le modèle allume brièvement un canal
+    tiers dans le silence entre deux phrases."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 20 + [2] * 4 + [1] * 20), frame_s=0.1, min_turn_s=0.5
+    )
+    assert [t.speaker for t in turns] == [0, 1]
+
+
+def test_dropping_a_short_turn_lets_the_neighbours_merge():
+    """L'ordre compte : filtrer AVANT de recoller. L'inverse figerait
+    l'intrus au milieu de deux tours du même locuteur."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 20 + [2] * 2 + [0] * 20), frame_s=0.1, min_turn_s=0.5
+    )
+    assert len(turns) == 1
+    assert turns[0].speaker == 0
+
+
+def test_marginal_speaker_is_dropped():
+    """Le modèle hésite parfois sur la première seconde avant de se fixer."""
+    turns = diarizer.turns_from_probs(
+        _probs([3] * 8 + [0] * 40 + [1] * 40),
+        frame_s=0.1, min_speaker_s=1.5,
+    )
+    assert [t.speaker for t in turns] == [0, 1]
+
+
+def test_all_speakers_marginal_keeps_everything():
+    """Sur un très court extrait, tout est sous le seuil. Mieux vaut des
+    étiquettes imparfaites qu'un transcript sans aucune étiquette."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 8 + [1] * 8), frame_s=0.1, min_speaker_s=5.0
+    )
+    assert len(turns) == 2
+
+
+def test_speakers_are_renumbered_in_order_of_appearance():
+    """Le modèle rend des numéros de canal quelconques — couramment 0 et 3
+    pour un dialogue à deux. Sans renumérotation, le lecteur verrait
+    « Locuteur 1 » puis « Locuteur 4 »."""
+    turns = diarizer.turns_from_probs(
+        _probs([3] * 20 + [0] * 20), frame_s=0.1
+    )
+    assert [t.speaker for t in turns] == [0, 1]
+
+
+def test_turns_are_clipped_to_the_audio_duration():
+    """Les caractéristiques sont complétées à un multiple de 16 trames : sans
+    rognage, le dernier tour déborde de la fin du fichier."""
+    turns = diarizer.turns_from_probs(
+        _probs([0] * 40), frame_s=0.1, duration_s=3.5
+    )
+    assert turns[-1].end == 3.5
+
+
+def test_empty_probs_gives_no_turns():
+    assert diarizer.turns_from_probs([]) == []
+
+
+def test_turns_from_probs_is_deterministic():
+    """Deux exécutions doivent produire exactement le même transcript."""
+    sequence = _probs([0] * 15 + [1] * 15 + [0] * 15)
+    assert diarizer.turns_from_probs(sequence) == diarizer.turns_from_probs(
+        sequence
+    )

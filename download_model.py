@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if is_downloaded(repo_id, models_root):
         print(f"Modèle déjà présent : {repo_id}")
-        print(f"Mise à jour vers la dernière version disponible...")
+        print("Mise à jour vers la dernière version disponible...")
     else:
         print(f"Téléchargement de : {repo_id}")
         print(f"Destination : {models_root}")

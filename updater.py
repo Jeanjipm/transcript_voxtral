@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
@@ -59,6 +60,8 @@ class UpdateInfo:
     commits_behind: int
     head_message: str
     risky_files: list[str] = field(default_factory=list)
+    # Branche suivie (celle du checkout local), pour l'afficher à l'utilisateur.
+    branch: str = DEFAULT_BRANCH
 
     @property
     def requires_manual_action(self) -> bool:
@@ -124,8 +127,30 @@ def get_local_sha() -> str | None:
         return None
 
 
+def get_current_branch() -> str:
+    """Branche du checkout local, ou `main` si elle est indéterminable.
+
+    L'ancienne version comparait et tirait toujours `main`. Or le déploiement
+    d'un sprint passe par `git checkout <branche>` (cf. CLAUDE.md) : sur un
+    Mac installé sur une branche de fonctionnalité, le check restait muet —
+    `main` n'avait rien que la branche n'ait déjà — et le pull aurait échoué
+    avec « Not possible to fast-forward ». On suit donc la branche réelle.
+
+    `HEAD` détaché (`rev-parse --abbrev-ref` rend littéralement « HEAD ») :
+    on retombe sur `main`, seul choix raisonnable.
+    """
+    try:
+        name = _run_git("rev-parse", "--abbrev-ref", "HEAD")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return DEFAULT_BRANCH
+    if not name or name == "HEAD":
+        return DEFAULT_BRANCH
+    return name
+
+
 def check_for_update() -> UpdateInfo | None:
-    """Vérifie si une MAJ est disponible sur le remote.
+    """Vérifie si une MAJ est disponible sur le remote, pour la branche
+    actuellement installée.
 
     Retourne UpdateInfo si MAJ dispo, None si à jour OU si erreur (réseau,
     repo absent, etc.). Le caller ne distingue pas "à jour" vs "erreur" —
@@ -140,9 +165,12 @@ def check_for_update() -> UpdateInfo | None:
     if local_sha is None:
         return None
 
+    branch = get_current_branch()
+    # Une branche peut contenir « / » (feature/…) : encodé pour que l'API ne
+    # le lise pas comme un séparateur de chemin.
     url = (
         f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
-        f"/compare/{local_sha}...{DEFAULT_BRANCH}"
+        f"/compare/{local_sha}...{quote(branch, safe='')}"
     )
     data = _http_get_json(url)
     if data is None:
@@ -174,11 +202,13 @@ def check_for_update() -> UpdateInfo | None:
         commits_behind=ahead,
         head_message=head_message,
         risky_files=risky,
+        branch=branch,
     )
 
 
 def apply_update() -> ApplyResult:
-    """Applique la MAJ via `git pull --ff-only` dans APP_DIR.
+    """Applique la MAJ via `git pull --ff-only` dans APP_DIR, sur la branche
+    actuellement installée.
 
     --ff-only évite de créer un merge commit accidentel si le user a
     introduit un commit local par erreur (~/.voxtral/app n'a pas vocation
@@ -188,8 +218,9 @@ def apply_update() -> ApplyResult:
     RAM ne reflète pas le nouveau code on-disk. L'app doit être relancée.
     """
     try:
-        _run_git("fetch", "origin", DEFAULT_BRANCH)
-        _run_git("pull", "--ff-only", "origin", DEFAULT_BRANCH)
+        branch = get_current_branch()
+        _run_git("fetch", "origin", branch)
+        _run_git("pull", "--ff-only", "origin", branch)
     except subprocess.CalledProcessError as exc:
         # stderr de git contient en général la raison ("Not possible to
         # fast-forward", "Working tree has changes", etc.).

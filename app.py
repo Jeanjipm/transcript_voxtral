@@ -43,7 +43,6 @@ import hf_offline
 hf_offline.install_early()
 
 import rumps
-import soundfile as sf
 from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyAccessory,
@@ -275,6 +274,10 @@ class VoxtralApp(rumps.App):
         self.error_item = rumps.MenuItem(ERROR_LABEL_NONE)
         self._last_error: tuple[str, str] | None = None
 
+        # Fenêtre de réglages : une seule à la fois, et le raccourci global est
+        # suspendu tant qu'elle vit (cf. _pause_hotkey_during_preferences).
+        self._prefs_proc: subprocess.Popen | None = None
+
         # Transcription de fichiers. Les items restent en place en permanence
         # plutôt que d'être ajoutés et retirés à chaud : muter le menu rumps
         # pendant l'exécution est plus fragile que changer un titre, et un menu
@@ -298,6 +301,9 @@ class VoxtralApp(rumps.App):
             self.file_item,
             self.file_cancel_item,
             None,
+            rumps.MenuItem(
+                "Réactiver le raccourci", callback=self.rearm_hotkey_manual
+            ),
             rumps.MenuItem("Préférences…", callback=self.open_preferences),
             self.updates_item,
             None,
@@ -534,8 +540,13 @@ class VoxtralApp(rumps.App):
         `from_pretrained` / `mlx_whisper` ne bloquent pendant plusieurs
         minutes. Best-effort : en cas de doute on suppose « en cache »
         (pas d'animation → pas de faux signal).
+
+        On interroge le transcriber plutôt que `config.model.name` : en
+        traduction, c'est Whisper Large V3 qui travaille, pas le modèle
+        configuré — et c'était précisément lui qui manquait au cache.
         """
-        return not hf_offline.is_model_cached(self.config.model.name)
+        repo = self.transcriber.repo_for(self.config.transcription.task)
+        return not hf_offline.is_model_cached(repo)
 
     def _transcribe_and_paste(self, wav_path: Path) -> None:
         """Transcrit puis colle. Tourne sur l'inference-worker.
@@ -786,13 +797,115 @@ class VoxtralApp(rumps.App):
     # Items de menu
     # ------------------------------------------------------------------
 
+    def rearm_hotkey_manual(self, _sender: rumps.MenuItem) -> None:
+        """Reconstruit l'écoute clavier à la demande.
+
+        Filet pour le cas qu'aucun code ne peut détecter : macOS a désactivé
+        l'event tap et plus AUCUN événement clavier ne nous parvient. La
+        resynchronisation d'`_on_press` ne peut rien y faire — elle a besoin
+        d'un appui pour se déclencher, et justement il n'arrive plus. La
+        surveillance de durée maximale non plus, puisqu'elle suppose un
+        enregistrement en cours.
+
+        Jusqu'ici la seule issue était de redémarrer l'app. Le menu, lui,
+        reste cliquable.
+
+        Le travail part sur un thread : `rearm()` détruit et recrée le
+        listener, ce qui attend la fin d'un thread (jusqu'à 2 s) — hors budget
+        pour le main thread de rumps.
+        """
+        threading.Thread(
+            target=self._rearm_and_report, name="rearm-manual", daemon=True
+        ).start()
+
+    def _rearm_and_report(self) -> None:
+        try:
+            # `rearm()` s'auto-limite à un réarmement toutes les 10 s ; sur une
+            # action explicite de l'utilisateur, ce garde-fou n'a pas lieu
+            # d'être — il est là contre les boucles automatiques.
+            self.hotkey._last_rearm_at = 0.0
+            done = self.hotkey.rearm()
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            self._show_error("Réactivation du raccourci", str(exc))
+            return
+        if done:
+            self._set_hotkey_title(
+                f"Raccourci : {display_combo(self.hotkey.combo)}"
+            )
+
     def open_preferences(self, _sender: rumps.MenuItem) -> None:
         # On lance settings_ui.py dans un sous-processus : tkinter ne
         # cohabite pas bien avec la mainloop rumps (deux event loops Cocoa).
         # Sub-process = isolation simple et robuste.
-        subprocess.Popen(
-            [sys.executable, str(Path(__file__).parent / "settings_ui.py")],
-        )
+        if self._prefs_proc is not None and self._prefs_proc.poll() is None:
+            # Une fenêtre est déjà ouverte. En rouvrir une seconde donnerait
+            # deux jeux de réglages divergents dont le dernier enregistré
+            # écraserait l'autre en silence.
+            return
+
+        try:
+            self._prefs_proc = subprocess.Popen(
+                [sys.executable, str(Path(__file__).parent / "settings_ui.py")],
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._show_error("Préférences", str(exc))
+            return
+
+        threading.Thread(
+            target=self._pause_hotkey_during_preferences,
+            args=(self._prefs_proc,),
+            name="prefs-hotkey-pause",
+            daemon=True,
+        ).start()
+
+    def _pause_hotkey_during_preferences(self, proc: subprocess.Popen) -> None:
+        """Coupe le raccourci global tant que la fenêtre de réglages vit.
+
+        Indispensable depuis que le raccourci s'enregistre en appuyant sur les
+        touches : sans ça, presser ⌥ droite pour l'enregistrer lancerait une
+        dictée, qui viendrait coller son texte dans la fenêtre de réglages
+        trois secondes plus tard.
+
+        Effet de bord assumé et annoncé dans la fenêtre : on ne peut pas
+        dicter pendant qu'on règle. C'est aussi ce qu'on veut — le raccourci
+        ne doit pas se déclencher pendant qu'on tape dans un champ.
+
+        `pause()` / `resume()` et non `stop()` / `start()` : reconstruire le
+        listener au retour faisait mourir l'app sur SIGTRAP, parce que la
+        fermeture de la fenêtre change l'application active et que pynput
+        interroge alors le Text Services Manager hors de la file principale
+        (détails dans la docstring de `HotkeyManager`). Le drapeau est en
+        prime instantané, là où `stop()` attendait jusqu'à 2 s.
+
+        Tourne quand même dans un thread dédié : c'est `proc.wait()` qui
+        bloque, et il n'a rien à faire sur le main thread de rumps.
+        """
+        try:
+            self.hotkey.pause()
+        except Exception:
+            traceback.print_exc()
+        self._set_hotkey_title("Raccourci : en pause (Préférences ouvertes)")
+
+        try:
+            proc.wait()
+        finally:
+            try:
+                self.hotkey.resume()
+            except Exception:
+                traceback.print_exc()
+            # On relit le combo plutôt que de mémoriser l'ancien libellé : le
+            # raccourci vient peut-être justement d'être changé.
+            self._set_hotkey_title(
+                f"Raccourci : {display_combo(self.hotkey.combo)}"
+            )
+
+    def _set_hotkey_title(self, text: str) -> None:
+        """Met à jour l'item 'Raccourci' depuis n'importe quel thread."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._set_hotkey_title, text)
+            return
+        self.hotkey_item.title = text
 
     # ------------------------------------------------------------------
     # Mises à jour de l'app (cf. updater.py)

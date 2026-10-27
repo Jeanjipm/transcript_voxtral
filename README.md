@@ -82,26 +82,23 @@ transcription : la dictée passe devant.
 #### Identifier les locuteurs (optionnel)
 
 Pour un enregistrement à plusieurs voix, Voxtral peut préfixer chaque
-paragraphe par « Locuteur 1 », « Locuteur 2 »… Ça demande un paquet
-supplémentaire, donc c'est désactivé par défaut :
+paragraphe par « Locuteur 1 », « Locuteur 2 »… Coche **Préférences →
+Fichiers → Identifier qui parle**.
 
-```bash
-~/.voxtral/venv/bin/pip install mlx-audio
-```
+Le modèle (225 Mo) se télécharge au premier usage. Jusqu'à **4 personnes**.
 
-Puis dans `~/.voxtral/config.yaml`, mets `diarization: true` sous
-`file_transcription`, et relance l'app.
+Mesuré sur un dialogue à deux voix dont on connaît la vérité seconde par
+seconde : **96 % d'attribution correcte**, dans les deux ordres de passage,
+et les trois voix bien séparées sur un test à trois. Une heure
+d'enregistrement coûte environ une minute de traitement.
 
-⚠️ **Actuellement peu fiable, et désactivé pour cette raison.** Le seul
-modèle disponible sur MLX ne distingue que des voix très différentes :
-mesuré, il lui faut environ 40 % d'écart de hauteur — près d'une octave —
-alors qu'une voix masculine et une voix féminine ne sont pas séparées. Un
-test sur un enregistrement réel à deux voix a échoué.
+Deux réserves honnêtes : ces mesures portent sur des voix de synthèse, pas
+sur du terrain réel avec réverbération et micro lointain — vérifie sur tes
+propres enregistrements avant de compter dessus. Et quand deux personnes
+parlent en même temps, une seule étiquette est posée sur le passage.
 
-Le code est en place et le jour où un moteur fiable sera intégré
-(pyannote), il suffira de le brancher. En attendant, ne compte pas dessus.
-Si l'identification échoue, la transcription reste écrite, simplement sans
-les étiquettes.
+Si l'identification échoue, la transcription reste écrite, et l'en-tête du
+`.txt` dit pourquoi les étiquettes manquent.
 
 ### Changer le raccourci, la langue, le modèle…
 
@@ -111,6 +108,12 @@ Onglets :
 - **Dictée** : le raccourci, la langue, ce qui se passe avec le texte
   (collé au curseur ou seulement copié), et les sons — avec un bouton
   « Écouter » pour régler le volume sans deviner.
+
+  Le raccourci ne se tape pas, il s'enregistre : clique **Modifier…**, puis
+  appuie sur la touche (ou la combinaison) que tu veux, et relâche. Échap
+  annule, « Par défaut » revient à ⌥ Option droite. La dictée est en pause
+  tant que la fenêtre de préférences est ouverte — sinon appuyer sur une
+  touche pour l'enregistrer déclencherait un enregistrement micro.
 - **Fichiers** : dossier de destination des `.txt`, horodatage des
   paragraphes, durée maximale acceptée.
 - **Modèles** : quel modèle pour la dictée, lequel pour les fichiers, et la

@@ -182,16 +182,87 @@ def test_stop_without_start_is_ignored(ctrl, recorder, capsys):
     assert "ignorée en état idle" in capsys.readouterr().err
 
 
-def test_start_while_pending_is_ignored(ctrl, recorder, capsys):
-    """Deux textes ne doivent jamais courir au presse-papier."""
+def test_start_while_pending_starts_a_new_recording(ctrl, recorder):
+    """Régression signalée en usage réel : enchaîner deux dictées.
+
+    L'ancienne version refusait de démarrer tant que la transcription
+    précédente tournait, et le faisait EN SILENCE — ni son, ni icône rouge.
+    On parlait plusieurs secondes dans le vide, ce qui est indistinguable
+    d'une app bloquée. Le micro est libre dès que le WAV est écrit ; le
+    worker d'inférence sérialise les textes, donc l'ordre est préservé.
+    """
     ctrl._handle_start()
     ctrl._handle_stop()
     assert ctrl.state is State.PENDING
 
     recorder.start.reset_mock()
     ctrl._handle_start()
+
+    assert recorder.start.called is True
+    assert ctrl.state is State.RECORDING
+
+
+def test_double_start_while_recording_is_still_ignored(ctrl, recorder, capsys):
+    """L'auto-repeat, lui, doit toujours être jeté : on enregistre déjà."""
+    ctrl._handle_start()
+    assert ctrl.state is State.RECORDING
+
+    recorder.start.reset_mock()
+    ctrl._handle_start()
+
     assert recorder.start.called is False
-    assert "ignorée en état pending" in capsys.readouterr().err
+    assert "ignorée en état recording" in capsys.readouterr().err
+
+
+def test_second_dictation_is_submitted_too(ctrl, cb):
+    """Les deux dictées doivent arriver au worker, pas seulement la première."""
+    for _ in range(2):
+        ctrl._handle_start()
+        ctrl._handle_stop()
+
+    assert cb.submit_transcription.call_count == 2
+
+
+def test_finished_transcription_does_not_reset_a_live_recording(ctrl, cb):
+    """Le pire scénario du correctif : la transcription précédente se termine
+    pendant qu'on enregistre déjà. Elle ne doit pas repasser l'icône au vert
+    « prêt » alors que le micro est ouvert."""
+    ctrl._handle_start()
+    ctrl._handle_stop()          # -> PENDING
+    ctrl._handle_start()         # nouvelle dictée pendant la transcription
+    assert ctrl.state is State.RECORDING
+
+    cb.on_state_change.reset_mock()
+    ctrl._handle_transcription_done()
+
+    assert ctrl.state is State.RECORDING
+    assert cb.on_state_change.called is False
+
+
+def test_state_stays_pending_while_work_remains(ctrl, cb):
+    """Deux transcriptions en vol : la première qui finit ne doit pas
+    annoncer « prêt » alors que la seconde tourne encore."""
+    for _ in range(2):
+        ctrl._handle_start()
+        ctrl._handle_stop()
+
+    ctrl._handle_transcription_done()
+    assert ctrl.state is State.PENDING
+
+    ctrl._handle_transcription_done()
+    assert ctrl.state is State.IDLE
+
+
+def test_extra_done_notifications_do_not_go_negative(ctrl):
+    """Robustesse : un notify en trop ne doit pas coincer l'état en PENDING."""
+    ctrl._handle_transcription_done()
+    ctrl._handle_transcription_done()
+    assert ctrl.state is State.IDLE
+
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    ctrl._handle_transcription_done()
+    assert ctrl.state is State.IDLE
 
 
 def test_stop_during_arming_is_honoured_after_arming(
@@ -476,3 +547,71 @@ def test_tail_padding_not_applied_on_max_duration_cut(
     ctrl._on_tick()
 
     assert time.perf_counter() - started < 0.5
+
+
+# ---- Régression : l'ordre d'arrêt jeté quand la file est pleine ----
+#
+# Constaté dans voxtral.log : « [dictation] file pleine, commande shutdown
+# abandonnée ». Le worker était occupé (micro qui tarde à répondre), huit
+# commandes s'étaient accumulées, et l'arrêt a subi le même sort qu'un appui de
+# trop. Le micro n'était pas libéré ; seul le os._exit de secours a conclu.
+
+
+def test_shutdown_is_honoured_even_when_the_queue_is_full(
+    recorder, feedback, cb, tmp_path, capsys,
+):
+    """Reproduit l'incident : worker bloqué, file saturée, puis shutdown."""
+    import threading
+
+    from dictation_controller import _QUEUE_MAX
+
+    unblock = threading.Event()
+    recorder.prewarm.side_effect = lambda: unblock.wait(timeout=5.0)
+
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec",
+    )
+    ctrl.start()
+    try:
+        ctrl.request_prewarm()               # le worker part et se bloque
+        deadline = time.time() + 2.0
+        while recorder.prewarm.called is False and time.time() < deadline:
+            time.sleep(0.01)
+        assert recorder.prewarm.called
+
+        for _ in range(_QUEUE_MAX):          # la file se remplit derrière lui
+            ctrl.request_prewarm()
+        assert ctrl._queue.full()
+
+        thread = ctrl._thread
+        ctrl.shutdown(wait=False)            # la commande en file est perdue…
+        assert "file pleine" in capsys.readouterr().err
+
+        unblock.set()                        # …mais le drapeau, lui, est vu.
+        thread.join(timeout=3.0)
+        assert thread.is_alive() is False, "le worker doit s'arrêter malgré la file pleine"
+        recorder.shutdown.assert_called()
+    finally:
+        unblock.set()
+
+
+def test_shutdown_releases_the_microphone_when_recording(recorder, feedback, cb, tmp_path):
+    """Chemin normal avec le vrai thread : arrêt pendant un enregistrement →
+    stop() puis shutdown() du micro, et le thread se termine."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec",
+    )
+    ctrl.start()
+    ctrl.on_hotkey_start()
+    deadline = time.time() + 2.0
+    while ctrl.state is not State.RECORDING and time.time() < deadline:
+        time.sleep(0.01)
+    assert ctrl.state is State.RECORDING
+
+    thread = ctrl._thread
+    ctrl.shutdown(wait=True)
+    assert thread.is_alive() is False
+    recorder.stop.assert_called()
+    recorder.shutdown.assert_called_once()

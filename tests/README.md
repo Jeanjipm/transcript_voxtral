@@ -25,26 +25,43 @@ Si tu veux juste un module :
 .venv-tests/bin/python -m pytest tests/test_audio_capture.py -v
 ```
 
+## Lint et intégration continue
+
+`ruff` (configuration dans `ruff.toml`, règles « bugs » uniquement, pas de
+style) :
+
+```bash
+pip install ruff
+ruff check .
+```
+
+Le workflow `.github/workflows/tests.yml` lance ruff puis pytest à chaque
+push et à chaque PR, sur Ubuntu en Python 3.12 et 3.13 — possible parce que
+tout le natif macOS est remplacé par des stubs. Une PR avec une suite rouge
+ne se fusionne pas.
+
 ## Couverture
 
 | Module | Tests | Couvert |
 |---|---:|---|
-| `hotkey_manager.py` | 38 | parse, validate, state machine push-to-talk, réarmement du tap |
-| `file_transcriber.py` | 33 | boucle long-form, garde-fous d'avance, mise en forme du .txt |
-| `dictation_controller.py` | 27 | machine à états, coupe-circuit de durée, robustesse du worker |
-| `audio_capture.py` | 28 | cycle stream long-lived, prewarm, reprise après échec, verrous |
-| `updater.py` | 21 | check + apply via API GitHub, comportement offline |
+| `hotkey_manager.py` | 68 | parse, validate, state machine push-to-talk, pause/reprise, resynchronisation limitée aux touches du raccourci |
+| `dictation_controller.py` | 37 | machine à états, coupe-circuit de durée, dictée pendant une transcription, arrêt infaillible du worker |
+| `file_transcriber.py` | 31 | boucle long-form, garde-fous d'avance, mise en forme du .txt |
+| `audio_capture.py` | 31 | cycle stream long-lived, prewarm, reprise après échec, verrous |
+| `model_manager.py` | 31 | catalogue, usages dictée/fichiers, scan et purge du cache, modèles requis par la traduction |
+| `hotkey_capture.py` | 27 | enregistrement d'un raccourci au clavier, machine à états pure, file d'événements |
+| `diarizer.py` | 27 | tours de parole depuis les probabilités, lissage, renumérotation, fusion locuteurs × segments |
+| `updater.py` | 26 | check + apply via API GitHub sur la branche installée, comportement offline |
+| `transcriber.py` | 20 | factory, délégation translate, garde-fou turbo, réseau ouvert si le modèle manque |
+| `hf_offline.py` | 19 | détection du cache, bascule hors-ligne, résolution locale, `network_if_missing` |
 | `config.py` | 18 | I/O, fusion defaults+user, dataclasses, roundtrip |
 | `file_job.py` | 18 | cycle de vie, chemin de sortie, annulation, erreurs |
 | `audio_convert.py` | 17 | afconvert, formats refusés par libsndfile, lecture par blocs |
-| `hf_offline.py` | 17 | détection du cache, bascule hors-ligne, résolution locale |
 | `clipboard.py` | 15 | paste_text, préservation clipboard, règle de thread |
-| `diarizer.py` | 14 | fusion locuteurs × segments, dégradation sans le paquet |
 | `inference_worker.py` | 13 | priorité, exclusion mutuelle, robustesse |
-| `model_manager.py` | 30 | catalogue, usages dictée/fichiers, scan et purge du cache |
-| `transcriber.py` | 15 | factory, delegation translate, garde-fou turbo |
 
-**Total : 317 tests**
+**Total : 416 tests** (certains sont paramétrés, d'où un total supérieur à la
+somme des fonctions de test).
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui
 l'a révélée en docstring — par exemple « `on_hotkey_start` ne touche le
