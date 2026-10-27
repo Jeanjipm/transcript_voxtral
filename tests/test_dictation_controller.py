@@ -547,3 +547,71 @@ def test_tail_padding_not_applied_on_max_duration_cut(
     ctrl._on_tick()
 
     assert time.perf_counter() - started < 0.5
+
+
+# ---- Régression : l'ordre d'arrêt jeté quand la file est pleine ----
+#
+# Constaté dans voxtral.log : « [dictation] file pleine, commande shutdown
+# abandonnée ». Le worker était occupé (micro qui tarde à répondre), huit
+# commandes s'étaient accumulées, et l'arrêt a subi le même sort qu'un appui de
+# trop. Le micro n'était pas libéré ; seul le os._exit de secours a conclu.
+
+
+def test_shutdown_is_honoured_even_when_the_queue_is_full(
+    recorder, feedback, cb, tmp_path, capsys,
+):
+    """Reproduit l'incident : worker bloqué, file saturée, puis shutdown."""
+    import threading
+
+    from dictation_controller import _QUEUE_MAX
+
+    unblock = threading.Event()
+    recorder.prewarm.side_effect = lambda: unblock.wait(timeout=5.0)
+
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec",
+    )
+    ctrl.start()
+    try:
+        ctrl.request_prewarm()               # le worker part et se bloque
+        deadline = time.time() + 2.0
+        while recorder.prewarm.called is False and time.time() < deadline:
+            time.sleep(0.01)
+        assert recorder.prewarm.called
+
+        for _ in range(_QUEUE_MAX):          # la file se remplit derrière lui
+            ctrl.request_prewarm()
+        assert ctrl._queue.full()
+
+        thread = ctrl._thread
+        ctrl.shutdown(wait=False)            # la commande en file est perdue…
+        assert "file pleine" in capsys.readouterr().err
+
+        unblock.set()                        # …mais le drapeau, lui, est vu.
+        thread.join(timeout=3.0)
+        assert thread.is_alive() is False, "le worker doit s'arrêter malgré la file pleine"
+        recorder.shutdown.assert_called()
+    finally:
+        unblock.set()
+
+
+def test_shutdown_releases_the_microphone_when_recording(recorder, feedback, cb, tmp_path):
+    """Chemin normal avec le vrai thread : arrêt pendant un enregistrement →
+    stop() puis shutdown() du micro, et le thread se termine."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec",
+    )
+    ctrl.start()
+    ctrl.on_hotkey_start()
+    deadline = time.time() + 2.0
+    while ctrl.state is not State.RECORDING and time.time() < deadline:
+        time.sleep(0.01)
+    assert ctrl.state is State.RECORDING
+
+    thread = ctrl._thread
+    ctrl.shutdown(wait=True)
+    assert thread.is_alive() is False
+    recorder.stop.assert_called()
+    recorder.shutdown.assert_called_once()

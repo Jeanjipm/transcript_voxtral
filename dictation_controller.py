@@ -62,6 +62,7 @@ unique, il sérialise les transcriptions et l'ordre est préservé.
 from __future__ import annotations
 
 import enum
+import functools
 import queue
 import sys
 import threading
@@ -174,6 +175,13 @@ class DictationController:
         self._queue: queue.Queue[_Command] = queue.Queue(maxsize=_QUEUE_MAX)
         self._thread: threading.Thread | None = None
         self._stopping = False
+        # L'ordre d'arrêt ne passe PAS par la file. Constaté dans le journal :
+        # « file pleine, commande shutdown abandonnée » — le worker était
+        # occupé, huit commandes s'étaient accumulées, et l'arrêt a été jeté
+        # comme un appui de trop. Le micro n'était pas libéré ; seul le
+        # `os._exit` de secours de `quit_app` a fini le travail. Un drapeau
+        # lu à chaque tour de boucle, lui, ne peut pas être perdu.
+        self._stop_event = threading.Event()
 
         self._state = State.IDLE
         # Un relâchement reçu pendant ARMING doit être honoré dès que
@@ -195,17 +203,23 @@ class DictationController:
         if self._thread is not None:
             return
         self._stopping = False
+        self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="dictation-worker"
         )
         self._thread.start()
 
     def shutdown(self, wait: bool = False, timeout: float = 2.0) -> None:
-        """Demande l'arrêt. `wait=False` pour ne jamais bloquer le main thread."""
+        """Demande l'arrêt. `wait=False` pour ne jamais bloquer le main thread.
+
+        Le drapeau est la voie sûre ; la commande en file n'est qu'un réveil
+        immédiat du worker, et peut être perdue sans conséquence.
+        """
         if self._thread is None:
             return
         thread = self._thread
         self._stopping = True
+        self._stop_event.set()
         self._enqueue(_Command.SHUTDOWN)
         if wait:
             thread.join(timeout=timeout)
@@ -257,7 +271,7 @@ class DictationController:
     # ---- Boucle du worker ----
 
     def _run(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
             try:
                 command = self._queue.get(timeout=_TICK_S)
             except queue.Empty:
@@ -265,10 +279,13 @@ class DictationController:
                 continue
 
             if command is _Command.SHUTDOWN:
-                self._safe(self._handle_shutdown)
-                return
+                break
 
-            self._safe(lambda: self._handle(command))
+            self._safe(functools.partial(self._handle, command))
+
+        # Quoi qu'il soit arrivé à la commande en file, on finit toujours ici :
+        # micro arrêté et libéré.
+        self._safe(self._handle_shutdown)
 
     def _safe(self, fn: Callable[[], None]) -> None:
         """Exécute `fn` en garantissant qu'aucune exception ne s'échappe.
