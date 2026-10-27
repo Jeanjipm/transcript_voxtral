@@ -332,7 +332,7 @@ def _paragraphs(segments: list[Segment]) -> list[list[Segment]]:
     groups: list[list[Segment]] = [[segments[0]]]
     length = len(segments[0].text)
 
-    for previous, current in zip(segments, segments[1:]):
+    for previous, current in zip(segments, segments[1:], strict=False):
         gap = current.start - previous.end
         speaker_changed = current.speaker != previous.speaker
         if (

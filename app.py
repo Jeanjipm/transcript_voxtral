@@ -43,7 +43,6 @@ import hf_offline
 hf_offline.install_early()
 
 import rumps
-import soundfile as sf
 from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyAccessory,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from urllib.error import URLError
 
 import pytest
