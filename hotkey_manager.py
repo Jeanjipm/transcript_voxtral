@@ -303,6 +303,15 @@ class HotkeyManager:
             self._modifier_keys = {parse_key(t) for t in modifiers}
             self._final_key = parse_key(final)
 
+        # Les seules touches qu'on suit. Tout le reste du clavier est ignoré
+        # dès l'entrée des callbacks — cf. le pourquoi dans `_on_press`.
+        if self._target_key is not None:
+            self._relevant_keys: set[keyboard.Key | str] = {self._target_key}
+        else:
+            self._relevant_keys = set(self._modifier_keys)
+            if self._final_key is not None:
+                self._relevant_keys.add(self._final_key)
+
         self._pressed.clear()
         self._last_press_at.clear()
 
@@ -452,6 +461,20 @@ class HotkeyManager:
         if norm is None:
             return
 
+        # On ne suit QUE les touches du raccourci. Avant, `_pressed` mémorisait
+        # tout le clavier, identifié par le caractère produit — et le caractère
+        # dépend des modificateurs tenus à l'instant de l'événement. Sur un
+        # clavier AZERTY, un chiffre se tape Shift + touche : l'appui produit
+        # « 2 », le relâchement (Shift déjà lâché) produit « é ». Le « 2 »
+        # restait donc « enfoncé » pour toujours, et le prochain « 2 » tapé plus
+        # d'une seconde après déclenchait la resynchronisation ci-dessous,
+        # avec son `_active = False`. Mesuré sur le journal réel : 716 fausses
+        # alertes en trois mois, toutes pendant les heures de frappe, aucune
+        # pendant une dictée. Une touche étrangère au raccourci ne peut rien
+        # nous apprendre : on la laisse passer sans la regarder.
+        if norm not in self._relevant_keys:
+            return
+
         now = time.monotonic()
         previous = self._last_press_at.get(norm)
         self._last_press_at[norm] = now
@@ -515,7 +538,7 @@ class HotkeyManager:
         if self._paused:
             return
         norm = self._normalize(key)
-        if norm is None:
+        if norm is None or norm not in self._relevant_keys:
             return
         self._pressed.discard(norm)
 

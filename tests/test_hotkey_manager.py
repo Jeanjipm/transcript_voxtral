@@ -746,3 +746,91 @@ def test_resync_is_logged(distinct_listeners, monkeypatch, capsys):
     _press(mgr, "alt_r")
 
     assert "relâchement perdu" in capsys.readouterr().err
+
+
+# ---- Régression : fausses resynchronisations dues au reste du clavier ----
+#
+# Mesuré sur le journal réel : 716 « relâchement perdu détecté » en trois mois,
+# toutes pendant les heures de frappe et aucune pendant une dictée. Cause : on
+# suivait TOUTES les touches, identifiées par le caractère produit, qui dépend
+# des modificateurs tenus. Sur AZERTY un chiffre se tape Shift + touche :
+# l'appui produit « 2 », le relâchement (Shift lâché) produit « é », et le « 2 »
+# restait « enfoncé » à vie.
+
+
+def _azerty_digit(mgr: HotkeyManager, faux_temps: list[float]) -> None:
+    """Tape un « 2 » comme sur AZERTY : Shift tenu à l'appui, lâché avant le
+    relâchement de la touche, qui rend alors « é »."""
+    _press(mgr, "shift")
+    _press(mgr, "2")
+    faux_temps[0] += 0.05
+    _release(mgr, "shift")
+    _release(mgr, "é")
+
+
+def test_typing_on_azerty_never_triggers_a_resync(distinct_listeners, monkeypatch, capsys):
+    mgr = _mgr("alt_r")
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    for _ in range(5):
+        _azerty_digit(mgr, faux_temps)
+        faux_temps[0] += 3.0  # bien plus d'une seconde entre deux « 2 »
+
+    assert "relâchement perdu" not in capsys.readouterr().err
+    assert mgr._pressed == set(), "aucune touche étrangère au raccourci n'est suivie"
+
+
+def test_typing_during_a_dictation_does_not_cut_it(distinct_listeners, monkeypatch):
+    """Le pire cas de l'ancien comportement : un « 2 » resté « enfoncé » puis
+    retapé pendant qu'on tient ⌥ droite mettait `_active` à False, et le vrai
+    relâchement du raccourci était ignoré — enregistrement jusqu'au
+    coupe-circuit de 300 s."""
+    starts: list[int] = []
+    stops: list[int] = []
+    mgr = HotkeyManager(
+        "alt_r", on_start=lambda: starts.append(1), on_stop=lambda: stops.append(1)
+    )
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _azerty_digit(mgr, faux_temps)      # laisse un « 2 » fantôme (ancien code)
+    faux_temps[0] += 10.0
+
+    _press(mgr, "alt_r")                # dictée
+    faux_temps[0] += 2.0
+    _press(mgr, "2")                    # frappe pendant la dictée
+    _release(mgr, "2")
+    _release(mgr, "alt_r")
+
+    assert starts == [1]
+    assert stops == [1], "le relâchement du raccourci doit toujours être honoré"
+
+
+def test_a_real_lost_release_of_the_hotkey_is_still_resynced(distinct_listeners, monkeypatch, capsys):
+    """La garde reste active pour la touche du raccourci : c'est elle qu'on
+    protège."""
+    mgr = _mgr("alt_r")
+    mgr.start()
+    faux_temps = [1000.0]
+    monkeypatch.setattr(hotkey_manager.time, "monotonic", lambda: faux_temps[0])
+
+    _press(mgr, "alt_r")
+    faux_temps[0] += 5.0
+    _press(mgr, "alt_r")
+
+    assert "relâchement perdu" in capsys.readouterr().err
+
+
+def test_combo_only_tracks_its_own_keys(distinct_listeners):
+    mgr = _mgr("cmd+shift+h")
+    mgr.start()
+
+    _press(mgr, "cmd")
+    _press(mgr, "shift")
+    _press(mgr, "j")                    # pas dans le raccourci
+
+    assert "j" not in mgr._pressed
+    assert mgr._pressed == {hotkey_manager.parse_key("cmd"), hotkey_manager.parse_key("shift")}
