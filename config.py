@@ -99,6 +99,12 @@ class RecordingConfig:
     # rembourrées et se comportent mal quand la parole commence ou finit
     # exactement au bord du fichier.
     silence_padding_ms: int = 250
+    # En dessous de ce niveau sonore (dBFS, mesuré sur la fenêtre de 100 ms
+    # la plus forte), l'enregistrement est considéré comme du silence et
+    # n'est PAS envoyé au modèle — qui inventerait sinon une phrase
+    # (« Merci. », « Sous-titres… »). -120 désactive le filtre.
+    # Cf. audio_level.py pour les repères.
+    silence_threshold_dbfs: float = -45.0
 
 
 @dataclass

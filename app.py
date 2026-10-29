@@ -233,6 +233,7 @@ class VoxtralApp(rumps.App):
             ),
             max_duration_s=self.config.recording.max_duration_s,
             tail_padding_ms=self.config.recording.tail_padding_ms,
+            silence_threshold_dbfs=self.config.recording.silence_threshold_dbfs,
         )
         self.dictation.start()
 
