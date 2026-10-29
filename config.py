@@ -56,6 +56,8 @@ class HotkeyConfig:
 class TranscriptionConfig:
     language: str = "auto"
     task: str = "transcribe"  # ou "translate"
+    # Plancher du nombre de jetons générés ; relevé automatiquement selon la
+    # durée de l'audio (cf. transcriber.token_budget).
     max_new_tokens: int = 1024
 
 

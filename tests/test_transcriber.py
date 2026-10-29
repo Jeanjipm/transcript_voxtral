@@ -168,6 +168,77 @@ def test_voxtral_transcribe_does_not_create_whisper(
     assert t._whisper_for_translate is None
 
 
+# ---- Budget de jetons proportionnel à la durée (sprint 6b, issue 8) ----
+
+
+def _wav(tmp_path, seconds: float):
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / f"d{seconds}.wav"
+    sf.write(
+        path, np.zeros((int(16_000 * seconds), 1), dtype="int16"), 16_000,
+        subtype="PCM_16",
+    )
+    return path
+
+
+def test_token_budget_keeps_floor_for_short_audio():
+    """Une dictée courte garde la marge historique : on ne descend jamais
+    sous le `max_new_tokens` configuré."""
+    assert transcriber.token_budget(10.0, floor=1024) == 1024
+    assert transcriber.token_budget(0.0, floor=1024) == 1024
+
+
+def test_token_budget_grows_with_duration():
+    """300 s de dictée (la durée maximale par défaut) → 2 400 jetons, là où
+    1 024 figés tronquaient le texte au bout de 4 à 5 minutes."""
+    assert transcriber.token_budget(300.0, floor=1024) == 2400
+    assert transcriber.token_budget(128.0, floor=1024) == 1024  # 1024 = 128 × 8
+    assert transcriber.token_budget(128.5, floor=1024) == 1028  # arrondi au-dessus
+
+
+def test_token_budget_tolerates_bad_duration():
+    assert transcriber.token_budget(float("nan"), floor=512) == 512
+    assert transcriber.token_budget(-3.0, floor=512) == 512
+
+
+def _voxtral_with_fake_model():
+    t = VoxtralTranscriber("voxtral/model")
+    t._model = MagicMock()
+    t._processor = MagicMock()
+    inputs = MagicMock()
+    inputs.input_ids.shape = (1, 5)
+    t._processor.apply_transcrition_request = MagicMock(return_value=inputs)
+    t._model.generate = MagicMock(return_value=[[1, 2, 3, 4, 5, 6]])
+    t._processor.decode = MagicMock(return_value="texte")
+    return t
+
+
+def test_voxtral_passes_raised_budget_for_long_audio(tmp_path, capsys):
+    t = _voxtral_with_fake_model()
+    t.transcribe(_wav(tmp_path, 300.0), max_new_tokens=1024)
+    assert t._model.generate.call_args.kwargs["max_new_tokens"] == 2400
+    assert "budget relevé à 2400" in capsys.readouterr().err
+
+
+def test_voxtral_keeps_floor_for_short_audio(tmp_path, capsys):
+    t = _voxtral_with_fake_model()
+    t.transcribe(_wav(tmp_path, 3.0), max_new_tokens=1024)
+    assert t._model.generate.call_args.kwargs["max_new_tokens"] == 1024
+    assert "budget relevé" not in capsys.readouterr().err
+
+
+def test_voxtral_unreadable_wav_falls_back_to_floor(tmp_path):
+    """Durée illisible → plancher, comme avant : la transcription n'est pas
+    bloquée par la mesure."""
+    t = _voxtral_with_fake_model()
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"pas un wav")
+    t.transcribe(wav, max_new_tokens=1024)
+    assert t._model.generate.call_args.kwargs["max_new_tokens"] == 1024
+
+
 # ---- WhisperTranscriber ----
 
 

@@ -871,7 +871,7 @@ class SettingsWindow:
             justify=tk.LEFT,
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
-        ttk.Label(frame, text="Longueur maximale du texte (jetons) :").grid(
+        ttk.Label(frame, text="Longueur minimale garantie du texte (jetons) :").grid(
             row=5, column=0, sticky="w"
         )
         self.tokens_var = tk.IntVar(value=self.config.transcription.max_new_tokens)
@@ -881,8 +881,8 @@ class SettingsWindow:
         ).grid(row=5, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="1024 ≈ 5 minutes de texte. Pour un enregistrement long,\n"
-                 "utilise « Transcrire un fichier audio… » plutôt que la dictée.",
+            text="1024 ≈ 5 minutes de texte. Au-delà, la limite est relevée\n"
+                 "automatiquement selon la durée de l'audio.",
             foreground="gray",
             justify=tk.LEFT,
         ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(2, 14))

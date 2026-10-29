@@ -29,6 +29,10 @@ transcription:
   # "transcribe" : audio → texte dans la langue parlée
   # "translate"  : audio → texte traduit en anglais
   task: "transcribe"
+  # Longueur minimale garantie du texte produit, en jetons (≈ 5 minutes de
+  # parole). Pour une dictée plus longue, la limite est relevée toute seule
+  # en fonction de la durée de l'audio (8 jetons par seconde) : tu n'as pas
+  # à y toucher.
   max_new_tokens: 1024
 
 sounds:

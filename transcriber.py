@@ -21,13 +21,45 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import math
+
 import numpy as np
+import soundfile as sf
 
 import hf_offline
 from config import Config
 
 
 AUDIO_SAMPLE_RATE = 16_000
+
+# Jetons de sortie accordés par seconde d'audio. Mesuré sur du français :
+# 1024 jetons couvrent 4 à 5 minutes de parole serrée, soit 3,5 à 4,3
+# jetons/s réels. 8 laisse un facteur 2 de marge (débit rapide, langue plus
+# coûteuse en jetons) tout en bornant une boucle d'hallucination : une
+# dictée de 300 s reçoit 2 400 jetons, pas l'infini.
+TOKENS_PER_SECOND = 8
+
+
+def token_budget(duration_s: float, floor: int) -> int:
+    """Nombre maximal de jetons à générer pour `duration_s` secondes d'audio.
+
+    `floor` est le `max_new_tokens` de la configuration : on ne descend
+    jamais en dessous (une dictée courte garde la marge historique), on
+    monte proportionnellement à la durée au-delà. Avant ce calcul la limite
+    était figée à 1024 : une dictée de 5 minutes était tronquée sans message.
+    """
+    if not math.isfinite(duration_s) or duration_s <= 0:
+        return floor
+    return max(floor, math.ceil(duration_s * TOKENS_PER_SECOND))
+
+
+def _wav_duration_s(wav_path: Path) -> float:
+    """Durée du WAV, ou 0.0 s'il est illisible (le budget retombe alors sur
+    le plancher configuré, comme avant)."""
+    try:
+        return float(sf.info(str(wav_path)).duration)
+    except Exception:  # noqa: BLE001
+        return 0.0
 
 
 @dataclass(frozen=True)
@@ -270,12 +302,22 @@ class VoxtralTranscriber(Transcriber):
             language=voxtral_lang,
             audio=str(wav_path),
         )
+        # Budget de jetons proportionnel à la durée : `max_new_tokens` est un
+        # plancher, relevé pour les longues dictées (cf. token_budget).
+        budget = token_budget(_wav_duration_s(wav_path), max_new_tokens)
+        if budget > max_new_tokens:
+            print(
+                f"[transcriber] audio de {_wav_duration_s(wav_path):.0f} s : "
+                f"budget relevé à {budget} jetons (plancher {max_new_tokens}).",
+                file=sys.stderr,
+            )
+
         # mlx-voxtral retourne un TranscriptionInputs (objet, pas dict) ;
         # `**inputs` échoue avec "must be a mapping". vars() déballe le
         # __dict__ de l'objet.
         outputs = self._model.generate(
             **vars(inputs),
-            max_new_tokens=max_new_tokens,
+            max_new_tokens=budget,
         )
         text = self._processor.decode(
             outputs[0][inputs.input_ids.shape[1]:],
