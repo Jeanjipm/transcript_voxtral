@@ -58,7 +58,8 @@ continue de tourner avec l'ancien code en RAM.
 ### Réinstallation nécessaire quand
 
 - `install.sh` a été modifié (nouveau launcher, bundle, LaunchAgent)
-- `requirements.txt` a changé (nouvelle dep pip)
+- `requirements.txt` ou `requirements.lock` a changé (nouvelle dep pip,
+  version figée mise à jour)
 - État local corrompu (dernier recours)
 
 ```bash

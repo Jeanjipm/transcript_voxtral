@@ -149,8 +149,21 @@ source "$VENV_DIR/bin/activate"
 
 info "Installation des dépendances (peut prendre quelques minutes)..."
 pip install --upgrade pip setuptools wheel
-pip install -r "$INSTALL_DIR/requirements.txt"
-ok "Dépendances installées."
+# requirements.lock = versions EXACTES validées sur le Mac de l'auteur
+# (Python 3.13). C'est ce qui garantit une installation identique chez tout
+# le monde. Si ces versions n'existent pas pour le Python de cette machine
+# (autre version de Python, paquet retiré), on se replie sur
+# requirements.txt (versions minimales, non figées) en le disant clairement :
+# mieux vaut une installation qui marche avec un avertissement qu'un échec.
+if pip install -r "$INSTALL_DIR/requirements.lock"; then
+  ok "Dépendances installées (versions figées, identiques à l'installation de référence)."
+else
+  warn "Versions figées impossibles à installer avec $($PYTHON_BIN --version) —"
+  warn "repli sur requirements.txt (versions non figées). L'app devrait fonctionner,"
+  warn "mais signale-le à l'auteur en cas de souci."
+  pip install -r "$INSTALL_DIR/requirements.txt"
+  ok "Dépendances installées (versions non figées)."
+fi
 
 # ---------- 6. Téléchargement du modèle par défaut ----------
 info "Téléchargement du modèle par défaut (~3.2 Go, dépend de la connexion)..."
