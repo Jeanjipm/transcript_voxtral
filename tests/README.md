@@ -25,6 +25,17 @@ Si tu veux juste un module :
 .venv-tests/bin/python -m pytest tests/test_audio_capture.py -v
 ```
 
+### Règle pour les modules factices
+
+Tout attribut d'un module factice (`sounddevice`, `mlx_whisper`, `pynput`…)
+qu'un test remplace avec `monkeypatch.setattr` doit être **déclaré
+explicitement dans `conftest.py`** (ex. `_sd.InputStream = MagicMock()`).
+Depuis pytest 9.1, monkeypatch retrouve la valeur d'origine via `__dict__` ;
+un attribut créé à la volée par un `MagicMock` n'y est pas, il est donc
+supprimé au nettoyage et tous les tests suivants échouent avec « has no
+attribute ». Le piège ne se voit pas sur Python 3.14, mais casse la CI sur
+3.12 et 3.13.
+
 ## Lint et intégration continue
 
 `ruff` (configuration dans `ruff.toml`, règles « bugs » uniquement, pas de

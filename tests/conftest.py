@@ -92,6 +92,17 @@ class _PortAudioErrorStub(Exception):
 _sd.PortAudioError = _PortAudioErrorStub
 _sd.CallbackFlags = MagicMock()
 
+# Tout attribut d'un module factice que des tests remplacent avec
+# `monkeypatch.setattr` DOIT être déclaré ici, explicitement. Depuis pytest
+# 9.1, monkeypatch note la valeur d'origine via `__dict__` de la cible ; un
+# attribut qu'un MagicMock a créé à la volée n'y figure pas, donc il est
+# considéré comme inexistant et SUPPRIMÉ au nettoyage du test — et un
+# MagicMock refuse ensuite tout accès à un attribut supprimé. Symptôme : le
+# premier test passe, tous les suivants échouent avec « has no attribute ».
+# Passé inaperçu en local sur Python 3.14, visible en CI sur 3.12 et 3.13.
+_sd.InputStream = MagicMock(name="sounddevice.InputStream")
+sys.modules["mlx_whisper"].transcribe = MagicMock(name="mlx_whisper.transcribe")
+
 
 # pynput.keyboard avec les attributs que hotkey_manager.py importe.
 # `Key` doit être une vraie classe (pas un MagicMock), pour que
