@@ -871,7 +871,7 @@ class SettingsWindow:
             justify=tk.LEFT,
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
-        ttk.Label(frame, text="Longueur maximale du texte (jetons) :").grid(
+        ttk.Label(frame, text="Longueur minimale garantie du texte (jetons) :").grid(
             row=5, column=0, sticky="w"
         )
         self.tokens_var = tk.IntVar(value=self.config.transcription.max_new_tokens)
@@ -881,17 +881,37 @@ class SettingsWindow:
         ).grid(row=5, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="1024 ≈ 5 minutes de texte. Pour un enregistrement long,\n"
-                 "utilise « Transcrire un fichier audio… » plutôt que la dictée.",
+            text="1024 ≈ 5 minutes de texte. Au-delà, la limite est relevée\n"
+                 "automatiquement selon la durée de l'audio.",
             foreground="gray",
             justify=tk.LEFT,
         ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
+        ttk.Label(frame, text="Seuil de silence (dBFS) :").grid(
+            row=7, column=0, sticky="w"
+        )
+        self.silence_var = tk.IntVar(
+            value=int(round(self.config.recording.silence_threshold_dbfs))
+        )
+        ttk.Spinbox(
+            frame, from_=-120, to=0, increment=5,
+            textvariable=self.silence_var, width=8,
+        ).grid(row=7, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="Une dictée dont le moment le plus fort reste sous ce niveau\n"
+                 "est jetée au lieu d'être transcrite (le modèle inventerait\n"
+                 "« Merci. »). Baisse à -55 si tes dictées douces sont ignorées ;\n"
+                 "-120 désactive le filtre.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         self.autocheck_var = tk.BooleanVar(value=self.config.updates.auto_check)
         ttk.Checkbutton(
             frame, text="Vérifier les mises à jour au démarrage",
             variable=self.autocheck_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w")
+        ).grid(row=9, column=0, columnspan=2, sticky="w")
 
     # ------------------------------------------------------------------
     # Onglet À propos
@@ -985,6 +1005,7 @@ class SettingsWindow:
         cfg.updates.auto_check = bool(self.autocheck_var.get())
         cfg.recording.tail_padding_ms = int(self.tail_var.get())
         cfg.recording.max_duration_s = int(self.max_rec_var.get())
+        cfg.recording.silence_threshold_dbfs = float(self.silence_var.get())
         cfg.file_transcription.model = self.file_model_var.get()
         cfg.file_transcription.output_dir = self.output_dir_var.get().strip()
         cfg.file_transcription.include_timestamps = bool(self.timestamps_var.get())

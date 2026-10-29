@@ -29,6 +29,10 @@ transcription:
   # "transcribe" : audio → texte dans la langue parlée
   # "translate"  : audio → texte traduit en anglais
   task: "transcribe"
+  # Longueur minimale garantie du texte produit, en jetons (≈ 5 minutes de
+  # parole). Pour une dictée plus longue, la limite est relevée toute seule
+  # en fonction de la durée de l'audio (8 jetons par seconde) : tu n'as pas
+  # à y toucher.
   max_new_tokens: 1024
 
 sounds:
@@ -66,6 +70,14 @@ recording:
   # Les modèles se comportent mal quand la parole démarre ou finit pile au
   # bord du fichier — le premier ou le dernier mot y perd des sons.
   silence_padding_ms: 250
+  # Filtre anti-silence. Si le moment le plus fort de l'enregistrement reste
+  # sous ce niveau (en dBFS : 0 = saturation, -45 = très faible), rien n'est
+  # envoyé au modèle — sinon il invente une phrase (« Merci. »,
+  # « Sous-titres… ») qui serait collée telle quelle. Repères : pièce calme
+  # entre -70 et -50, voix normale entre -30 et -15. Si de vraies dictées sont
+  # ignorées (voix très douce, micro lointain), baisse à -55. Mets -120 pour
+  # désactiver le filtre. Le journal indique chaque dictée jetée.
+  silence_threshold_dbfs: -45
 
 file_transcription:
   # Transcription d'un fichier audio déjà enregistré, via

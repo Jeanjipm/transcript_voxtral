@@ -74,10 +74,14 @@ from typing import Callable, Protocol
 
 import soundfile as sf
 
+import audio_level
+
 
 # En dessous de ce seuil, l'audio n'est que du silence plus le son
 # d'activation, et le modèle hallucine une phrase (« Thank you »). On
-# abandonne sans rien notifier.
+# abandonne sans rien notifier. Même logique pour le niveau sonore : un
+# enregistrement sans voix (cf. `silence_threshold_dbfs`) est jeté avant
+# d'atteindre le modèle.
 MIN_DICTATION_DURATION_S = 0.5
 
 # Réveil du worker quand la file est vide : donne la précision de la
@@ -116,6 +120,7 @@ class Recorder(Protocol):
     def stop(self) -> Path: ...
     def prewarm(self) -> None: ...
     def shutdown(self) -> None: ...
+    def reset_device(self) -> None: ...
     @property
     def is_recording(self) -> bool: ...
 
@@ -162,12 +167,14 @@ class DictationController:
         max_duration_s: int = 300,
         recordings_dir: Path | None = None,
         tail_padding_ms: int = 350,
+        silence_threshold_dbfs: float = audio_level.DEFAULT_SILENCE_THRESHOLD_DBFS,
     ) -> None:
         self._recorder = recorder
         self._feedback = feedback
         self._cb = callbacks
         self._max_duration_s = max_duration_s
         self._tail_padding_ms = tail_padding_ms
+        self._silence_threshold_dbfs = silence_threshold_dbfs
         self._recordings_dir = recordings_dir or (
             Path.home() / ".voxtral" / "recordings"
         )
@@ -189,6 +196,10 @@ class DictationController:
         # pendant les secondes d'ouverture du micro laisserait l'app bloquée
         # en RECORDING sans jamais recevoir de stop.
         self._stop_requested = False
+        # Un changement de micro reçu pendant une dictée est appliqué à la
+        # fin de celle-ci, pas perdu : sinon la dictée suivante partirait
+        # encore sur l'ancien périphérique.
+        self._device_refresh_pending = False
         self._recording_started_at = 0.0
         # Transcriptions soumises et pas encore terminées. Il peut y en avoir
         # plusieurs : on accepte de redémarrer une dictée pendant qu'une
@@ -399,6 +410,23 @@ class DictationController:
             self._trace("trop court, dictée jetée")
             self._unlink(wav_path)
             self._settle()
+            self._apply_pending_device_refresh()
+            return
+
+        # Du silence envoyé au modèle revient en phrase inventée (« Merci. »)
+        # collée au curseur. On mesure donc le niveau du moment le plus fort
+        # de l'enregistrement ; sans voix, on jette, en le journalisant.
+        level = self._safe_level(wav_path)
+        if level is not None and audio_level.is_silent(
+            level, self._silence_threshold_dbfs
+        ):
+            self._trace(
+                f"niveau {level:.0f} dBFS sous le seuil "
+                f"{self._silence_threshold_dbfs:.0f} dBFS, silence jeté"
+            )
+            self._unlink(wav_path)
+            self._settle()
+            self._apply_pending_device_refresh()
             return
 
         self._feedback.play_stop()
@@ -407,6 +435,9 @@ class DictationController:
         self._cb.on_state_change(State.PENDING, "État : transcription…")
         self._trace("envoyé à la transcription")
         self._cb.submit_transcription(wav_path)
+        # Après la soumission : reconstruire le flux micro peut prendre
+        # plusieurs secondes, et la transcription n'a pas à les attendre.
+        self._apply_pending_device_refresh()
 
     def notify_transcription_done(self) -> None:
         """À appeler quand l'inference-worker a fini (succès ou échec).
@@ -442,15 +473,31 @@ class DictationController:
             self._cb.on_state_change(State.IDLE, "État : prêt")
 
     def _handle_device_changed(self) -> None:
-        """Périphérique audio changé : on repart d'un stream propre.
+        """Le micro par défaut a changé : on repart d'un stream propre.
 
-        Pendant un enregistrement on ne touche à rien : `AudioRecorder.stop()`
+        Pendant un enregistrement on ne touche à rien — `AudioRecorder.stop()`
         sait déjà survivre à la disparition du périphérique et conserve
-        l'audio capté.
+        l'audio capté — mais on n'oublie pas : la reconstruction est faite à
+        la fin de la dictée (cf. `_apply_pending_device_refresh`).
         """
         if self._state in (State.ARMING, State.RECORDING):
+            self._device_refresh_pending = True
+            self._trace("micro changé pendant la dictée, reconstruction différée")
             return
-        self._recorder.shutdown()
+        self._refresh_device()
+
+    def _apply_pending_device_refresh(self) -> None:
+        if self._device_refresh_pending:
+            self._refresh_device()
+
+    def _refresh_device(self) -> None:
+        """Jette le flux micro et en prépare un neuf sur le nouveau
+        périphérique. `reset_device` fait relire la liste des périphériques à
+        PortAudio ; `prewarm` paye tout de suite les ~4 s d'ouverture pour
+        que la prochaine dictée soit instantanée."""
+        self._device_refresh_pending = False
+        self._trace("micro changé, reconstruction du flux")
+        self._recorder.reset_device()
         self._recorder.prewarm()
 
     def _handle_shutdown(self) -> None:
@@ -506,6 +553,7 @@ class DictationController:
         if kept is not None:
             self._cb.on_recording_kept(kept)
         self._cb.on_rearm_needed()
+        self._apply_pending_device_refresh()
 
     def _keep_recording(self, wav_path: Path) -> Path | None:
         """Déplace le WAV temporaire vers ~/.voxtral/recordings/."""
@@ -542,6 +590,18 @@ class DictationController:
             return float(sf.info(str(wav_path)).duration)
         except Exception:  # noqa: BLE001
             return 0.0
+
+    def _safe_level(self, wav_path: Path) -> float | None:
+        """Niveau sonore du WAV (dBFS), ou None s'il est illisible — on
+        transcrit alors quand même : perdre une dictée serait pire qu'une
+        hallucination. Pas de lecture inutile quand le filtre est coupé."""
+        if self._silence_threshold_dbfs <= audio_level.SILENCE_FILTER_OFF_DBFS:
+            return None
+        try:
+            return audio_level.measure_peak_rms_dbfs(wav_path)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            return None
 
     @staticmethod
     def _unlink(wav_path: Path) -> None:

@@ -376,6 +376,67 @@ def test_start_raises_after_exhausting_retries(
     assert rec.is_recording is False
 
 
+# ---- reset_device : suivi du micro par défaut (sprint 6b) ----
+
+
+def test_reset_device_discards_stream_and_reinits_portaudio(
+    rec: AudioRecorder, mock_inputstream, monkeypatch: pytest.MonkeyPatch
+):
+    """Jeter le stream ne suffit pas : PortAudio fige la liste des
+    périphériques à son initialisation, donc sans `_reinit_portaudio` le
+    prochain stream repartirait sur l'ANCIEN micro."""
+    reinit = MagicMock(name="reinit")
+    monkeypatch.setattr(AudioRecorder, "_reinit_portaudio", staticmethod(reinit))
+    rec.prewarm()
+    old_stream = rec._stream
+    assert old_stream is not None
+
+    rec.reset_device()
+
+    old_stream.close.assert_called_once()
+    reinit.assert_called_once()
+    assert rec._stream is None
+
+
+def test_start_after_reset_device_builds_a_new_stream(
+    rec: AudioRecorder, mock_inputstream, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        AudioRecorder, "_reinit_portaudio", staticmethod(MagicMock())
+    )
+    rec.prewarm()
+    rec.reset_device()
+    rec.start()
+    assert mock_inputstream.call_count == 2
+    rec.stop().unlink(missing_ok=True)
+
+
+def test_reset_device_ignored_while_recording(
+    rec: AudioRecorder, mock_inputstream, monkeypatch: pytest.MonkeyPatch
+):
+    """Contrat : le contrôleur diffère l'appel à la fin de la dictée. Si
+    l'appel arrivait quand même, l'audio en cours ne doit pas être perdu."""
+    reinit = MagicMock(name="reinit")
+    monkeypatch.setattr(AudioRecorder, "_reinit_portaudio", staticmethod(reinit))
+    rec.start()
+
+    rec.reset_device()
+
+    assert rec._stream is not None
+    reinit.assert_not_called()
+    assert rec.is_recording is True
+    rec.stop().unlink(missing_ok=True)
+
+
+def test_reset_device_safe_without_stream(
+    rec: AudioRecorder, monkeypatch: pytest.MonkeyPatch
+):
+    reinit = MagicMock(name="reinit")
+    monkeypatch.setattr(AudioRecorder, "_reinit_portaudio", staticmethod(reinit))
+    rec.reset_device()  # ne lève pas
+    reinit.assert_called_once()
+
+
 # ---- Régression sprint 5 / cause 3 : verrous et thread temps-réel ----
 
 

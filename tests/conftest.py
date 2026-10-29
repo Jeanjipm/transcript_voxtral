@@ -37,8 +37,6 @@ _NATIVE_MODULES = (
     "Foundation",
     "PyObjCTools",
     "PyObjCTools.AppHelper",
-    # rumps (menu bar) — dépend d'AppKit
-    "rumps",
     # Audio temps-réel (devices CoreAudio)
     "sounddevice",
     # Hotkey global (CGEventTap, demande permission Accessibility)
@@ -55,6 +53,13 @@ _NATIVE_MODULES = (
 for _name in _NATIVE_MODULES:
     if _name not in sys.modules:
         sys.modules[_name] = MagicMock()
+
+# rumps (menu bar) a droit à un stub plus vrai qu'un MagicMock : app.py
+# fait `class VoxtralApp(rumps.App)`, impossible sur un mock. Cf. rumps_stub.
+from tests import rumps_stub  # noqa: E402
+
+if "rumps" not in sys.modules:
+    sys.modules["rumps"] = rumps_stub.make_module()
 
 
 # Pour les modules composés (X.Y), `from X import Y` fait `X.Y` (attribute
@@ -86,6 +91,17 @@ class _PortAudioErrorStub(Exception):
 
 _sd.PortAudioError = _PortAudioErrorStub
 _sd.CallbackFlags = MagicMock()
+
+# Tout attribut d'un module factice que des tests remplacent avec
+# `monkeypatch.setattr` DOIT être déclaré ici, explicitement. Depuis pytest
+# 9.1, monkeypatch note la valeur d'origine via `__dict__` de la cible ; un
+# attribut qu'un MagicMock a créé à la volée n'y figure pas, donc il est
+# considéré comme inexistant et SUPPRIMÉ au nettoyage du test — et un
+# MagicMock refuse ensuite tout accès à un attribut supprimé. Symptôme : le
+# premier test passe, tous les suivants échouent avec « has no attribute ».
+# Passé inaperçu en local sur Python 3.14, visible en CI sur 3.12 et 3.13.
+_sd.InputStream = MagicMock(name="sounddevice.InputStream")
+sys.modules["mlx_whisper"].transcribe = MagicMock(name="mlx_whisper.transcribe")
 
 
 # pynput.keyboard avec les attributs que hotkey_manager.py importe.

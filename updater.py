@@ -43,7 +43,7 @@ APP_DIR = Path.home() / ".voxtral" / "app"
 # Fichiers dont la modification nécessite une intervention manuelle :
 # un simple `git pull` ne suffit pas, il faut re-run install.sh ou
 # pip install. On les détecte pour avertir l'utilisateur.
-RISKY_FILES = ("install.sh", "requirements.txt")
+RISKY_FILES = ("install.sh", "requirements.txt", "requirements.lock")
 
 
 @dataclass
