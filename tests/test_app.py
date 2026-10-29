@@ -44,9 +44,12 @@ import updater
 
 
 # app.py pose faulthandler et des handlers de signaux sur stderr à l'import :
-# utiles en production, sans objet ici, et stderr est un objet de capture
-# pytest qui sera fermé. On les retire aussitôt.
-faulthandler.disable()
+# utiles en production, mais ici stderr est l'objet de capture de pytest,
+# qui sera fermé. On rend faulthandler à la vraie sortie d'erreur (comme
+# pytest le fait lui-même) et on retire les handlers de signaux.
+import sys  # noqa: E402
+
+faulthandler.enable(file=sys.__stderr__)
 for _sig in (signal.SIGTERM, signal.SIGHUP):
     faulthandler.unregister(_sig)
 

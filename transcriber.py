@@ -304,10 +304,11 @@ class VoxtralTranscriber(Transcriber):
         )
         # Budget de jetons proportionnel à la durée : `max_new_tokens` est un
         # plancher, relevé pour les longues dictées (cf. token_budget).
-        budget = token_budget(_wav_duration_s(wav_path), max_new_tokens)
+        duration_s = _wav_duration_s(wav_path)
+        budget = token_budget(duration_s, max_new_tokens)
         if budget > max_new_tokens:
             print(
-                f"[transcriber] audio de {_wav_duration_s(wav_path):.0f} s : "
+                f"[transcriber] audio de {duration_s:.0f} s : "
                 f"budget relevé à {budget} jetons (plancher {max_new_tokens}).",
                 file=sys.stderr,
             )
