@@ -167,6 +167,25 @@ class AudioRecorder:
             self._recording = False
         self._discard_stream()
 
+    def reset_device(self) -> None:
+        """Le micro par défaut a changé : jeter le stream et faire relire la
+        liste des périphériques à PortAudio.
+
+        Sans la réinitialisation, `prewarm()` rebâtirait un stream sur le
+        périphérique d'AVANT : PortAudio fige la liste des périphériques (et
+        donc l'index du « par défaut ») à son initialisation. C'est pour ça
+        que `shutdown()` + `prewarm()` ne suffisaient pas.
+
+        Ignoré pendant un enregistrement : le contrôleur diffère l'appel à
+        la fin de la dictée, et `stop()` sait de toute façon survivre à la
+        disparition du périphérique.
+        """
+        with self._state_lock:
+            if self._recording:
+                return
+        self._discard_stream()
+        self._reinit_portaudio()
+
     def prewarm(self) -> None:
         """Pré-initialise le stream micro pour amortir le coût d'init CoreAudio.
 

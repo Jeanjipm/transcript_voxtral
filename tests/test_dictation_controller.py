@@ -434,20 +434,81 @@ def test_stop_on_unreadable_wav_treated_as_too_short(
 
 
 def test_device_changed_rebuilds_stream_when_idle(ctrl, recorder):
+    """À l'arrêt : on fait relire la liste des périphériques à PortAudio
+    (`reset_device`) PUIS on prépare un flux neuf (`prewarm`). Un simple
+    `shutdown` + `prewarm` rebâtirait le flux sur l'ancien micro."""
     ctrl._handle_device_changed()
-    recorder.shutdown.assert_called_once()
+    recorder.reset_device.assert_called_once()
     recorder.prewarm.assert_called_once()
+    assert recorder.mock_calls.index(("reset_device", (), {})) < (
+        recorder.mock_calls.index(("prewarm", (), {}))
+    )
 
 
 def test_device_changed_left_alone_during_recording(ctrl, recorder):
     """En pleine dictée on ne touche à rien : AudioRecorder.stop() sait déjà
     survivre à la disparition du périphérique et conserve l'audio."""
     ctrl._handle_start()
-    recorder.shutdown.reset_mock()
+    recorder.reset_device.reset_mock()
+    recorder.prewarm.reset_mock()
 
     ctrl._handle_device_changed()
 
-    assert recorder.shutdown.called is False
+    assert recorder.reset_device.called is False
+    assert recorder.prewarm.called is False
+
+
+def test_device_changed_during_recording_is_applied_after_stop(ctrl, recorder, cb):
+    """Le changement n'est pas perdu : il est appliqué à la fin de la dictée,
+    APRÈS la soumission de la transcription (reconstruire un flux coûte
+    plusieurs secondes que la transcription n'a pas à attendre)."""
+    ctrl._handle_start()
+    ctrl._handle_device_changed()
+    recorder.reset_device.assert_not_called()
+
+    ctrl._handle_stop()
+
+    recorder.reset_device.assert_called_once()
+    recorder.prewarm.assert_called_once()
+    cb.submit_transcription.assert_called_once()
+    # La soumission précède la reconstruction.
+    manager_order = [c[0] for c in recorder.mock_calls]
+    assert manager_order.index("stop") < manager_order.index("reset_device")
+
+
+def test_device_changed_during_recording_is_applied_even_if_too_short(
+    ctrl, recorder, tmp_path: Path
+):
+    recorder.stop.return_value = _make_wav(tmp_path, 0.2, "court.wav")
+    ctrl._handle_start()
+    ctrl._handle_device_changed()
+
+    ctrl._handle_stop()
+
+    recorder.reset_device.assert_called_once()
+
+
+def test_device_refresh_is_applied_once(ctrl, recorder):
+    """Deux changements reçus pendant une même dictée → une seule
+    reconstruction, et plus rien à la dictée suivante."""
+    ctrl._handle_start()
+    ctrl._handle_device_changed()
+    ctrl._handle_device_changed()
+    ctrl._handle_stop()
+    assert recorder.reset_device.call_count == 1
+
+    ctrl._handle_transcription_done()
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    assert recorder.reset_device.call_count == 1
+
+
+def test_device_changed_during_arming_is_deferred(ctrl, recorder):
+    """ARMING = micro en cours d'ouverture : même traitement que RECORDING."""
+    ctrl._state = State.ARMING
+    ctrl._handle_device_changed()
+    recorder.reset_device.assert_not_called()
+    assert ctrl._device_refresh_pending is True
 
 
 def test_shutdown_releases_recorder(ctrl, recorder):

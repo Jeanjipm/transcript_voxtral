@@ -54,6 +54,7 @@ from AppKit import (
 from PyObjCTools import AppHelper
 
 from audio_capture import AudioRecorder
+from audio_device import DefaultInputWatcher, DeviceInfo
 from audio_feedback import AudioFeedback
 from clipboard import paste_text
 from config import (
@@ -178,6 +179,12 @@ UPDATES_LABEL_CHECKING = "Vérification en cours…"
 # son init (chargement modèle, prewarm audio en threads) avant d'ajouter
 # une charge réseau supplémentaire.
 UPDATE_CHECK_STARTUP_DELAY = 10.0
+
+# Rythme du sondage du micro par défaut (casque branché / débranché). Même
+# cadence que le rechargement de la config ; la lecture CoreAudio coûte
+# quelques microsecondes (cf. audio_device.py pour le choix sondage vs
+# écouteur).
+DEVICE_POLL_INTERVAL_S = 2.0
 
 
 class VoxtralApp(rumps.App):
@@ -356,6 +363,17 @@ class VoxtralApp(rumps.App):
         self._config_timer = rumps.Timer(self._check_config_change, 2.0)
         self._config_timer.start()
 
+        # Suivi du micro par défaut : quand macOS en change (casque, AirPods,
+        # dock), le flux micro gardé chaud est reconstruit sur le nouveau —
+        # sur `dictation-worker`, jamais ici (ouvrir un flux coûte ~4 s).
+        self._device_watcher = DefaultInputWatcher(
+            on_change=self._on_default_input_changed
+        )
+        self._device_timer = rumps.Timer(
+            self._poll_default_input, DEVICE_POLL_INTERVAL_S
+        )
+        self._device_timer.start()
+
         # Icône initiale posée après .run() (_nsapp n'existe pas avant).
         self._init_icon_timer = rumps.Timer(self._on_first_tick, 0.1)
         self._init_icon_timer.start()
@@ -444,6 +462,23 @@ class VoxtralApp(rumps.App):
 
         if new_config.transcription.language != old.transcription.language:
             self.lang_item.title = f"Langue : {self._language_label()}"
+
+    # ------------------------------------------------------------------
+    # Suivi du micro par défaut
+    # ------------------------------------------------------------------
+
+    def _poll_default_input(self, _sender: "rumps.Timer | None" = None) -> None:
+        self._device_watcher.poll()
+
+    def _on_default_input_changed(self, old: DeviceInfo, new: DeviceInfo) -> None:
+        """Main thread (timer rumps). Ne fait que journaliser et mettre en
+        file : la reconstruction du flux appartient à `dictation-worker`."""
+        print(
+            f"[audio_device] micro par défaut : {old.name} → {new.name}, "
+            f"reconstruction du flux micro.",
+            file=sys.stderr,
+        )
+        self.dictation.request_device_refresh()
 
     # ------------------------------------------------------------------
     # Animation icône menu bar
