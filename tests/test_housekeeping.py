@@ -57,6 +57,19 @@ def test_trim_log_keeps_the_tail_on_a_line_boundary(tmp_path: Path):
     assert removed > 0
 
 
+def test_trim_log_result_stays_under_the_threshold(tmp_path: Path):
+    """Seuil égal à la queue conservée (log_max_mb: 1) : le fichier tronqué
+    doit passer SOUS le seuil, sinon il serait retronqué à chaque lancement."""
+    log = tmp_path / "voxtral.log"
+    log.write_bytes(_lines(30_000))  # 1,2 Mo
+
+    removed = trim_log(log, max_bytes=1_000_000, keep_bytes=1_000_000)
+
+    assert removed > 0
+    assert log.stat().st_size <= 1_000_000
+    assert trim_log(log, max_bytes=1_000_000, keep_bytes=1_000_000) == 0
+
+
 def test_trim_log_disabled_with_zero(tmp_path: Path):
     log = tmp_path / "voxtral.log"
     log.write_bytes(_lines(100))

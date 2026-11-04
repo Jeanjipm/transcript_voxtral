@@ -66,7 +66,10 @@ def trim_log(path: Path, max_bytes: int, keep_bytes: int = LOG_KEEP_BYTES) -> in
     if size <= max_bytes:
         return 0
 
-    keep = max(0, min(keep_bytes, size))
+    # Borné à la moitié du seuil : sinon, avec un seuil proche de la queue
+    # conservée (log_max_mb: 1), le fichier tronqué dépasserait encore le
+    # seuil et serait retronqué à chaque lancement.
+    keep = max(0, min(keep_bytes, max_bytes // 2, size))
     with open(path, "r+b") as f:
         f.seek(size - keep)
         tail = f.read()

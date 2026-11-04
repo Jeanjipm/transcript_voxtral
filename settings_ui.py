@@ -1008,7 +1008,18 @@ class SettingsWindow:
             if not self._ensure_downloaded(repo):
                 return
 
-        cfg = self._collect_config()
+        try:
+            cfg = self._collect_config()
+        except (tk.TclError, ValueError):
+            # Un Spinbox vidé ou rempli de lettres : IntVar.get() lève, et
+            # sans ce garde-fou la fenêtre refusait de se fermer en silence.
+            messagebox.showerror(
+                "Réglage invalide",
+                "Un champ numérique est vide ou mal rempli (onglets Fichiers "
+                "ou Avancé). Corrige-le, ou remets la valeur d'origine.",
+            )
+            self.notebook.select(3)
+            return
         save_config(cfg)
         self.config = cfg
         self.root.destroy()
