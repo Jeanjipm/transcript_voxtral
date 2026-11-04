@@ -338,6 +338,19 @@ def test_ui_clipboard_restore_delay_default(tmp_path: Path):
     assert cfg.ui.auto_paste is True  # le reste de la section suit les défauts
 
 
+def test_maintenance_section_defaults_and_override(tmp_path: Path):
+    """Sprint 6c : seuils d'entretien (journal 10 Mo, dictées 30 jours)."""
+    cfg = Config()
+    assert cfg.maintenance.log_max_mb == 10
+    assert cfg.maintenance.recordings_max_age_days == 30
+
+    user = tmp_path / "config.yaml"
+    user.write_text("maintenance:\n  log_max_mb: 0\n", encoding="utf-8")
+    cfg = load_config(user_path=user)
+    assert cfg.maintenance.log_max_mb == 0
+    assert cfg.maintenance.recordings_max_age_days == 30
+
+
 def test_diff_removes_emptied_sections():
     from config import _diff_from_defaults
 

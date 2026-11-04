@@ -72,6 +72,7 @@ from dictation_controller import (
 )
 from file_job import FileJob, FileJobCallbacks, JobResult, JobState
 from hotkey_manager import HotkeyManager, display_combo
+import housekeeping
 from inference_worker import (
     PRIORITY_DICTATION,
     PRIORITY_FILE,
@@ -197,6 +198,11 @@ class VoxtralApp(rumps.App):
         # 1) Config
         ensure_user_config_exists()
         self.config: Config = load_config()
+
+        # 1a) Entretien : journal borné, vieilles dictées conservées purgées.
+        # Synchrone et avant tout le reste : quelques millisecondes, là où le
+        # chargement du modèle en prendra des milliers. Ne lève jamais.
+        housekeeping.run_startup_housekeeping(self.config.maintenance)
 
         # 1b) Mode hors-ligne HuggingFace, maintenant qu'on connaît le modèle.
         # Si le modèle est en cache, plus aucune requête réseau ne part au

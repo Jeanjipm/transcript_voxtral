@@ -115,6 +115,10 @@ def deps(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         app_module.hf_offline, "is_model_cached", mocks["is_model_cached"]
     )
+    mocks["housekeeping"] = MagicMock(name="run_startup_housekeeping")
+    monkeypatch.setattr(
+        app_module.housekeeping, "run_startup_housekeeping", mocks["housekeeping"]
+    )
     mocks["reveal_in_finder"] = MagicMock(name="reveal_in_finder")
     monkeypatch.setattr(
         app_module.file_picker, "reveal_in_finder", mocks["reveal_in_finder"]
@@ -187,6 +191,18 @@ def test_init_refreshes_offline_mode_for_configured_model(
     _write_user_config(user_config, model={"name": TURBO})
     VoxtralApp()
     deps["hf_refresh"].assert_called_once_with(TURBO, prefer_offline=True)
+
+
+def test_init_runs_housekeeping_with_configured_limits(user_config: Path, deps):
+    """Sprint 6c : l'entretien (journal, vieilles dictées) tourne au démarrage
+    avec les seuils de la config — et avant tout le reste, voir __init__."""
+    _write_user_config(
+        user_config, maintenance={"log_max_mb": 3, "recordings_max_age_days": 7}
+    )
+    VoxtralApp()
+    deps["housekeeping"].assert_called_once()
+    cfg = deps["housekeeping"].call_args.args[0]
+    assert (cfg.log_max_mb, cfg.recordings_max_age_days) == (3, 7)
 
 
 def test_informational_items_are_not_clickable(voxtral_app: VoxtralApp):

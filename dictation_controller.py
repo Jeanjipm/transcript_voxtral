@@ -75,6 +75,7 @@ from typing import Callable, Protocol
 import soundfile as sf
 
 import audio_level
+from config import RECORDINGS_DIR
 
 
 # En dessous de ce seuil, l'audio n'est que du silence plus le son
@@ -175,9 +176,7 @@ class DictationController:
         self._max_duration_s = max_duration_s
         self._tail_padding_ms = tail_padding_ms
         self._silence_threshold_dbfs = silence_threshold_dbfs
-        self._recordings_dir = recordings_dir or (
-            Path.home() / ".voxtral" / "recordings"
-        )
+        self._recordings_dir = recordings_dir or RECORDINGS_DIR
 
         self._queue: queue.Queue[_Command] = queue.Queue(maxsize=_QUEUE_MAX)
         self._thread: threading.Thread | None = None

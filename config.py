@@ -35,6 +35,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 USER_CONFIG_DIR = Path.home() / ".voxtral"
 USER_CONFIG_PATH = USER_CONFIG_DIR / "config.yaml"
+# Journal de l'app (stderr redirigé par les lanceurs, cf. install.sh) et
+# dictées conservées après coupure (cf. dictation_controller). Entretenus au
+# démarrage par housekeeping.py.
+LOG_PATH = USER_CONFIG_DIR / "voxtral.log"
+RECORDINGS_DIR = USER_CONFIG_DIR / "recordings"
 
 
 @dataclass
@@ -163,6 +168,16 @@ class OfflineConfig:
 
 
 @dataclass
+class MaintenanceConfig:
+    # Au démarrage, le journal ~/.voxtral/voxtral.log est tronqué s'il
+    # dépasse cette taille (on garde la fin), et les dictées conservées dans
+    # ~/.voxtral/recordings/ plus vieilles que cet âge sont supprimées.
+    # 0 désactive l'un ou l'autre. Cf. housekeeping.py.
+    log_max_mb: int = 10
+    recordings_max_age_days: int = 30
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
@@ -175,6 +190,7 @@ class Config:
         default_factory=FileTranscriptionConfig
     )
     offline: OfflineConfig = field(default_factory=OfflineConfig)
+    maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -210,6 +226,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
             FileTranscriptionConfig, data.get("file_transcription", {})
         ),
         offline=_build(OfflineConfig, data.get("offline", {})),
+        maintenance=_build(MaintenanceConfig, data.get("maintenance", {})),
     )
 
 

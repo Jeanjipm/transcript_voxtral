@@ -125,3 +125,13 @@ offline:
   # le disque échouait après plusieurs secondes de tentatives.
   # Le téléchargement d'un nouveau modèle reste évidemment autorisé.
   prefer_offline: true
+
+maintenance:
+  # Entretien automatique au démarrage de l'app.
+  # Le journal ~/.voxtral/voxtral.log est tronqué (on garde la fin) dès
+  # qu'il dépasse cette taille, en mégaoctets. 0 = jamais.
+  log_max_mb: 10
+  # Les dictées coupées pour dépassement de durée sont gardées dans
+  # ~/.voxtral/recordings/ ; celles plus vieilles que ce nombre de jours sont
+  # supprimées. 0 = jamais.
+  recordings_max_age_days: 30
