@@ -568,7 +568,7 @@ def test_transcribe_and_paste_passes_config_and_cleans_up(
     _reload(
         voxtral_app, user_config,
         transcription={"language": "fr", "max_new_tokens": 2048},
-        ui={"auto_paste": False},
+        ui={"auto_paste": False, "clipboard_restore_delay_ms": 800},
     )
     wav = tmp_path / "d.wav"
     wav.touch()
@@ -579,7 +579,9 @@ def test_transcribe_and_paste_passes_config_and_cleans_up(
     voxtral_app.transcriber.transcribe.assert_called_once_with(
         wav, language="fr", task="transcribe", max_new_tokens=2048
     )
-    deps["paste_text"].assert_called_once_with("bonjour", auto_paste=False)
+    deps["paste_text"].assert_called_once_with(
+        "bonjour", auto_paste=False, restore_delay_s=0.8
+    )
     assert not wav.exists()
     voxtral_app.dictation.notify_transcription_done.assert_called_once()
     assert voxtral_app._last_error is None

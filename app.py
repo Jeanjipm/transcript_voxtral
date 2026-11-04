@@ -601,7 +601,11 @@ class VoxtralApp(rumps.App):
                 task=self.config.transcription.task,
                 max_new_tokens=self.config.transcription.max_new_tokens,
             )
-            paste_text(text, auto_paste=self.config.ui.auto_paste)
+            paste_text(
+                text,
+                auto_paste=self.config.ui.auto_paste,
+                restore_delay_s=self.config.ui.clipboard_restore_delay_ms / 1000,
+            )
         except Exception as exc:
             traceback.print_exc()
             self._show_error("Erreur de transcription", str(exc)[:400])

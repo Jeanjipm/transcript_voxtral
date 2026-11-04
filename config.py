@@ -70,6 +70,12 @@ class SoundsConfig:
 @dataclass
 class UIConfig:
     auto_paste: bool = True
+    # Délai entre le Cmd+V simulé et la remise en place de l'ancien contenu
+    # du presse-papier. Il n'existe aucun signal « l'application a lu le
+    # presse-papier » sur macOS (`NSPasteboard.changeCount` ne bouge qu'à
+    # l'écriture), donc une app lente qui lit après ce délai colle l'ancien
+    # texte. Cf. clipboard.paste_text.
+    clipboard_restore_delay_ms: int = 300
 
 
 @dataclass

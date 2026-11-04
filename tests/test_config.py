@@ -326,6 +326,18 @@ def test_new_default_reaches_a_user_who_saved_before(tmp_path: Path):
     assert reloaded.sounds.volume == 0.9  # le choix délibéré est préservé
 
 
+def test_ui_clipboard_restore_delay_default(tmp_path: Path):
+    """Sprint 6c : le délai de restauration du presse-papier a une valeur par
+    défaut (300 ms, le comportement historique) et se surcharge par section."""
+    assert UIConfig().clipboard_restore_delay_ms == 300
+
+    user = tmp_path / "config.yaml"
+    user.write_text("ui:\n  clipboard_restore_delay_ms: 900\n", encoding="utf-8")
+    cfg = load_config(user_path=user)
+    assert cfg.ui.clipboard_restore_delay_ms == 900
+    assert cfg.ui.auto_paste is True  # le reste de la section suit les défauts
+
+
 def test_diff_removes_emptied_sections():
     from config import _diff_from_defaults
 

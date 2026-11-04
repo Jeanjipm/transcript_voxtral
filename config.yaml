@@ -42,6 +42,13 @@ sounds:
 ui:
   # Si true : copie + colle automatiquement. Si false : copie uniquement.
   auto_paste: true
+  # Après le collage, ce que tu avais copié avant la dictée est remis dans le
+  # presse-papier au bout de ce délai (en millisecondes). macOS ne dit pas
+  # quand l'application a fini de lire le presse-papier : on ne peut
+  # qu'attendre. Si une app lente (bureau distant, Electron, machine
+  # virtuelle) colle l'ANCIEN contenu au lieu de ta dictée, monte à 800 ou
+  # 1000. Réglable aussi dans Préférences → Avancé.
+  clipboard_restore_delay_ms: 300
 
 updates:
   # Si true (défaut) : check silencieux au démarrage de l'app pour

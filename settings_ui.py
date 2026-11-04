@@ -907,11 +907,30 @@ class SettingsWindow:
             justify=tk.LEFT,
         ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
+        ttk.Label(frame, text="Délai avant de rendre le presse-papier (ms) :").grid(
+            row=9, column=0, sticky="w"
+        )
+        self.clipboard_delay_var = tk.IntVar(
+            value=self.config.ui.clipboard_restore_delay_ms
+        )
+        ttk.Spinbox(
+            frame, from_=0, to=2000, increment=100,
+            textvariable=self.clipboard_delay_var, width=8,
+        ).grid(row=9, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="Après le collage, ce que tu avais copié avant est remis dans\n"
+                 "le presse-papier. Monte à 800-1000 si une application lente\n"
+                 "(bureau distant, Electron) colle l'ancien contenu.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=10, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
         self.autocheck_var = tk.BooleanVar(value=self.config.updates.auto_check)
         ttk.Checkbutton(
             frame, text="Vérifier les mises à jour au démarrage",
             variable=self.autocheck_var,
-        ).grid(row=9, column=0, columnspan=2, sticky="w")
+        ).grid(row=11, column=0, columnspan=2, sticky="w")
 
     # ------------------------------------------------------------------
     # Onglet À propos
@@ -1002,6 +1021,7 @@ class SettingsWindow:
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
+        cfg.ui.clipboard_restore_delay_ms = int(self.clipboard_delay_var.get())
         cfg.updates.auto_check = bool(self.autocheck_var.get())
         cfg.recording.tail_padding_ms = int(self.tail_var.get())
         cfg.recording.max_duration_s = int(self.max_rec_var.get())
