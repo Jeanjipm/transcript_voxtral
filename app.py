@@ -698,6 +698,14 @@ class VoxtralApp(rumps.App):
         Si le modèle configuré pour les fichiers est le même que celui des
         dictées, on réutilise l'instance : inutile de charger deux fois les
         mêmes poids.
+
+        On ne touche PAS au mode hors-ligne global ici. Il est indexé sur le
+        seul modèle de dictée (`__init__`, `_reload_config`) ; si le modèle
+        fichiers manque, c'est le transcriber lui-même qui ouvre le réseau le
+        temps de son chargement, puis le referme (`hf_offline.network_if_missing`).
+        Un `hf_offline.refresh` ici remettait le réseau pour tout le process
+        dès que le modèle fichiers était absent, et le dernier appelant
+        gagnait — un état global qui dépendait de l'ordre des clics.
         """
         cfg = self.config.file_transcription
         # Un modèle turbo ne sait pas traduire : on le corrige avant de
@@ -708,9 +716,6 @@ class VoxtralApp(rumps.App):
         if repo == self.config.model.name:
             return self.transcriber
         if self._file_transcriber is None or self._file_repo != repo:
-            hf_offline.refresh(
-                repo, prefer_offline=self.config.offline.prefer_offline
-            )
             file_config = load_config()
             file_config.model.name = repo
             self._file_transcriber = make_transcriber(file_config)

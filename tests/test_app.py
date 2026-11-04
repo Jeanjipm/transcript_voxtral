@@ -342,7 +342,21 @@ def test_file_transcriber_is_built_once_and_cached(
     deps["make_transcriber"].assert_called_once()
     built_with = deps["make_transcriber"].call_args.args[0]
     assert built_with.model.name == TURBO
-    deps["hf_refresh"].assert_called_with(TURBO, prefer_offline=True)
+
+
+def test_file_transcriber_does_not_toggle_global_offline_mode(
+    voxtral_app: VoxtralApp, deps
+):
+    """Issue 12 : construire le transcriber fichiers ne doit pas rebasculer
+    le mode hors-ligne du process. Il est indexé sur le modèle de dictée ;
+    le transcriber ouvre lui-même le réseau, localement, si son modèle manque
+    (hf_offline.network_if_missing)."""
+    deps["hf_refresh"].reset_mock()
+    deps["is_model_cached"].return_value = False  # modèle fichiers absent
+
+    voxtral_app._get_file_transcriber()
+
+    deps["hf_refresh"].assert_not_called()
 
 
 def test_file_transcriber_rebuilt_when_file_model_changes(

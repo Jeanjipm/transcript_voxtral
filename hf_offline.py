@@ -144,11 +144,16 @@ def is_offline() -> bool:
 
 
 def refresh(repo_id: str, prefer_offline: bool = True) -> bool:
-    """(Ré)évalue le mode hors-ligne pour le modèle courant.
+    """(Ré)évalue le mode hors-ligne du process pour le modèle de DICTÉE.
 
-    À appeler au démarrage et après tout changement de modèle : si
+    À appeler au démarrage et après tout changement de ce modèle : si
     l'utilisateur choisit dans les Préférences un modèle pas encore
     téléchargé, il faut re-autoriser le réseau.
+
+    C'est un état GLOBAL, et le dernier appelant gagne : ne pas l'appeler
+    pour un modèle secondaire (fichiers, traduction, diarisation). Pour
+    ceux-là, `network_if_missing` ouvre le réseau le temps du chargement et
+    le referme, sans effet sur le reste du process.
 
     Retourne l'état appliqué (True = hors-ligne).
     """
