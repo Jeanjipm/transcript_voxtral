@@ -44,12 +44,11 @@ RECORDINGS_DIR = USER_CONFIG_DIR / "recordings"
 
 @dataclass
 class ModelConfig:
+    # Identifiant HuggingFace. Les poids vivent dans le cache HuggingFace
+    # (~/.cache/huggingface/hub), le seul endroit que `from_pretrained` sait
+    # lire ; l'ancien réglage `path` (~/.voxtral/models/) n'est plus utilisé
+    # et reste ignoré s'il traîne dans un vieux ~/.voxtral/config.yaml.
     name: str = "mzbac/voxtral-mini-3b-4bit-mixed"
-    path: str = "~/.voxtral/models/"
-
-    @property
-    def resolved_path(self) -> Path:
-        return Path(self.path).expanduser()
 
 
 @dataclass

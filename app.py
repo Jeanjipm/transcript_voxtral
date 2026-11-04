@@ -58,6 +58,7 @@ from audio_device import DefaultInputWatcher, DeviceInfo
 from audio_feedback import AudioFeedback
 from clipboard import paste_text
 from config import (
+    PROJECT_ROOT,
     USER_CONFIG_PATH,
     Config,
     ensure_user_config_exists,
@@ -139,7 +140,25 @@ NSApplication.sharedApplication().setActivationPolicy_(
 
 
 APP_NAME = "Voxtral"
-APP_VERSION = "0.1.0"
+
+
+def app_version() -> str:
+    """La version affichée : le commit installé, et sa date.
+
+    Il n'y a pas d'autre version qui existe vraiment : les mises à jour se
+    font commit par commit (cf. updater.py), et une constante « 0.1.0 » est
+    restée fausse pendant six mois. Lecture locale du dépôt, aucun réseau ;
+    « dev » si le code ne vient pas d'un clone git.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "log", "-1", "--format=%h (%cs)"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "dev"
+    text = out.stdout.strip()
+    return text if out.returncode == 0 and text else "dev"
 
 SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
@@ -1131,7 +1150,7 @@ class VoxtralApp(rumps.App):
 
     def about(self, _sender: rumps.MenuItem) -> None:
         rumps.alert(
-            title=f"{APP_NAME} {APP_VERSION}",
+            title=f"{APP_NAME} {app_version()}",
             message=(
                 "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
                 "Développé par Jeanjipm.\n\n"

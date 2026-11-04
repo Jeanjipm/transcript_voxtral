@@ -272,13 +272,14 @@ def test_cached_size_zero_without_hub(monkeypatch: pytest.MonkeyPatch):
     assert mm.cached_size_bytes("org/modele") == 0
 
 
-def test_download_model_does_not_require_models_root(monkeypatch: pytest.MonkeyPatch):
-    """La signature garde models_root pour les anciens appelants, mais la
-    fenêtre de téléchargement l'appelle sans."""
+def test_models_root_is_gone():
+    """Sprint 6c (P3) : plus aucun dossier ~/.voxtral/models/ — le cache
+    HuggingFace est le seul endroit que `from_pretrained` sait lire."""
     import inspect
 
-    param = inspect.signature(mm.download_model).parameters["models_root"]
-    assert param.default is None
+    assert "models_root" not in inspect.signature(mm.download_model).parameters
+    assert list(inspect.signature(mm.is_downloaded).parameters) == ["repo_id"]
+    assert not hasattr(mm, "model_local_path")
 
 
 # ---- required_repos : ce que les Préférences doivent vérifier ----

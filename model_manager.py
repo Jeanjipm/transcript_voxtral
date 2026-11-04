@@ -110,24 +110,15 @@ def find_model(repo_id: str) -> ModelInfo | None:
     return None
 
 
-def model_local_path(repo_id: str, models_root: Path) -> Path:
-    """Chemin local attendu pour un modèle (qu'il soit téléchargé ou non)."""
-    safe = repo_id.replace("/", "_")
-    return models_root.expanduser() / safe
-
-
-def is_downloaded(repo_id: str, models_root: Path) -> bool:  # noqa: ARG001
+def is_downloaded(repo_id: str) -> bool:
     """True si le modèle est utilisable hors-ligne, c'est-à-dire présent dans
     le cache HuggingFace.
 
     On ne regarde QUE le cache, délibérément : c'est le seul endroit que
-    `from_pretrained` sait lire. L'ancienne version répondait True quand le
-    modèle était dans `models_root` mais absent du cache — un état où l'app
-    croyait pouvoir travailler hors-ligne alors que le chargement partait
-    quand même sur le réseau.
-
-    `models_root` est conservé dans la signature pour ne pas casser les
-    appelants (`settings_ui`, `download_model.py`) mais n'est plus consulté.
+    `from_pretrained` sait lire. Une ancienne version répondait True quand le
+    modèle était dans ~/.voxtral/models/ mais absent du cache — un état où
+    l'app croyait pouvoir travailler hors-ligne alors que le chargement
+    partait quand même sur le réseau.
     """
     return hf_offline.is_model_cached(repo_id)
 
@@ -345,7 +336,6 @@ def selection_requiring(
 
 def download_model(
     repo_id: str,
-    models_root: Path | None = None,  # noqa: ARG001 — compat. des appelants
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     """

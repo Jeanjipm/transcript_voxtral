@@ -10,7 +10,6 @@ model:
   #   mistralai/Voxtral-Mini-3B-2507   (~8 Go, full précision)
   #   mlx-community/whisper-large-v3-mlx    (libre de droits MIT, transcription + traduction)
   name: "mzbac/voxtral-mini-3b-4bit-mixed"
-  path: "~/.voxtral/models/"
 
 hotkey:
   # "alt_r" = touche Option DROITE. Mode push-to-talk : maintenir pour

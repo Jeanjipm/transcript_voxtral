@@ -739,7 +739,7 @@ class SettingsWindow:
         row += 1
 
         for m in models:
-            downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
+            downloaded = is_downloaded(m.repo_id)
             mark = "✓ sur ton Mac" if downloaded else f"⤓ {m.size_gb:.1f} Go à télécharger"
             ttk.Radiobutton(
                 parent,
@@ -1055,7 +1055,7 @@ class SettingsWindow:
           choix en place : la fermeture suivante reposait la même question, et
           il n'y avait plus aucun moyen de fermer la fenêtre sans accepter.
         """
-        if is_downloaded(repo_id, self.config.model.resolved_path):
+        if is_downloaded(repo_id):
             return True
         model = find_model(repo_id)
         if model is None:

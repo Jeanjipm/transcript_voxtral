@@ -338,6 +338,20 @@ def test_ui_clipboard_restore_delay_default(tmp_path: Path):
     assert cfg.ui.auto_paste is True  # le reste de la section suit les défauts
 
 
+def test_old_model_path_key_is_ignored(tmp_path: Path):
+    """Sprint 6c (P3) : `model.path` n'existe plus, mais les anciens
+    ~/.voxtral/config.yaml le contiennent encore. Il doit être ignoré, pas
+    faire planter le démarrage."""
+    user = tmp_path / "config.yaml"
+    user.write_text(
+        "model:\n  name: x/y\n  path: ~/.voxtral/models/\n", encoding="utf-8"
+    )
+    cfg = load_config(user_path=user)
+    assert cfg.model.name == "x/y"
+    assert not hasattr(cfg.model, "path")
+    assert not hasattr(ModelConfig, "resolved_path")
+
+
 def test_maintenance_section_defaults_and_override(tmp_path: Path):
     """Sprint 6c : seuils d'entretien (journal 10 Mo, dictées 30 jours)."""
     cfg = Config()

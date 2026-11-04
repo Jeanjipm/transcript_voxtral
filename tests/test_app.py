@@ -193,6 +193,26 @@ def test_init_refreshes_offline_mode_for_configured_model(
     deps["hf_refresh"].assert_called_once_with(TURBO, prefer_offline=True)
 
 
+def test_app_version_is_the_installed_commit(monkeypatch: pytest.MonkeyPatch):
+    """Sprint 6c (P3) : plus de constante figée à 0.1.0, la version est le
+    commit installé ; « dev » si git ne répond pas."""
+    fake = MagicMock(return_value=MagicMock(returncode=0, stdout="abc1234 (2026-11-04)\n"))
+    monkeypatch.setattr(app_module.subprocess, "run", fake)
+    assert app_module.app_version() == "abc1234 (2026-11-04)"
+    assert fake.call_args.args[0][:3] == ["git", "-C", str(app_module.PROJECT_ROOT)]
+
+    monkeypatch.setattr(
+        app_module.subprocess, "run", MagicMock(side_effect=OSError("pas de git"))
+    )
+    assert app_module.app_version() == "dev"
+
+    monkeypatch.setattr(
+        app_module.subprocess, "run",
+        MagicMock(return_value=MagicMock(returncode=128, stdout="")),
+    )
+    assert app_module.app_version() == "dev"
+
+
 def test_init_runs_housekeeping_with_configured_limits(user_config: Path, deps):
     """Sprint 6c : l'entretien (journal, vieilles dictées) tourne au démarrage
     avec les seuils de la config — et avant tout le reste, voir __init__."""
