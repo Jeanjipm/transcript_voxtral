@@ -41,6 +41,8 @@ from config import Config, load_config, save_config
 from hotkey_capture import HotkeyCapture, Outcome
 from hotkey_manager import display_combo, generic_combo, validate_combo
 from model_manager import (
+    SELECTION_FILE_MODEL,
+    SELECTION_MODEL,
     USAGE_DICTATION,
     USAGE_FILES,
     ModelInfo,
@@ -54,6 +56,7 @@ from model_manager import (
     models_in_use,
     required_repos,
     scan_cached_models,
+    selection_requiring,
 )
 
 
@@ -260,6 +263,11 @@ class SettingsWindow:
         # La croix et Cmd+W passent par le même chemin, pour qu'il n'existe
         # qu'une seule façon de sortir — et donc qu'un seul comportement.
         self.root.protocol("WM_DELETE_WINDOW", self._close)
+        # Cmd+Q n'est PAS une fermeture de fenêtre pour Tk : sur macOS, le menu
+        # Quitter appelle la procédure Tcl ::tk::mac::Quit, qui par défaut tue
+        # le process sans passer par WM_DELETE_WINDOW — donc sans enregistrer,
+        # malgré le libellé. La définir la fait rejoindre le chemin commun.
+        self.root.createcommand("tk::mac::Quit", self._close)
 
     def _close(self) -> None:
         """Fermer la fenêtre enregistre. Il n'y a rien d'autre à faire.
@@ -1036,10 +1044,16 @@ class SettingsWindow:
         return cfg
 
     def _ensure_downloaded(self, repo_id: str) -> bool:
-        """Propose de télécharger un modèle absent. False = annuler la sauvegarde.
+        """Propose de télécharger un modèle absent. False = ne pas enregistrer.
 
-        Répondre « Plus tard » enregistre quand même : le modèle se
-        téléchargera au premier usage, simplement sans progression visible.
+        Trois réponses :
+        - Oui : téléchargement immédiat avec progression, puis enregistrement.
+        - Non (« plus tard ») : enregistre quand même ; le modèle se
+          téléchargera au premier usage, simplement sans progression visible.
+        - Annuler : le réglage qui exigeait ce modèle est REMIS à sa valeur
+          enregistrée et la fenêtre reste ouverte. Avant, Annuler laissait le
+          choix en place : la fermeture suivante reposait la même question, et
+          il n'y avait plus aucun moyen de fermer la fenêtre sans accepter.
         """
         if is_downloaded(repo_id, self.config.model.resolved_path):
             return True
@@ -1051,10 +1065,12 @@ class SettingsWindow:
             "Télécharger ce modèle ?",
             f"{model.label} n'est pas encore sur ton Mac "
             f"({model.size_gb:.1f} Go).\n\n"
-            f"Le télécharger maintenant ? Sinon il sera récupéré à sa première "
-            f"utilisation, ce qui rendra cette première fois très lente.",
+            f"Oui : le télécharger maintenant.\n"
+            f"Non : plus tard, à sa première utilisation (qui sera très lente).\n"
+            f"Annuler : garder le réglage précédent.",
         )
         if answer is None:  # Annuler
+            self._revert_selection(repo_id)
             return False
         if not answer:  # Plus tard
             return True
@@ -1068,6 +1084,29 @@ class SettingsWindow:
             )
             return False
         return True
+
+
+    def _revert_selection(self, repo_id: str) -> None:
+        """Remet à sa valeur enregistrée le réglage qui exigeait `repo_id`,
+        et montre l'onglet concerné pour que le retour en arrière soit visible.
+        """
+        which = selection_requiring(
+            repo_id,
+            self.model_var.get(),
+            self.file_model_var.get(),
+            self.task_var.get(),
+        )
+        if which == SELECTION_MODEL:
+            self.model_var.set(self.config.model.name)
+            tab = 2  # Modèles
+        elif which == SELECTION_FILE_MODEL:
+            self.file_model_var.set(self.config.file_transcription.model)
+            tab = 2
+        else:
+            self.task_var.set(self.config.transcription.task)
+            tab = 0  # Dictée, où vit le choix transcription / traduction
+        self._render_storage()
+        self.notebook.select(tab)
 
 
 def main() -> None:
