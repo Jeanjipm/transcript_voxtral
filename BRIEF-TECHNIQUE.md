@@ -211,6 +211,8 @@ voxtral-dictee/
 ├── app.py                 # Point d'entrée, menu bar rumps
 ├── transcriber.py         # Chargement modèle MLX + inférence (Voxtral ou Whisper)
 ├── audio_capture.py       # Capture micro (sounddevice)
+├── audio_device.py        # Micro par défaut de macOS (CoreAudio via ctypes) et détection de changement
+├── audio_level.py         # Niveau sonore (RMS en dBFS) : filtre anti-silence
 ├── audio_feedback.py      # Sons d'activation / désactivation (NSSound)
 ├── hotkey_manager.py      # Écoute raccourci clavier global (pynput)
 ├── clipboard.py           # Presse-papier + paste simulé
@@ -223,7 +225,8 @@ voxtral-dictee/
 ├── config.yaml            # Configuration utilisateur (défaut)
 ├── download_model.py      # Script CLI de téléchargement
 ├── install.sh             # Script d'installation one-liner
-├── requirements.txt       # Dépendances Python
+├── requirements.txt       # Dépendances Python (liste lisible)
+├── requirements.lock      # Versions figées, installées par install.sh
 └── README.md              # Doc utilisateur
 ```
 

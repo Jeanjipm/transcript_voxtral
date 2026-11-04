@@ -2,7 +2,13 @@
 # Cible : macOS 13+ Apple Silicon (M1+), Python 3.11+
 #
 # Note pour utilisateur non-dev : ce fichier liste les "briques" Python
-# que l'app utilise. install.sh les installe automatiquement.
+# que l'app utilise, et à quoi chacune sert. C'est la liste LISIBLE.
+#
+# L'installation réelle (install.sh) passe par requirements.lock, qui fige
+# la version EXACTE de chaque paquet : c'est ce qui garantit que tout le
+# monde a le même logiciel. Ce fichier-ci ne sert de repli que si le lock
+# ne peut pas s'installer (autre version de Python). Quand tu ajoutes ou
+# retires une brique ici, régénère le lock (cf. son en-tête).
 
 # --- Inférence ML (Apple Silicon) ---
 mlx>=0.18.0                   # Framework ML natif Apple Silicon

@@ -22,11 +22,21 @@ from dictation_controller import (
 )
 
 
-def _make_wav(tmp_path: Path, seconds: float, name: str = "d.wav") -> Path:
-    """Écrit un WAV réel de la durée demandée (sf.info est utilisé pour de vrai)."""
+def _make_wav(
+    tmp_path: Path, seconds: float, name: str = "d.wav", amplitude: int = 3000
+) -> Path:
+    """Écrit un WAV réel de la durée demandée (sf.info et la mesure de niveau
+    sont utilisés pour de vrai).
+
+    Par défaut une sinusoïde à ~-24 dBFS : une « voix », pour que le filtre
+    anti-silence (actif par défaut) laisse passer les dictées des tests.
+    `amplitude=0` produit du silence numérique.
+    """
     path = tmp_path / name
     frames = max(0, int(16_000 * seconds))
-    sf.write(path, np.zeros((frames, 1), dtype="int16"), 16_000, subtype="PCM_16")
+    t = np.arange(frames) / 16_000
+    tone = (amplitude * np.sin(2 * np.pi * 220 * t)).astype("int16")
+    sf.write(path, tone.reshape(-1, 1), 16_000, subtype="PCM_16")
     return path
 
 
@@ -142,6 +152,118 @@ def test_short_dictation_is_discarded_silently(ctrl, recorder, cb, tmp_path: Pat
     assert cb.submit_transcription.called is False
     assert cb.on_error.called is False
     assert ctrl.state is State.IDLE
+
+
+# ---- Filtre anti-silence (sprint 6b, issue 6) ----
+
+
+def test_silent_dictation_is_discarded_and_logged(
+    ctrl, recorder, cb, feedback, tmp_path: Path, capsys
+):
+    """Deux secondes de silence → rien n'est envoyé au modèle (qui inventerait
+    « Merci. »), le WAV est supprimé, l'état revient à prêt, et le journal
+    dit pourquoi."""
+    wav = _make_wav(tmp_path, 2.0, "silence.wav", amplitude=0)
+    recorder.stop.return_value = wav
+    ctrl._handle_start()
+    feedback.reset_mock()
+
+    ctrl._handle_stop()
+
+    cb.submit_transcription.assert_not_called()
+    feedback.play_stop.assert_not_called()
+    assert not wav.exists()
+    assert ctrl.state is State.IDLE
+    cb.on_state_change.assert_called_with(State.IDLE, "État : prêt")
+    err = capsys.readouterr().err
+    assert "silence jeté" in err
+    assert "-45 dBFS" in err
+
+
+def test_quiet_room_noise_is_discarded(ctrl, recorder, cb, tmp_path: Path):
+    """Bruit de fond réaliste (−60 dBFS), pas du zéro numérique : jeté aussi."""
+    wav = _make_wav(tmp_path, 2.0, "bruit.wav", amplitude=30)  # ≈ −64 dBFS
+    recorder.stop.return_value = wav
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_not_called()
+
+
+def test_voice_is_submitted(ctrl, recorder, cb, tmp_path: Path):
+    """Le défaut de `_make_wav` (≈ −24 dBFS) est une voix : transmise."""
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_called_once()
+
+
+def test_brief_word_in_long_silence_is_submitted(
+    ctrl, recorder, cb, tmp_path: Path
+):
+    """Un « oui » de 200 ms après deux secondes de réflexion n'est pas du
+    silence : la mesure porte sur la fenêtre la plus forte, pas la moyenne."""
+    path = tmp_path / "oui.wav"
+    silence = np.zeros(16_000 * 2)
+    t = np.arange(int(16_000 * 0.2)) / 16_000
+    word = 3000 * np.sin(2 * np.pi * 220 * t)
+    audio = np.concatenate([silence, word, np.zeros(16_000)]).astype("int16")
+    sf.write(path, audio.reshape(-1, 1), 16_000, subtype="PCM_16")
+    recorder.stop.return_value = path
+
+    ctrl._handle_start()
+    ctrl._handle_stop()
+
+    cb.submit_transcription.assert_called_once_with(path)
+
+
+def test_silence_filter_can_be_disabled(recorder, feedback, cb, tmp_path: Path):
+    """Seuil à -120 : tout passe, même le silence numérique."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec", silence_threshold_dbfs=-120.0,
+    )
+    recorder.stop.return_value = _make_wav(tmp_path, 2.0, "s.wav", amplitude=0)
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_called_once()
+
+
+def test_custom_threshold_is_honoured(recorder, feedback, cb, tmp_path: Path):
+    """Seuil remonté à -20 : la « voix » de test (−24 dBFS) devient du silence."""
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec", silence_threshold_dbfs=-20.0,
+    )
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_not_called()
+
+
+def test_unreadable_level_does_not_block_transcription(
+    ctrl, recorder, cb, monkeypatch: pytest.MonkeyPatch
+):
+    """Si la mesure échoue, on transcrit quand même : perdre une dictée est
+    pire qu'une hallucination."""
+    import audio_level
+
+    def boom(path):
+        raise OSError("lecture impossible")
+
+    monkeypatch.setattr(audio_level, "measure_peak_rms_dbfs", boom)
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_called_once()
+
+
+def test_silent_dictation_leaves_in_flight_untouched(ctrl, recorder, cb, tmp_path):
+    """Une dictée jetée pendant qu'une transcription tourne ne doit pas
+    remettre l'icône à « prêt »."""
+    ctrl._handle_start()
+    ctrl._handle_stop()  # voix → en vol = 1
+    recorder.stop.return_value = _make_wav(tmp_path, 2.0, "s.wav", amplitude=0)
+    ctrl._handle_start()
+    ctrl._handle_stop()  # silence
+    assert ctrl.state is State.PENDING
+    assert ctrl._in_flight == 1
 
 
 def test_transcription_done_returns_to_idle(ctrl, cb):
@@ -434,20 +556,81 @@ def test_stop_on_unreadable_wav_treated_as_too_short(
 
 
 def test_device_changed_rebuilds_stream_when_idle(ctrl, recorder):
+    """À l'arrêt : on fait relire la liste des périphériques à PortAudio
+    (`reset_device`) PUIS on prépare un flux neuf (`prewarm`). Un simple
+    `shutdown` + `prewarm` rebâtirait le flux sur l'ancien micro."""
     ctrl._handle_device_changed()
-    recorder.shutdown.assert_called_once()
+    recorder.reset_device.assert_called_once()
     recorder.prewarm.assert_called_once()
+    assert recorder.mock_calls.index(("reset_device", (), {})) < (
+        recorder.mock_calls.index(("prewarm", (), {}))
+    )
 
 
 def test_device_changed_left_alone_during_recording(ctrl, recorder):
     """En pleine dictée on ne touche à rien : AudioRecorder.stop() sait déjà
     survivre à la disparition du périphérique et conserve l'audio."""
     ctrl._handle_start()
-    recorder.shutdown.reset_mock()
+    recorder.reset_device.reset_mock()
+    recorder.prewarm.reset_mock()
 
     ctrl._handle_device_changed()
 
-    assert recorder.shutdown.called is False
+    assert recorder.reset_device.called is False
+    assert recorder.prewarm.called is False
+
+
+def test_device_changed_during_recording_is_applied_after_stop(ctrl, recorder, cb):
+    """Le changement n'est pas perdu : il est appliqué à la fin de la dictée,
+    APRÈS la soumission de la transcription (reconstruire un flux coûte
+    plusieurs secondes que la transcription n'a pas à attendre)."""
+    ctrl._handle_start()
+    ctrl._handle_device_changed()
+    recorder.reset_device.assert_not_called()
+
+    ctrl._handle_stop()
+
+    recorder.reset_device.assert_called_once()
+    recorder.prewarm.assert_called_once()
+    cb.submit_transcription.assert_called_once()
+    # La soumission précède la reconstruction.
+    manager_order = [c[0] for c in recorder.mock_calls]
+    assert manager_order.index("stop") < manager_order.index("reset_device")
+
+
+def test_device_changed_during_recording_is_applied_even_if_too_short(
+    ctrl, recorder, tmp_path: Path
+):
+    recorder.stop.return_value = _make_wav(tmp_path, 0.2, "court.wav")
+    ctrl._handle_start()
+    ctrl._handle_device_changed()
+
+    ctrl._handle_stop()
+
+    recorder.reset_device.assert_called_once()
+
+
+def test_device_refresh_is_applied_once(ctrl, recorder):
+    """Deux changements reçus pendant une même dictée → une seule
+    reconstruction, et plus rien à la dictée suivante."""
+    ctrl._handle_start()
+    ctrl._handle_device_changed()
+    ctrl._handle_device_changed()
+    ctrl._handle_stop()
+    assert recorder.reset_device.call_count == 1
+
+    ctrl._handle_transcription_done()
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    assert recorder.reset_device.call_count == 1
+
+
+def test_device_changed_during_arming_is_deferred(ctrl, recorder):
+    """ARMING = micro en cours d'ouverture : même traitement que RECORDING."""
+    ctrl._state = State.ARMING
+    ctrl._handle_device_changed()
+    recorder.reset_device.assert_not_called()
+    assert ctrl._device_refresh_pending is True
 
 
 def test_shutdown_releases_recorder(ctrl, recorder):

@@ -159,13 +159,16 @@ def test_check_for_update_returns_none_when_no_local_sha(
 def test_check_for_update_detects_risky_files(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Si install.sh ou requirements.txt modifiés → flag requires_manual_action."""
+    """Si install.sh, requirements.txt ou requirements.lock modifiés → flag
+    requires_manual_action (un git pull laisserait des dépendances
+    obsolètes)."""
     payload = {
         "ahead_by": 1,
         "files": [
             {"filename": "app.py"},
             {"filename": "install.sh"},
             {"filename": "requirements.txt"},
+            {"filename": "requirements.lock"},
         ],
         "commits": [{"sha": "x", "commit": {"message": "big update"}}],
     }
@@ -177,6 +180,7 @@ def test_check_for_update_detects_risky_files(
     assert info.requires_manual_action is True
     assert "install.sh" in info.risky_files
     assert "requirements.txt" in info.risky_files
+    assert "requirements.lock" in info.risky_files
     # app.py n'est PAS risqué (pas dans RISKY_FILES).
     assert "app.py" not in info.risky_files
 
