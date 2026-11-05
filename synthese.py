@@ -65,8 +65,12 @@ TENTATIVES = 3
 # débit le plus lent mesuré sur une vraie phrase est 5,6 caractères/s ; au-delà
 # de ce maximum (texte lu à 4 car./s, plus 0,3 s), la lecture n'est pas
 # plausible et on la rejoue. Pour 5 lettres : 1,55 s ; pour 38 : 9,8 s.
+# Un chiffre se lit comme un mot entier (« 60 » → « soixante ») : il compte
+# pour quatre caractères, sinon les listes de nombres du cahier
+# (« 54 + … = 60 6, 4, 5 », lue en 6,8 s) passaient pour du charabia.
 CHARS_PAR_SECONDE_MIN = 4.0
 MARGE_DUREE_S = 0.3
+POIDS_CHIFFRE = 4
 # Dossier du dépôt HF qui contient une empreinte par voix (`<nom>.safetensors`).
 VOICE_DIR = "voice_embedding"
 PREFIXE_FRANCAIS = "fr_"
@@ -153,7 +157,9 @@ def budget_tokens(texte: str) -> int:
 
 def duree_max_plausible(texte: str) -> float:
     """Au-delà de cette durée (en secondes), la lecture est du charabia."""
-    return len(texte) / CHARS_PAR_SECONDE_MIN + MARGE_DUREE_S
+    chiffres = sum(c.isdigit() for c in texte)
+    longueur = len(texte) + chiffres * (POIDS_CHIFFRE - 1)
+    return longueur / CHARS_PAR_SECONDE_MIN + MARGE_DUREE_S
 
 
 def _vers_numpy(audio: Any) -> np.ndarray:

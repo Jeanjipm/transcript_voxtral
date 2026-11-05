@@ -61,7 +61,7 @@ ne se fusionne pas.
 | `file_transcriber.py` | 36 | boucle long-form, garde-fous d'avance, mise en forme du .txt |
 | `audio_capture.py` | 35 | cycle stream long-lived, prewarm, reprise après échec, verrous, `reset_device` |
 | `model_manager.py` | 39 | catalogue, usages dictée/fichiers/synthèse, scan et purge du cache, modèles requis par la traduction, réglage à rétablir quand un téléchargement est refusé |
-| `vocaliser_cahier.py` | 54 | adaptation de l'écrit à l'oral, identifiant = SHA-1 tronqué du site, génération incrémentale (conservation, changement de voix, orphelins à la corbeille, reprise après interruption, phrase illisible notée sans arrêter le lot, `--tout`), essai des voix, commande |
+| `vocaliser_cahier.py` | 60 | adaptation de l'écrit à l'oral, identifiant = SHA-1 tronqué du site, génération incrémentale (conservation, changement de voix, orphelins à la corbeille, reprise après interruption, phrase illisible notée sans arrêter le lot, `--tout`), lettre seule portée par « la lettre … », mot coupé recollé, essai des voix, commande |
 | `synthese.py` | 34 | voix lues dans le cache et repérage des françaises, concaténation des morceaux, voix inconnue refusée, commande ffmpeg exacte (mono, 64 kb/s, atempo, loudnorm), écriture atomique du MP3, ffmpeg absent, budget de trames selon le texte, relance d'une lecture partie en boucle ou trop longue pour son texte, correctif des débuts de phrase (mlx-audio < 0.5.8) posé au chargement |
 | `hotkey_capture.py` | 33 | enregistrement d'un raccourci au clavier, machine à états pure, file d'événements |
 | `diarizer.py` | 27 | tours de parole depuis les probabilités, lissage, renumérotation, fusion locuteurs × segments |
@@ -78,7 +78,7 @@ ne se fusionne pas.
 | `audio_device.py` | 9 | détection d'un changement de micro par défaut : premier sondage muet, lecture échouée ignorée, exceptions avalées |
 | `transcribe.py` (CLI) | 3 | conversion par `ensure_16k_mono`, temporaire nettoyé, fichier illisible → code 1 sans charger le modèle |
 
-**Total : 652 tests** (certains sont paramétrés, d'où un total supérieur à la
+**Total : 658 tests** (certains sont paramétrés, d'où un total supérieur à la
 somme des fonctions de test).
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui

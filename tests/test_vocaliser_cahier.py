@@ -108,10 +108,23 @@ def test_charger_phrases_rejects_empty_list():
         ("… achète des prunes.", "achète des prunes."),
         ("… avion vole très haut.", "avion vole très haut."),
         ("Rien à changer.", "Rien à changer."),
+        ("un droma- / -daire et une poule", "un dromadaire et une poule"),
     ],
 )
 def test_adapter_oral(ecrit: str, oral: str):
     assert adapter_oral(ecrit) == oral
+
+
+@pytest.mark.parametrize("lettre", ["k", "y", "a", "É"])
+def test_adapter_oral_carries_a_lone_letter(lettre: str):
+    """Le modèle n'arrive pas à dire une lettre nue : phrase porteuse."""
+    assert adapter_oral(lettre) == f"la lettre {lettre}."
+    assert adapter_oral(f" {lettre} ") == f"la lettre {lettre}."
+
+
+def test_adapter_oral_leaves_short_words_alone():
+    assert adapter_oral("coq") == "coq"
+    assert adapter_oral("île") == "île"
 
 
 def test_adapter_oral_singular_for_zero_or_one():

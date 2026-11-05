@@ -196,6 +196,14 @@ _UNITES = {"cm": "centimètre", "mm": "millimètre"}
 # des mots au modèle (« Vous avez de briller. Avions volent… »), alors que la
 # phrase sans lui est lue proprement.
 _SIGNE_EN_TETE = re.compile(r"^[!?,;:•.]+(\s+|$)")
+# Une lettre seule (items des jeux sur les sons : « k », « y »…). Mesuré : le
+# modèle n'arrive pas à dire une lettre nue ni son nom (« ka », « té ») — il
+# invente 3 à 7 s de parole dans 9 cas sur 10. Dans une phrase porteuse, il
+# est stable : « la lettre k. » sort en 1 s, 24 lectures sur 24.
+_LETTRE_SEULE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ]$")
+# Mot coupé en fin de ligne dans la leçon sur les tirets (« droma- / -daire ») :
+# à l'oral, le mot entier.
+_COUPURE_DE_LIGNE = re.compile(r"(\w)-\s*/\s*-(\w)")
 _SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
     ("=", " égale "),
     ("+", " plus "),
@@ -226,9 +234,14 @@ def adapter_oral(texte: str) -> str:
       - « = » égale, « + » plus, « → » virgule, « … » point, « < » / « > »
         est plus petit / plus grand que, saut de ligne → virgule ;
       - un signe de ponctuation isolé en tête de phrase disparaît ;
+      - une lettre seule est portée par « la lettre … » ; un mot coupé en fin
+        de ligne (« droma- / -daire ») est recollé ;
       - espaces et ponctuations doublées nettoyés.
     """
-    t = _CROCHETS_SEGMENT.sub(r"\1 \2", texte)
+    if _LETTRE_SEULE.match(texte.strip()):
+        return f"la lettre {texte.strip()}."
+    t = _COUPURE_DE_LIGNE.sub(r"\1\2", texte)
+    t = _CROCHETS_SEGMENT.sub(r"\1 \2", t)
     t = _UNITE_AVEC_NOMBRE.sub(lambda m: _unite(m.group(1), m.group(2)), t)
     t = _UNITE_SEULE.sub(lambda m: _unite(None, m.group(1)), t)
     for signe, mot in _SUBSTITUTIONS:

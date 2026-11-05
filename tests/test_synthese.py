@@ -187,6 +187,9 @@ def test_duree_max_plausible_accepts_normal_readings():
     # Un mot seul se lit en 0,4 à 0,7 s : 1,9 s de charabia (« heure »),
     # 3,8 s (« arbre ») et 6 s (« oiseau ») doivent être rejetés.
     assert 0.7 < synthese.duree_max_plausible("heure") < 1.9
+    # Les chiffres se lisent comme des mots : « 54 plus. égale 60 6, 4, 5 »
+    # a été lue en 6,8 s sans être du charabia.
+    assert synthese.duree_max_plausible("54 plus. égale 60 6, 4, 5") > 6.8
     assert synthese.duree_max_plausible("arbre") < 3.8
     assert synthese.duree_max_plausible("oiseau") < 6
 
