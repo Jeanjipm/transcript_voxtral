@@ -58,6 +58,7 @@ from audio_device import DefaultInputWatcher, DeviceInfo
 from audio_feedback import AudioFeedback
 from clipboard import paste_text
 from config import (
+    PROJECT_ROOT,
     USER_CONFIG_PATH,
     Config,
     ensure_user_config_exists,
@@ -72,6 +73,7 @@ from dictation_controller import (
 )
 from file_job import FileJob, FileJobCallbacks, JobResult, JobState
 from hotkey_manager import HotkeyManager, display_combo
+import housekeeping
 from inference_worker import (
     PRIORITY_DICTATION,
     PRIORITY_FILE,
@@ -138,7 +140,25 @@ NSApplication.sharedApplication().setActivationPolicy_(
 
 
 APP_NAME = "Voxtral"
-APP_VERSION = "0.1.0"
+
+
+def app_version() -> str:
+    """La version affichée : le commit installé, et sa date.
+
+    Il n'y a pas d'autre version qui existe vraiment : les mises à jour se
+    font commit par commit (cf. updater.py), et une constante « 0.1.0 » est
+    restée fausse pendant six mois. Lecture locale du dépôt, aucun réseau ;
+    « dev » si le code ne vient pas d'un clone git.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "log", "-1", "--format=%h (%cs)"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "dev"
+    text = out.stdout.strip()
+    return text if out.returncode == 0 and text else "dev"
 
 SYMBOL_IDLE = "mic.fill"
 SYMBOL_RECORDING = "circle.fill"
@@ -197,6 +217,11 @@ class VoxtralApp(rumps.App):
         # 1) Config
         ensure_user_config_exists()
         self.config: Config = load_config()
+
+        # 1a) Entretien : journal borné, vieilles dictées conservées purgées.
+        # Synchrone et avant tout le reste : quelques millisecondes, là où le
+        # chargement du modèle en prendra des milliers. Ne lève jamais.
+        housekeeping.run_startup_housekeeping(self.config.maintenance)
 
         # 1b) Mode hors-ligne HuggingFace, maintenant qu'on connaît le modèle.
         # Si le modèle est en cache, plus aucune requête réseau ne part au
@@ -601,7 +626,11 @@ class VoxtralApp(rumps.App):
                 task=self.config.transcription.task,
                 max_new_tokens=self.config.transcription.max_new_tokens,
             )
-            paste_text(text, auto_paste=self.config.ui.auto_paste)
+            paste_text(
+                text,
+                auto_paste=self.config.ui.auto_paste,
+                restore_delay_s=self.config.ui.clipboard_restore_delay_ms / 1000,
+            )
         except Exception as exc:
             traceback.print_exc()
             self._show_error("Erreur de transcription", str(exc)[:400])
@@ -688,6 +717,14 @@ class VoxtralApp(rumps.App):
         Si le modèle configuré pour les fichiers est le même que celui des
         dictées, on réutilise l'instance : inutile de charger deux fois les
         mêmes poids.
+
+        On ne touche PAS au mode hors-ligne global ici. Il est indexé sur le
+        seul modèle de dictée (`__init__`, `_reload_config`) ; si le modèle
+        fichiers manque, c'est le transcriber lui-même qui ouvre le réseau le
+        temps de son chargement, puis le referme (`hf_offline.network_if_missing`).
+        Un `hf_offline.refresh` ici remettait le réseau pour tout le process
+        dès que le modèle fichiers était absent, et le dernier appelant
+        gagnait — un état global qui dépendait de l'ordre des clics.
         """
         cfg = self.config.file_transcription
         # Un modèle turbo ne sait pas traduire : on le corrige avant de
@@ -698,9 +735,6 @@ class VoxtralApp(rumps.App):
         if repo == self.config.model.name:
             return self.transcriber
         if self._file_transcriber is None or self._file_repo != repo:
-            hf_offline.refresh(
-                repo, prefer_offline=self.config.offline.prefer_offline
-            )
             file_config = load_config()
             file_config.model.name = repo
             self._file_transcriber = make_transcriber(file_config)
@@ -1116,7 +1150,7 @@ class VoxtralApp(rumps.App):
 
     def about(self, _sender: rumps.MenuItem) -> None:
         rumps.alert(
-            title=f"{APP_NAME} {APP_VERSION}",
+            title=f"{APP_NAME} {app_version()}",
             message=(
                 "Dictée vocale 100 % locale via MLX sur Apple Silicon.\n"
                 "Développé par Jeanjipm.\n\n"

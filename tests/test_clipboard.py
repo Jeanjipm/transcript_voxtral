@@ -179,6 +179,67 @@ def test_paste_text_preserve_disabled_does_not_restore(
     assert copy_calls == ["nouveau "]
 
 
+# ---- Sprint 6c : délai de restauration configurable ----
+
+
+def test_restore_delay_is_the_sleep_before_restoring(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Le délai configuré (ui.clipboard_restore_delay_ms) est exactement la
+    pause entre le Cmd+V et la remise en place de l'ancien contenu. Il n'y a
+    pas de signal de lecture sur macOS : une app lente (bureau distant,
+    Electron) doit pouvoir obtenir un délai plus long."""
+    events: list = []
+    monkeypatch.setattr(
+        "clipboard.copy_to_clipboard", lambda t: events.append(("copy", t))
+    )
+    monkeypatch.setattr(
+        "clipboard.simulate_paste", lambda: events.append(("paste",))
+    )
+    monkeypatch.setattr("clipboard._read_clipboard_text", lambda: "ancien")
+    monkeypatch.setattr(
+        "clipboard.time.sleep", lambda s: events.append(("sleep", s))
+    )
+
+    paste_text("nouveau", auto_paste=True, restore_delay_s=1.0)
+
+    assert events == [
+        ("copy", "nouveau "),
+        ("paste",),
+        ("sleep", 1.0),
+        ("copy", "ancien"),
+    ]
+
+
+def test_restore_delay_defaults_to_300ms(monkeypatch: pytest.MonkeyPatch):
+    """Sans réglage, le comportement historique est conservé."""
+    sleeps: list = []
+    monkeypatch.setattr("clipboard.copy_to_clipboard", MagicMock())
+    monkeypatch.setattr("clipboard.simulate_paste", MagicMock())
+    monkeypatch.setattr("clipboard._read_clipboard_text", lambda: "ancien")
+    monkeypatch.setattr("clipboard.time.sleep", sleeps.append)
+
+    paste_text("nouveau", auto_paste=True)
+
+    assert sleeps == [0.3]
+
+
+def test_negative_restore_delay_is_clamped_to_zero(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Un YAML édité à la main avec une valeur négative ne doit pas faire
+    lever `time.sleep` — et donc perdre la restauration."""
+    sleeps: list = []
+    monkeypatch.setattr("clipboard.copy_to_clipboard", MagicMock())
+    monkeypatch.setattr("clipboard.simulate_paste", MagicMock())
+    monkeypatch.setattr("clipboard._read_clipboard_text", lambda: "ancien")
+    monkeypatch.setattr("clipboard.time.sleep", sleeps.append)
+
+    paste_text("nouveau", auto_paste=True, restore_delay_s=-0.5)
+
+    assert sleeps == [0.0]
+
+
 # ---- paste_text : ordre d'opérations ----
 
 

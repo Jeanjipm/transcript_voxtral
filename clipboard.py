@@ -98,15 +98,25 @@ def paste_text(
     text: str,
     auto_paste: bool = True,
     preserve_clipboard: bool = True,
+    restore_delay_s: float = 0.3,
 ) -> None:
     """
     Écrit `text` dans le presse-papier ; si auto_paste, colle aussi
     immédiatement à la position du curseur.
 
     Si `preserve_clipboard` (et `auto_paste`), le contenu texte
-    précédent du presse-papier est restauré après le paste. Utile pour
-    ne pas écraser ce que l'utilisateur avait copié avant la dictée.
-    Limite v0 : préservation texte uniquement (images/fichiers perdus).
+    précédent du presse-papier est restauré `restore_delay_s` après le
+    paste. Utile pour ne pas écraser ce que l'utilisateur avait copié
+    avant la dictée. Limite v0 : préservation texte uniquement
+    (images/fichiers perdus).
+
+    Pourquoi un délai fixe et pas « attendre que l'application ait lu le
+    presse-papier » : macOS n'offre aucun signal de lecture.
+    `NSPasteboard.changeCount` n'augmente que quand quelqu'un ÉCRIT dans le
+    presse-papier, jamais quand une app le lit. On ne peut donc qu'attendre
+    un délai raisonnable, que `config.yaml` (`ui.clipboard_restore_delay_ms`)
+    permet d'allonger pour une application lente (bureau distant, Electron),
+    qui lirait sinon l'ancien contenu et collerait le mauvais texte.
 
     Si `text` est vide ou ne contient que des espaces, ne fait rien
     (évite de coller du vide à la place du texte de l'utilisateur).
@@ -129,7 +139,8 @@ def paste_text(
     if auto_paste:
         simulate_paste()
         if saved is not None:
-            # Laisse macOS finir de traiter le Cmd+V avant de remplacer
-            # le clipboard, sinon on écraserait notre propre paste.
-            time.sleep(0.3)
+            # Laisse macOS et l'application cible finir de traiter le Cmd+V
+            # avant de remplacer le clipboard, sinon on écraserait notre
+            # propre paste (cf. docstring : aucun signal de lecture n'existe).
+            time.sleep(max(0.0, restore_delay_s))
             copy_to_clipboard(saved)

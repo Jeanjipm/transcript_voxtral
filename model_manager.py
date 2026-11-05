@@ -110,24 +110,15 @@ def find_model(repo_id: str) -> ModelInfo | None:
     return None
 
 
-def model_local_path(repo_id: str, models_root: Path) -> Path:
-    """Chemin local attendu pour un modèle (qu'il soit téléchargé ou non)."""
-    safe = repo_id.replace("/", "_")
-    return models_root.expanduser() / safe
-
-
-def is_downloaded(repo_id: str, models_root: Path) -> bool:  # noqa: ARG001
+def is_downloaded(repo_id: str) -> bool:
     """True si le modèle est utilisable hors-ligne, c'est-à-dire présent dans
     le cache HuggingFace.
 
     On ne regarde QUE le cache, délibérément : c'est le seul endroit que
-    `from_pretrained` sait lire. L'ancienne version répondait True quand le
-    modèle était dans `models_root` mais absent du cache — un état où l'app
-    croyait pouvoir travailler hors-ligne alors que le chargement partait
-    quand même sur le réseau.
-
-    `models_root` est conservé dans la signature pour ne pas casser les
-    appelants (`settings_ui`, `download_model.py`) mais n'est plus consulté.
+    `from_pretrained` sait lire. Une ancienne version répondait True quand le
+    modèle était dans ~/.voxtral/models/ mais absent du cache — un état où
+    l'app croyait pouvoir travailler hors-ligne alors que le chargement
+    partait quand même sur le réseau.
     """
     return hf_offline.is_model_cached(repo_id)
 
@@ -319,9 +310,32 @@ def required_repos(dictation_repo: str, file_repo: str, task: str) -> list[str]:
     return repos
 
 
+# Les trois réglages des Préférences qui peuvent exiger un modèle.
+SELECTION_MODEL = "model"
+SELECTION_FILE_MODEL = "file_model"
+SELECTION_TASK = "task"
+
+
+def selection_requiring(
+    repo: str, dictation_repo: str, file_repo: str, task: str  # noqa: ARG001
+) -> str:
+    """Quel réglage a fait entrer `repo` dans `required_repos`.
+
+    `SELECTION_MODEL` si c'est le modèle de dictée, `SELECTION_FILE_MODEL`
+    celui des fichiers, `SELECTION_TASK` sinon : le seul autre cas est le
+    Whisper Large V3 qu'exige la traduction. Sert aux Préférences pour
+    rétablir le BON réglage quand l'utilisateur refuse un téléchargement —
+    sans ça la fenêtre reposait la même question à chaque fermeture.
+    """
+    if repo == dictation_repo:
+        return SELECTION_MODEL
+    if repo == file_repo:
+        return SELECTION_FILE_MODEL
+    return SELECTION_TASK
+
+
 def download_model(
     repo_id: str,
-    models_root: Path | None = None,  # noqa: ARG001 — compat. des appelants
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     """

@@ -326,6 +326,45 @@ def test_new_default_reaches_a_user_who_saved_before(tmp_path: Path):
     assert reloaded.sounds.volume == 0.9  # le choix délibéré est préservé
 
 
+def test_ui_clipboard_restore_delay_default(tmp_path: Path):
+    """Sprint 6c : le délai de restauration du presse-papier a une valeur par
+    défaut (300 ms, le comportement historique) et se surcharge par section."""
+    assert UIConfig().clipboard_restore_delay_ms == 300
+
+    user = tmp_path / "config.yaml"
+    user.write_text("ui:\n  clipboard_restore_delay_ms: 900\n", encoding="utf-8")
+    cfg = load_config(user_path=user)
+    assert cfg.ui.clipboard_restore_delay_ms == 900
+    assert cfg.ui.auto_paste is True  # le reste de la section suit les défauts
+
+
+def test_old_model_path_key_is_ignored(tmp_path: Path):
+    """Sprint 6c (P3) : `model.path` n'existe plus, mais les anciens
+    ~/.voxtral/config.yaml le contiennent encore. Il doit être ignoré, pas
+    faire planter le démarrage."""
+    user = tmp_path / "config.yaml"
+    user.write_text(
+        "model:\n  name: x/y\n  path: ~/.voxtral/models/\n", encoding="utf-8"
+    )
+    cfg = load_config(user_path=user)
+    assert cfg.model.name == "x/y"
+    assert not hasattr(cfg.model, "path")
+    assert not hasattr(ModelConfig, "resolved_path")
+
+
+def test_maintenance_section_defaults_and_override(tmp_path: Path):
+    """Sprint 6c : seuils d'entretien (journal 10 Mo, dictées 30 jours)."""
+    cfg = Config()
+    assert cfg.maintenance.log_max_mb == 10
+    assert cfg.maintenance.recordings_max_age_days == 30
+
+    user = tmp_path / "config.yaml"
+    user.write_text("maintenance:\n  log_max_mb: 0\n", encoding="utf-8")
+    cfg = load_config(user_path=user)
+    assert cfg.maintenance.log_max_mb == 0
+    assert cfg.maintenance.recordings_max_age_days == 30
+
+
 def test_diff_removes_emptied_sections():
     from config import _diff_from_defaults
 

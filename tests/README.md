@@ -57,24 +57,26 @@ ne se fusionne pas.
 |---|---:|---|
 | `hotkey_manager.py` | 68 | parse, validate, state machine push-to-talk, pause/reprise, resynchronisation limitée aux touches du raccourci |
 | `dictation_controller.py` | 49 | machine à états, coupe-circuit de durée, dictée pendant une transcription, arrêt infaillible du worker, filtre anti-silence, changement de micro (immédiat ou différé) |
-| `app.py` | 47 | construction et réglages transmis, hot-reload de la config (raccourci, modèle, langue, sons, YAML invalide), transcriber des fichiers (réutilisation, cache, turbo → large-v3), fin et lancement d'un job fichier, erreurs visibles et flash, états de la dictée dans la menu bar, transcription + collage + nettoyage, suivi du micro, mises à jour, quitter |
+| `app.py` | 50 | construction et réglages transmis, entretien au démarrage, version = commit installé, hot-reload de la config (raccourci, modèle, langue, sons, YAML invalide), transcriber des fichiers (réutilisation, cache, turbo → large-v3, aucune bascule du mode hors-ligne), fin et lancement d'un job fichier, erreurs visibles et flash, états de la dictée dans la menu bar, transcription + collage (délai presse-papier) + nettoyage, suivi du micro, mises à jour, quitter |
 | `file_transcriber.py` | 36 | boucle long-form, garde-fous d'avance, mise en forme du .txt |
 | `audio_capture.py` | 35 | cycle stream long-lived, prewarm, reprise après échec, verrous, `reset_device` |
-| `model_manager.py` | 34 | catalogue, usages dictée/fichiers, scan et purge du cache, modèles requis par la traduction |
+| `model_manager.py` | 36 | catalogue, usages dictée/fichiers, scan et purge du cache, modèles requis par la traduction, réglage à rétablir quand un téléchargement est refusé |
 | `hotkey_capture.py` | 33 | enregistrement d'un raccourci au clavier, machine à états pure, file d'événements |
 | `diarizer.py` | 27 | tours de parole depuis les probabilités, lissage, renumérotation, fusion locuteurs × segments |
 | `updater.py` | 26 | check + apply via API GitHub sur la branche installée, fichiers risqués (install.sh, requirements.txt, requirements.lock), comportement offline |
 | `transcriber.py` | 26 | factory, délégation translate, garde-fou turbo, réseau ouvert si le modèle manque, budget de jetons proportionnel à la durée |
-| `config.py` | 22 | I/O, fusion defaults+user, dataclasses, roundtrip |
+| `config.py` | 25 | I/O, fusion defaults+user, dataclasses, roundtrip, clés obsolètes ignorées (`model.path`), sections `ui` et `maintenance` |
 | `audio_level.py` | 20 | RMS de la fenêtre la plus forte (dBFS), normalisation int16/float/stéréo, salve brève dans un long silence, lecture d'un WAV, décision avec filtre coupé |
 | `hf_offline.py` | 19 | détection du cache, bascule hors-ligne, résolution locale, `network_if_missing` |
 | `file_job.py` | 18 | cycle de vie, chemin de sortie, annulation, erreurs |
 | `audio_convert.py` | 17 | afconvert, formats refusés par libsndfile, lecture par blocs |
-| `clipboard.py` | 15 | paste_text, préservation clipboard, règle de thread |
+| `clipboard.py` | 18 | paste_text, préservation clipboard, délai de restauration configurable, règle de thread |
 | `inference_worker.py` | 13 | priorité, exclusion mutuelle, robustesse |
+| `housekeeping.py` | 11 | journal tronqué en place au-delà du seuil (queue gardée, coupe sur une ligne, descripteur stderr repositionné), purge des seules `dictee-*.wav` trop vieilles, seuils à 0, entretien qui n'empêche jamais le démarrage |
 | `audio_device.py` | 9 | détection d'un changement de micro par défaut : premier sondage muet, lecture échouée ignorée, exceptions avalées |
+| `transcribe.py` (CLI) | 3 | conversion par `ensure_16k_mono`, temporaire nettoyé, fichier illisible → code 1 sans charger le modèle |
 
-**Total : 514 tests** (certains sont paramétrés, d'où un total supérieur à la
+**Total : 539 tests** (certains sont paramétrés, d'où un total supérieur à la
 somme des fonctions de test).
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui
@@ -101,7 +103,9 @@ Ne pas les alléger sans lire le pourquoi.
 - `audio_feedback.py` — dépend de NSSound.
 - `file_picker.py` — NSOpenPanel, main thread uniquement, testé à la main.
 - `settings_ui.py` — UI tkinter, testée à la main. La logique testable en
-  a été sortie : conversion libellé ↔ code technique et calcul de
-  progression vivent dans `model_manager`, qui est couvert.
+  a été sortie : conversion libellé ↔ code technique, calcul de progression
+  et choix du réglage à rétablir quand un téléchargement est refusé
+  (`selection_requiring`) vivent dans `model_manager`, qui est couvert.
+  Restent manuels : Cmd+Q qui enregistre (`tk::mac::Quit`), les dialogues.
 - Comportements vraiment system : capture micro réel, paste Cmd+V,
   permissions TCC. Ne se mockent pas — testés à la main sur Mac.

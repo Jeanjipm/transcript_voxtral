@@ -12,9 +12,14 @@
 curl -fsSL https://raw.githubusercontent.com/Jeanjipm/transcript_voxtral/main/install.sh | bash
 ```
 
-Le script installe Homebrew (si absent), Python 3.11, le code, le modèle
+Le script installe Homebrew (si absent), Python 3.13, le code, le modèle
 Voxtral 3B (~3,2 Go), et crée la commande `voxtral`. Compte 3 à 5 minutes
 selon ta connexion.
+
+À la fin, l'app démarre toute seule et un raccourci **Voxtral.command** est
+posé sur le Bureau : double-clique dessus pour la relancer plus tard (ou tape
+`voxtral` dans un terminal). Le script propose aussi le démarrage automatique
+à l'ouverture de session.
 
 > **Pré-requis :** macOS 13+ (Ventura), Mac Apple Silicon (M1/M2/M3/M4),
 > 8 Go de RAM minimum.
@@ -121,7 +126,8 @@ Onglets :
   ceux qui ne servent plus. Choisir un modèle absent propose son
   téléchargement immédiat, avec une barre de progression.
 - **Avancé** : réglages fins (fin de phrase conservée, durée maximale d'une
-  dictée, longueur du texte, vérification des mises à jour).
+  dictée, longueur du texte, seuil de silence, délai avant de rendre le
+  presse-papier, vérification des mises à jour).
 - **À propos** : aide-mémoire et lien vers le code source.
 
 Les changements sont appliqués automatiquement en quelques secondes
@@ -132,15 +138,17 @@ Les changements sont appliqués automatiquement en quelques secondes
 ## CLI utiles (debug)
 
 ```bash
-# Transcrire un fichier WAV
-voxtral-launcher.sh        # ou : python /chemin/transcript_voxtral/app.py
-python ~/.voxtral/app/transcribe.py mon_enregistrement.wav --lang fr
+# Lancer l'app à la main (sinon : double-clic sur ~/Desktop/Voxtral.command)
+voxtral
+
+# Transcrire un fichier audio (wav, m4a, mp3, aiff…) avec le modèle de dictée
+~/.voxtral/venv/bin/python ~/.voxtral/app/transcribe.py mon_memo.m4a --lang fr
 
 # Re-télécharger / mettre à jour le modèle actif
-python ~/.voxtral/app/download_model.py
+~/.voxtral/venv/bin/python ~/.voxtral/app/download_model.py
 
 # Lister les modèles disponibles
-python ~/.voxtral/app/download_model.py --list
+~/.voxtral/venv/bin/python ~/.voxtral/app/download_model.py --list
 ```
 
 ---
@@ -155,6 +163,9 @@ python ~/.voxtral/app/download_model.py --list
 | « Modèle introuvable » | Téléchargement interrompu | `python download_model.py` pour relancer |
 | App lente la 1ʳᵉ fois | Modèle MLX se charge en RAM | Normal, quelques secondes à la 1ʳᵉ dictée seulement |
 | Caractères spéciaux (é, ñ) cassés en dictée | Conflit Right Option | Choisir un autre raccourci dans Préférences → Dictée (ex. F13) |
+| Le raccourci ne répond plus (souvent après une veille) | macOS a coupé la surveillance clavier | Menu 🎤 → **Réactiver le raccourci** |
+| Ce qui est collé est l'ANCIEN contenu du presse-papier | Application lente à lire le presse-papier (bureau distant, Electron) | Préférences → Avancé → monter le « délai avant de rendre le presse-papier » à 800–1000 ms |
+| Dictée coupée après 5 minutes, rien de collé | Relâchement du raccourci jamais reçu : coupe-circuit | L'audio est gardé dans `~/.voxtral/recordings/` (30 jours) ; menu 🎤 → Transcrire un fichier audio… |
 
 ### Logs
 
@@ -162,11 +173,17 @@ L'app écrit ses erreurs sur `stderr`. Pour voir ce qui se passe :
 
 ```bash
 # Lancement en premier plan (logs directement dans le terminal)
-~/.voxtral/app/voxtral-launcher.sh
+voxtral
 
-# Si Voxtral est lancé via le démarrage auto (LaunchAgent)
+# Lancée par Voxtral.command ou le démarrage auto : tout va dans le journal
 tail -f ~/.voxtral/voxtral.log
 ```
+
+Le journal ne grossit pas sans fin : au démarrage, s'il dépasse 10 Mo, il
+est tronqué et on garde le dernier mégaoctet. Les dictées coupées pour
+dépassement de durée, conservées dans `~/.voxtral/recordings/`, sont
+supprimées après 30 jours. Les deux seuils se règlent dans la section
+`maintenance` de `config.yaml` (0 = jamais).
 
 ---
 
@@ -180,6 +197,7 @@ rm ~/Library/LaunchAgents/com.voxtral.dictee.plist
 # Supprimer la commande `voxtral` (peut être dans l'un de ces 3 dossiers,
 # selon ce que install.sh avait choisi) — les chemins absents sont ignorés
 rm -f ~/.local/bin/voxtral /opt/homebrew/bin/voxtral /usr/local/bin/voxtral 2>/dev/null
+rm -f ~/Desktop/Voxtral.command
 
 # Supprimer l'app + venv + modèles + config
 rm -rf ~/.voxtral
@@ -200,6 +218,8 @@ rm -rf ~/.voxtral
 - **Raccourci global** : `pynput` (listener non-suppressif → ne casse pas
   Right Option pour les caractères spéciaux).
 - **Collage** : `NSPasteboard` + `Cmd+V` simulé.
+- **Fichiers audio** : Whisper Large V3 Turbo via `mlx-whisper` (horodatages),
+  Sortformer v2.1 via `mlx-audio` pour identifier les locuteurs.
 
 Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
 

@@ -15,6 +15,7 @@ import sys
 from config import load_config
 from model_manager import (
     AVAILABLE_MODELS,
+    _repo_cache_dir,
     download_model,
     is_downloaded,
 )
@@ -50,17 +51,17 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config()
     repo_id = args.model if args.model is not None else cfg.model.name
-    models_root = cfg.model.resolved_path
 
-    if is_downloaded(repo_id, models_root):
+    if is_downloaded(repo_id):
         print(f"Modèle déjà présent : {repo_id}")
         print("Mise à jour vers la dernière version disponible...")
     else:
         print(f"Téléchargement de : {repo_id}")
-        print(f"Destination : {models_root}")
+        # Les poids vont dans le cache HuggingFace, pas dans ~/.voxtral.
+        print(f"Destination : {_repo_cache_dir(repo_id) or 'cache HuggingFace'}")
 
     try:
-        local_path = download_model(repo_id, models_root)
+        local_path = download_model(repo_id)
     except Exception as exc:
         print(f"Erreur durant le téléchargement : {exc}", file=sys.stderr)
         return 2

@@ -272,13 +272,14 @@ def test_cached_size_zero_without_hub(monkeypatch: pytest.MonkeyPatch):
     assert mm.cached_size_bytes("org/modele") == 0
 
 
-def test_download_model_does_not_require_models_root(monkeypatch: pytest.MonkeyPatch):
-    """La signature garde models_root pour les anciens appelants, mais la
-    fenêtre de téléchargement l'appelle sans."""
+def test_models_root_is_gone():
+    """Sprint 6c (P3) : plus aucun dossier ~/.voxtral/models/ — le cache
+    HuggingFace est le seul endroit que `from_pretrained` sait lire."""
     import inspect
 
-    param = inspect.signature(mm.download_model).parameters["models_root"]
-    assert param.default is None
+    assert "models_root" not in inspect.signature(mm.download_model).parameters
+    assert list(inspect.signature(mm.is_downloaded).parameters) == ["repo_id"]
+    assert not hasattr(mm, "model_local_path")
 
 
 # ---- required_repos : ce que les Préférences doivent vérifier ----
@@ -305,6 +306,32 @@ def test_required_repos_adds_large_v3_for_voxtral_translation():
     )
     assert repos[-1] == WHISPER_TRANSLATE_REPO
     assert repos.count(WHISPER_TRANSLATE_REPO) == 1
+
+
+def test_selection_requiring_names_the_setting_to_revert():
+    """Sprint 6c : quand l'utilisateur refuse un téléchargement, les
+    Préférences doivent rétablir le réglage qui l'exigeait — et pas un autre."""
+    from model_manager import (
+        SELECTION_FILE_MODEL,
+        SELECTION_MODEL,
+        SELECTION_TASK,
+        selection_requiring,
+    )
+    from transcriber import WHISPER_TRANSLATE_REPO
+
+    assert selection_requiring("a/dictee", "a/dictee", "b/fichiers", "translate") == SELECTION_MODEL
+    assert selection_requiring("b/fichiers", "a/dictee", "b/fichiers", "translate") == SELECTION_FILE_MODEL
+    assert selection_requiring(
+        WHISPER_TRANSLATE_REPO, "a/dictee", "b/fichiers", "translate"
+    ) == SELECTION_TASK
+
+
+def test_selection_requiring_prefers_dictation_when_both_models_match():
+    """Même modèle pour la dictée et les fichiers : on rétablit la dictée,
+    c'est le premier que `required_repos` propose."""
+    from model_manager import SELECTION_MODEL, selection_requiring
+
+    assert selection_requiring("x/m", "x/m", "x/m", "transcribe") == SELECTION_MODEL
 
 
 def test_required_repos_does_not_duplicate_large_v3():

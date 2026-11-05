@@ -41,6 +41,8 @@ from config import Config, load_config, save_config
 from hotkey_capture import HotkeyCapture, Outcome
 from hotkey_manager import display_combo, generic_combo, validate_combo
 from model_manager import (
+    SELECTION_FILE_MODEL,
+    SELECTION_MODEL,
     USAGE_DICTATION,
     USAGE_FILES,
     ModelInfo,
@@ -54,6 +56,7 @@ from model_manager import (
     models_in_use,
     required_repos,
     scan_cached_models,
+    selection_requiring,
 )
 
 
@@ -260,6 +263,11 @@ class SettingsWindow:
         # La croix et Cmd+W passent par le même chemin, pour qu'il n'existe
         # qu'une seule façon de sortir — et donc qu'un seul comportement.
         self.root.protocol("WM_DELETE_WINDOW", self._close)
+        # Cmd+Q n'est PAS une fermeture de fenêtre pour Tk : sur macOS, le menu
+        # Quitter appelle la procédure Tcl ::tk::mac::Quit, qui par défaut tue
+        # le process sans passer par WM_DELETE_WINDOW — donc sans enregistrer,
+        # malgré le libellé. La définir la fait rejoindre le chemin commun.
+        self.root.createcommand("tk::mac::Quit", self._close)
 
     def _close(self) -> None:
         """Fermer la fenêtre enregistre. Il n'y a rien d'autre à faire.
@@ -731,7 +739,7 @@ class SettingsWindow:
         row += 1
 
         for m in models:
-            downloaded = is_downloaded(m.repo_id, self.config.model.resolved_path)
+            downloaded = is_downloaded(m.repo_id)
             mark = "✓ sur ton Mac" if downloaded else f"⤓ {m.size_gb:.1f} Go à télécharger"
             ttk.Radiobutton(
                 parent,
@@ -907,11 +915,30 @@ class SettingsWindow:
             justify=tk.LEFT,
         ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
+        ttk.Label(frame, text="Délai avant de rendre le presse-papier (ms) :").grid(
+            row=9, column=0, sticky="w"
+        )
+        self.clipboard_delay_var = tk.IntVar(
+            value=self.config.ui.clipboard_restore_delay_ms
+        )
+        ttk.Spinbox(
+            frame, from_=0, to=2000, increment=100,
+            textvariable=self.clipboard_delay_var, width=8,
+        ).grid(row=9, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="Après le collage, ce que tu avais copié avant est remis dans\n"
+                 "le presse-papier. Monte à 800-1000 si une application lente\n"
+                 "(bureau distant, Electron) colle l'ancien contenu.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=10, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
         self.autocheck_var = tk.BooleanVar(value=self.config.updates.auto_check)
         ttk.Checkbutton(
             frame, text="Vérifier les mises à jour au démarrage",
             variable=self.autocheck_var,
-        ).grid(row=9, column=0, columnspan=2, sticky="w")
+        ).grid(row=11, column=0, columnspan=2, sticky="w")
 
     # ------------------------------------------------------------------
     # Onglet À propos
@@ -981,7 +1008,18 @@ class SettingsWindow:
             if not self._ensure_downloaded(repo):
                 return
 
-        cfg = self._collect_config()
+        try:
+            cfg = self._collect_config()
+        except (tk.TclError, ValueError):
+            # Un Spinbox vidé ou rempli de lettres : IntVar.get() lève, et
+            # sans ce garde-fou la fenêtre refusait de se fermer en silence.
+            messagebox.showerror(
+                "Réglage invalide",
+                "Un champ numérique est vide ou mal rempli (onglets Fichiers "
+                "ou Avancé). Corrige-le, ou remets la valeur d'origine.",
+            )
+            self.notebook.select(3)
+            return
         save_config(cfg)
         self.config = cfg
         self.root.destroy()
@@ -1002,6 +1040,7 @@ class SettingsWindow:
         cfg.sounds.enabled = bool(self.sounds_enabled_var.get())
         cfg.sounds.volume = float(self.volume_var.get()) / 100.0
         cfg.ui.auto_paste = bool(self.autopaste_var.get())
+        cfg.ui.clipboard_restore_delay_ms = int(self.clipboard_delay_var.get())
         cfg.updates.auto_check = bool(self.autocheck_var.get())
         cfg.recording.tail_padding_ms = int(self.tail_var.get())
         cfg.recording.max_duration_s = int(self.max_rec_var.get())
@@ -1016,12 +1055,18 @@ class SettingsWindow:
         return cfg
 
     def _ensure_downloaded(self, repo_id: str) -> bool:
-        """Propose de télécharger un modèle absent. False = annuler la sauvegarde.
+        """Propose de télécharger un modèle absent. False = ne pas enregistrer.
 
-        Répondre « Plus tard » enregistre quand même : le modèle se
-        téléchargera au premier usage, simplement sans progression visible.
+        Trois réponses :
+        - Oui : téléchargement immédiat avec progression, puis enregistrement.
+        - Non (« plus tard ») : enregistre quand même ; le modèle se
+          téléchargera au premier usage, simplement sans progression visible.
+        - Annuler : le réglage qui exigeait ce modèle est REMIS à sa valeur
+          enregistrée et la fenêtre reste ouverte. Avant, Annuler laissait le
+          choix en place : la fermeture suivante reposait la même question, et
+          il n'y avait plus aucun moyen de fermer la fenêtre sans accepter.
         """
-        if is_downloaded(repo_id, self.config.model.resolved_path):
+        if is_downloaded(repo_id):
             return True
         model = find_model(repo_id)
         if model is None:
@@ -1031,10 +1076,12 @@ class SettingsWindow:
             "Télécharger ce modèle ?",
             f"{model.label} n'est pas encore sur ton Mac "
             f"({model.size_gb:.1f} Go).\n\n"
-            f"Le télécharger maintenant ? Sinon il sera récupéré à sa première "
-            f"utilisation, ce qui rendra cette première fois très lente.",
+            f"Oui : le télécharger maintenant.\n"
+            f"Non : plus tard, à sa première utilisation (qui sera très lente).\n"
+            f"Annuler : garder le réglage précédent.",
         )
         if answer is None:  # Annuler
+            self._revert_selection(repo_id)
             return False
         if not answer:  # Plus tard
             return True
@@ -1048,6 +1095,29 @@ class SettingsWindow:
             )
             return False
         return True
+
+
+    def _revert_selection(self, repo_id: str) -> None:
+        """Remet à sa valeur enregistrée le réglage qui exigeait `repo_id`,
+        et montre l'onglet concerné pour que le retour en arrière soit visible.
+        """
+        which = selection_requiring(
+            repo_id,
+            self.model_var.get(),
+            self.file_model_var.get(),
+            self.task_var.get(),
+        )
+        if which == SELECTION_MODEL:
+            self.model_var.set(self.config.model.name)
+            tab = 2  # Modèles
+        elif which == SELECTION_FILE_MODEL:
+            self.file_model_var.set(self.config.file_transcription.model)
+            tab = 2
+        else:
+            self.task_var.set(self.config.transcription.task)
+            tab = 0  # Dictée, où vit le choix transcription / traduction
+        self._render_storage()
+        self.notebook.select(tab)
 
 
 def main() -> None:

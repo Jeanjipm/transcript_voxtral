@@ -115,6 +115,10 @@ def deps(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         app_module.hf_offline, "is_model_cached", mocks["is_model_cached"]
     )
+    mocks["housekeeping"] = MagicMock(name="run_startup_housekeeping")
+    monkeypatch.setattr(
+        app_module.housekeeping, "run_startup_housekeeping", mocks["housekeeping"]
+    )
     mocks["reveal_in_finder"] = MagicMock(name="reveal_in_finder")
     monkeypatch.setattr(
         app_module.file_picker, "reveal_in_finder", mocks["reveal_in_finder"]
@@ -187,6 +191,38 @@ def test_init_refreshes_offline_mode_for_configured_model(
     _write_user_config(user_config, model={"name": TURBO})
     VoxtralApp()
     deps["hf_refresh"].assert_called_once_with(TURBO, prefer_offline=True)
+
+
+def test_app_version_is_the_installed_commit(monkeypatch: pytest.MonkeyPatch):
+    """Sprint 6c (P3) : plus de constante figée à 0.1.0, la version est le
+    commit installé ; « dev » si git ne répond pas."""
+    fake = MagicMock(return_value=MagicMock(returncode=0, stdout="abc1234 (2026-11-04)\n"))
+    monkeypatch.setattr(app_module.subprocess, "run", fake)
+    assert app_module.app_version() == "abc1234 (2026-11-04)"
+    assert fake.call_args.args[0][:3] == ["git", "-C", str(app_module.PROJECT_ROOT)]
+
+    monkeypatch.setattr(
+        app_module.subprocess, "run", MagicMock(side_effect=OSError("pas de git"))
+    )
+    assert app_module.app_version() == "dev"
+
+    monkeypatch.setattr(
+        app_module.subprocess, "run",
+        MagicMock(return_value=MagicMock(returncode=128, stdout="")),
+    )
+    assert app_module.app_version() == "dev"
+
+
+def test_init_runs_housekeeping_with_configured_limits(user_config: Path, deps):
+    """Sprint 6c : l'entretien (journal, vieilles dictées) tourne au démarrage
+    avec les seuils de la config — et avant tout le reste, voir __init__."""
+    _write_user_config(
+        user_config, maintenance={"log_max_mb": 3, "recordings_max_age_days": 7}
+    )
+    VoxtralApp()
+    deps["housekeeping"].assert_called_once()
+    cfg = deps["housekeeping"].call_args.args[0]
+    assert (cfg.log_max_mb, cfg.recordings_max_age_days) == (3, 7)
 
 
 def test_informational_items_are_not_clickable(voxtral_app: VoxtralApp):
@@ -326,7 +362,21 @@ def test_file_transcriber_is_built_once_and_cached(
     deps["make_transcriber"].assert_called_once()
     built_with = deps["make_transcriber"].call_args.args[0]
     assert built_with.model.name == TURBO
-    deps["hf_refresh"].assert_called_with(TURBO, prefer_offline=True)
+
+
+def test_file_transcriber_does_not_toggle_global_offline_mode(
+    voxtral_app: VoxtralApp, deps
+):
+    """Issue 12 : construire le transcriber fichiers ne doit pas rebasculer
+    le mode hors-ligne du process. Il est indexé sur le modèle de dictée ;
+    le transcriber ouvre lui-même le réseau, localement, si son modèle manque
+    (hf_offline.network_if_missing)."""
+    deps["hf_refresh"].reset_mock()
+    deps["is_model_cached"].return_value = False  # modèle fichiers absent
+
+    voxtral_app._get_file_transcriber()
+
+    deps["hf_refresh"].assert_not_called()
 
 
 def test_file_transcriber_rebuilt_when_file_model_changes(
@@ -568,7 +618,7 @@ def test_transcribe_and_paste_passes_config_and_cleans_up(
     _reload(
         voxtral_app, user_config,
         transcription={"language": "fr", "max_new_tokens": 2048},
-        ui={"auto_paste": False},
+        ui={"auto_paste": False, "clipboard_restore_delay_ms": 800},
     )
     wav = tmp_path / "d.wav"
     wav.touch()
@@ -579,7 +629,9 @@ def test_transcribe_and_paste_passes_config_and_cleans_up(
     voxtral_app.transcriber.transcribe.assert_called_once_with(
         wav, language="fr", task="transcribe", max_new_tokens=2048
     )
-    deps["paste_text"].assert_called_once_with("bonjour", auto_paste=False)
+    deps["paste_text"].assert_called_once_with(
+        "bonjour", auto_paste=False, restore_delay_s=0.8
+    )
     assert not wav.exists()
     voxtral_app.dictation.notify_transcription_done.assert_called_once()
     assert voxtral_app._last_error is None
