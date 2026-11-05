@@ -105,6 +105,22 @@ parlent en même temps, une seule étiquette est posée sur le passage.
 Si l'identification échoue, la transcription reste écrite, et l'en-tête du
 `.txt` dit pourquoi les étiquettes manquent.
 
+### Lire le texte copié à voix haute
+
+Le chemin inverse de la dictée. Copie un texte (Cmd+C), puis clique l'icône
+🎤 → **Lire le texte copié** : il est lu au haut-parleur, sur ton Mac, avec
+le modèle de synthèse vocale [Voxtral 4B TTS](https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit)
+(2,5 Go). Il se télécharge à la première lecture, après confirmation — rien
+ne part en silence. La voix se choisit dans **Préférences → Lecture** ; deux
+voix françaises (femme, homme) sont en tête de liste. Un texte très long
+n'est lu que sur ses 2 000 premiers caractères, et l'app le dit.
+
+Pendant la lecture, l'icône devient un haut-parleur et l'item du menu
+affiche l'avancement ; une dictée lancée au même moment passe devant.
+
+Le même moteur sert à `vocaliser_cahier.py`, qui enregistre en MP3 toutes
+les phrases du cahier de révisions CE1 et les publie (cf. CLI utiles).
+
 ### Changer le raccourci, la langue, le modèle…
 
 Clique l'icône 🎤 → **Préférences…**
@@ -128,6 +144,9 @@ Onglets :
 - **Avancé** : réglages fins (fin de phrase conservée, durée maximale d'une
   dictée, longueur du texte, seuil de silence, délai avant de rendre le
   presse-papier, vérification des mises à jour).
+- **Lecture** : la voix qui lit le texte copié (les 20 voix du modèle, avec
+  leur langue), et l'état du modèle de lecture avec un bouton pour le
+  télécharger tout de suite.
 - **À propos** : aide-mémoire et lien vers le code source.
 
 Les changements sont appliqués automatiquement en quelques secondes
@@ -149,6 +168,14 @@ voxtral
 
 # Lister les modèles disponibles
 ~/.voxtral/venv/bin/python ~/.voxtral/app/download_model.py --list
+
+# Voix du cahier de révisions CE1 : écouter les voix françaises (dossier
+# ~/Documents/Voxtral/voix-ce1/essais/), puis tout générer et publier sur
+# Vercel (projet voix-ce1). Incrémental : relancer reprend où ça s'est arrêté.
+# Nécessite ffmpeg (installé via Homebrew s'il manque) et Node 18+.
+~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --essai
+~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --voix fr_female
+~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --voix fr_female --sans-publication
 ```
 
 ---
@@ -220,6 +247,9 @@ rm -rf ~/.voxtral
 - **Collage** : `NSPasteboard` + `Cmd+V` simulé.
 - **Fichiers audio** : Whisper Large V3 Turbo via `mlx-whisper` (horodatages),
   Sortformer v2.1 via `mlx-audio` pour identifier les locuteurs.
+- **Synthèse vocale** : Voxtral 4B TTS (4-bit, 24 kHz) via `mlx-audio`
+  (`synthese.py`) ; lecture par `sounddevice`, MP3 du cahier par `ffmpeg`
+  (mono 64 kb/s, `loudnorm`, `atempo=0.92`).
 
 Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
 
@@ -233,3 +263,5 @@ Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
   (MIT) dans Préférences → Modèles.
 - **Whisper Large V3** : MIT (OpenAI). Supporte transcription et
   traduction vers l'anglais.
+- **Modèle Voxtral 4B TTS** (lecture à voix haute) : CC BY-NC 4.0 (usage
+  **non commercial** uniquement).

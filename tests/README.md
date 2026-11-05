@@ -57,15 +57,17 @@ ne se fusionne pas.
 |---|---:|---|
 | `hotkey_manager.py` | 68 | parse, validate, state machine push-to-talk, pause/reprise, resynchronisation limitée aux touches du raccourci |
 | `dictation_controller.py` | 49 | machine à états, coupe-circuit de durée, dictée pendant une transcription, arrêt infaillible du worker, filtre anti-silence, changement de micro (immédiat ou différé) |
-| `app.py` | 50 | construction et réglages transmis, entretien au démarrage, version = commit installé, hot-reload de la config (raccourci, modèle, langue, sons, YAML invalide), transcriber des fichiers (réutilisation, cache, turbo → large-v3, aucune bascule du mode hors-ligne), fin et lancement d'un job fichier, erreurs visibles et flash, états de la dictée dans la menu bar, transcription + collage (délai presse-papier) + nettoyage, suivi du micro, mises à jour, quitter |
+| `app.py` | 61 | construction et réglages transmis, entretien au démarrage, version = commit installé, hot-reload de la config (raccourci, modèle, langue, sons, YAML invalide), transcriber des fichiers (réutilisation, cache, turbo → large-v3, aucune bascule du mode hors-ligne), fin et lancement d'un job fichier, erreurs visibles et flash, états de la dictée dans la menu bar, transcription + collage (délai presse-papier) + nettoyage, suivi du micro, mises à jour, quitter, lecture du presse-papier (vide, long, modèle à télécharger, voix de la config, lecture sur un thread à part, erreur) |
 | `file_transcriber.py` | 36 | boucle long-form, garde-fous d'avance, mise en forme du .txt |
 | `audio_capture.py` | 35 | cycle stream long-lived, prewarm, reprise après échec, verrous, `reset_device` |
-| `model_manager.py` | 36 | catalogue, usages dictée/fichiers, scan et purge du cache, modèles requis par la traduction, réglage à rétablir quand un téléchargement est refusé |
+| `model_manager.py` | 39 | catalogue, usages dictée/fichiers/synthèse, scan et purge du cache, modèles requis par la traduction, réglage à rétablir quand un téléchargement est refusé |
+| `vocaliser_cahier.py` | 48 | adaptation de l'écrit à l'oral, identifiant = SHA-1 tronqué du site, génération incrémentale (conservation, changement de voix, orphelins à la corbeille, reprise après interruption), essai des voix, commande |
+| `synthese.py` | 17 | voix lues dans le cache et repérage des françaises, concaténation des morceaux, voix inconnue refusée, commande ffmpeg exacte (mono, 64 kb/s, atempo, loudnorm), écriture atomique du MP3, ffmpeg absent |
 | `hotkey_capture.py` | 33 | enregistrement d'un raccourci au clavier, machine à états pure, file d'événements |
 | `diarizer.py` | 27 | tours de parole depuis les probabilités, lissage, renumérotation, fusion locuteurs × segments |
 | `updater.py` | 26 | check + apply via API GitHub sur la branche installée, fichiers risqués (install.sh, requirements.txt, requirements.lock), comportement offline |
 | `transcriber.py` | 26 | factory, délégation translate, garde-fou turbo, réseau ouvert si le modèle manque, budget de jetons proportionnel à la durée |
-| `config.py` | 25 | I/O, fusion defaults+user, dataclasses, roundtrip, clés obsolètes ignorées (`model.path`), sections `ui` et `maintenance` |
+| `config.py` | 27 | I/O, fusion defaults+user, dataclasses, roundtrip, clés obsolètes ignorées (`model.path`), sections `ui`, `maintenance` et `synthesis` |
 | `audio_level.py` | 20 | RMS de la fenêtre la plus forte (dBFS), normalisation int16/float/stéréo, salve brève dans un long silence, lecture d'un WAV, décision avec filtre coupé |
 | `hf_offline.py` | 27 | détection du cache et de sa COMPLÉTUDE (blob `.incomplete`, morceaux de l'index, poids absents), bascule hors-ligne, résolution locale, `network_if_missing` |
 | `file_job.py` | 18 | cycle de vie, chemin de sortie, annulation, erreurs |
@@ -76,7 +78,7 @@ ne se fusionne pas.
 | `audio_device.py` | 9 | détection d'un changement de micro par défaut : premier sondage muet, lecture échouée ignorée, exceptions avalées |
 | `transcribe.py` (CLI) | 3 | conversion par `ensure_16k_mono`, temporaire nettoyé, fichier illisible → code 1 sans charger le modèle |
 
-**Total : 548 tests** (certains sont paramétrés, d'où un total supérieur à la
+**Total : 629 tests** (certains sont paramétrés, d'où un total supérieur à la
 somme des fonctions de test).
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui
@@ -101,6 +103,10 @@ Ne pas les alléger sans lire le pourquoi.
 - `audio_device.py` : la lecture CoreAudio via `ctypes` elle-même (testée à
   la main : `python -c "import audio_device; print(audio_device.default_input_device())"`).
 - `audio_feedback.py` — dépend de NSSound.
+- Dans `synthese.py` et `vocaliser_cahier.py` : le modèle MLX lui-même, la
+  lecture `sounddevice`, ffmpeg réel, la corbeille (`NSFileManager`) et le
+  déploiement Vercel — testés à la main (`vocaliser_cahier.py --essai`, puis
+  génération complète et `manifest.json` en ligne).
 - `file_picker.py` — NSOpenPanel, main thread uniquement, testé à la main.
 - `settings_ui.py` — UI tkinter, testée à la main. La logique testable en
   a été sortie : conversion libellé ↔ code technique, calcul de progression
