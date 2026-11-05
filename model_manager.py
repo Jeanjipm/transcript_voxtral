@@ -31,6 +31,9 @@ import hf_offline
 # .txt ni d'identification des locuteurs. Voxtral n'en produit aucun.
 USAGE_DICTATION = "dictation"
 USAGE_FILES = "files"
+# Synthèse vocale (texte → son). Un modèle de synthèse ne transcrit rien :
+# c'est le seul usage où la dictée n'est pas assurée.
+USAGE_SYNTHESIS = "synthese"
 
 
 # Catalogue des modèles connus, exposé dans l'UI Préférences.
@@ -88,6 +91,17 @@ AVAILABLE_MODELS: list[ModelInfo] = [
         ),
         usages=(USAGE_DICTATION, USAGE_FILES),
         can_translate=True,
+    ),
+    ModelInfo(
+        repo_id="mlx-community/Voxtral-4B-TTS-2603-mlx-4bit",
+        label="Voxtral 4B TTS (4-bit)",
+        size_gb=2.5,
+        description=(
+            "Lit un texte à voix haute (« Lire le texte copié », cahier de "
+            "révisions). 20 voix dont deux françaises. Ne transcrit pas."
+        ),
+        usages=(USAGE_SYNTHESIS,),
+        can_translate=False,
     ),
 ]
 # Retiré du catalogue : mistralai/Voxtral-Mini-3B-2507 (8,7 Go pleine
@@ -252,7 +266,10 @@ def delete_cached_model(repo_id: str) -> int:
 
 
 def models_in_use(
-    dictation_repo: str, file_repo: str, diarization: bool = False
+    dictation_repo: str,
+    file_repo: str,
+    diarization: bool = False,
+    synthesis_repo: str | None = None,
 ) -> set[str]:
     """Les modèles qu'il ne faut pas proposer à la suppression.
 
@@ -267,6 +284,8 @@ def models_in_use(
     from transcriber import WHISPER_TRANSLATE_REPO
 
     in_use = {dictation_repo, file_repo, WHISPER_TRANSLATE_REPO}
+    if synthesis_repo:
+        in_use.add(synthesis_repo)
     if diarization:
         from diarizer import DEFAULT_MODEL as DIARIZATION_REPO
 

@@ -56,7 +56,7 @@ from PyObjCTools import AppHelper
 from audio_capture import AudioRecorder
 from audio_device import DefaultInputWatcher, DeviceInfo
 from audio_feedback import AudioFeedback
-from clipboard import paste_text
+from clipboard import paste_text, read_clipboard_text
 from config import (
     PROJECT_ROOT,
     USER_CONFIG_PATH,
@@ -81,6 +81,7 @@ from inference_worker import (
     InferenceWorker,
 )
 from model_manager import find_model
+import synthese
 from transcriber import Transcriber, make_transcriber, repo_for_task
 import updater
 
@@ -177,6 +178,16 @@ SYMBOL_FILE_FRAMES = ("doc.text", "doc.text.fill")
 
 FILE_MENU_LABEL = "Transcrire un fichier audio…"
 FILE_CANCEL_LABEL = "Annuler la transcription"
+
+# Lecture à voix haute du presse-papier (synthese.py). Comme pour les
+# fichiers, l'item sert d'affichage d'état pendant le travail — titres
+# distincts de tous les autres items, rumps indexant par titre.
+READ_MENU_LABEL = "Lire le texte copié"
+READ_BUSY_LABEL = "Lecture : préparation…"
+READ_PLAYING_LABEL = "Lecture : en cours…"
+STATUS_SPEECH_DOWNLOAD = "État : téléchargement du modèle de lecture…"
+# Haut-parleur à 1 puis 3 ondes : silhouettes distinctes du sablier et du doc.
+SYMBOL_SPEECH_FRAMES = ("speaker.wave.1.fill", "speaker.wave.3.fill")
 
 # Libellés de l'item d'erreur. Une chaîne vide rendrait l'item invisible mais
 # laisserait un séparateur bancal ; un tiret discret indique « rien à voir ».
@@ -323,6 +334,11 @@ class VoxtralApp(rumps.App):
             FILE_MENU_LABEL, callback=self.transcribe_file_dialog
         )
         self.file_cancel_item = rumps.MenuItem(FILE_CANCEL_LABEL)
+        # Lecture du presse-papier à voix haute (cf. read_clipboard_aloud).
+        self.read_item = rumps.MenuItem(
+            READ_MENU_LABEL, callback=self.read_clipboard_aloud
+        )
+        self._speech_busy = False
 
         self.menu = [
             self.status_item,
@@ -333,6 +349,7 @@ class VoxtralApp(rumps.App):
             None,  # séparateur
             self.file_item,
             self.file_cancel_item,
+            self.read_item,
             None,
             rumps.MenuItem(
                 "Réactiver le raccourci", callback=self.rearm_hotkey_manual
@@ -363,6 +380,9 @@ class VoxtralApp(rumps.App):
         # n'est jamais utilisée.
         self._file_transcriber: "Transcriber | None" = None
         self._file_repo: str | None = None
+        # Moteur de synthèse vocale, lui aussi construit à la demande : 2,5 Go
+        # de poids qu'on ne charge que si l'utilisateur lit un texte.
+        self._synthetiseur: "synthese.Synthetiseur | None" = None
 
         # 4) Raccourci global. on_start/on_stop tournent DANS le callback de
         # l'event tap macOS : ils ne font qu'une mise en file (cf. la docstring
@@ -488,6 +508,12 @@ class VoxtralApp(rumps.App):
 
         if new_config.transcription.language != old.transcription.language:
             self.lang_item.title = f"Langue : {self._language_label()}"
+
+        if new_config.synthesis.model != old.synthesis.model:
+            # Pas de rechargement anticipé : le modèle de lecture se charge
+            # au prochain « Lire le texte copié », comme à la première fois.
+            # La voix, elle, est lue dans la config à chaque lecture.
+            self._synthetiseur = None
 
     # ------------------------------------------------------------------
     # Suivi du micro par défaut
@@ -809,6 +835,139 @@ class VoxtralApp(rumps.App):
             AppHelper.callAfter(self._set_menu_title, item, title)
             return
         item.title = title
+
+    # ------------------------------------------------------------------
+    # Lecture du presse-papier à voix haute
+    # ------------------------------------------------------------------
+
+    def read_clipboard_aloud(self, _sender: rumps.MenuItem) -> None:
+        """Callback du menu. Main thread (NSPasteboard et rumps.alert l'exigent).
+
+        Tout ce qui demande une décision à l'utilisateur se passe ici, avant
+        de lancer quoi que ce soit : presse-papier vide, texte trop long,
+        modèle à télécharger (2,5 Go — on ne le fait jamais en silence).
+        La synthèse part ensuite sur l'inference-worker, seul propriétaire
+        des modèles MLX ; en priorité basse, une dictée passe donc devant.
+        """
+        if self._speech_busy:
+            rumps.alert(
+                title=APP_NAME,
+                message="Une lecture est déjà en cours. Attends qu'elle finisse.",
+            )
+            return
+
+        text = (read_clipboard_text() or "").strip()
+        if not text:
+            rumps.alert(
+                title=APP_NAME,
+                message=(
+                    "Le presse-papier ne contient pas de texte.\n\n"
+                    "Copie une phrase (Cmd+C), puis relance « Lire le texte copié »."
+                ),
+            )
+            return
+
+        repo = self.config.synthesis.model
+        needs_download = not hf_offline.is_model_cached(repo)
+        if needs_download:
+            info = find_model(repo)
+            size = f"{info.size_gb:.1f} Go" if info is not None else "quelques Go"
+            answer = rumps.alert(
+                title="Télécharger le modèle de lecture ?",
+                message=(
+                    f"Lire un texte à voix haute demande un modèle de synthèse "
+                    f"vocale ({size}) qui n'est pas encore sur ton Mac.\n\n"
+                    f"Le téléchargement se fait une seule fois ; la lecture "
+                    f"démarre dès qu'il est fini."
+                ),
+                ok="Télécharger",
+                cancel="Annuler",
+            )
+            if answer != 1:
+                return
+
+        text, truncated = synthese.tronquer(text)
+        if truncated:
+            rumps.alert(
+                title=APP_NAME,
+                message=(
+                    f"Le texte copié est long : seuls ses {synthese.MAX_CHARS} "
+                    f"premiers caractères seront lus."
+                ),
+            )
+
+        self._speech_busy = True
+        self.read_item.set_callback(None)
+        self.read_item.title = READ_BUSY_LABEL
+        if needs_download:
+            self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
+            self._set_status_title(STATUS_SPEECH_DOWNLOAD)
+        else:
+            self._start_animation(SYMBOL_SPEECH_FRAMES, 0.5)
+        self.inference.submit(
+            lambda: self._synthesize_and_play(text),
+            priority=PRIORITY_FILE,
+            label="speech",
+        )
+
+    def _get_synthetiseur(self) -> "synthese.Synthetiseur":
+        """Moteur de synthèse, créé au premier usage (même logique que
+        `_get_file_transcriber` : pas de `hf_offline.refresh` ici, le moteur
+        ouvre lui-même le réseau le temps du téléchargement si besoin)."""
+        repo = self.config.synthesis.model
+        if self._synthetiseur is None or self._synthetiseur.repo != repo:
+            self._synthetiseur = synthese.Synthetiseur(repo)
+        return self._synthetiseur
+
+    def _synthesize_and_play(self, text: str) -> None:
+        """Synthèse. Tourne sur l'inference-worker.
+
+        Seule la synthèse occupe le worker : la lecture du son part sur un
+        thread à part, pour rendre le worker à la dictée tout de suite —
+        sinon une dictée attendrait la fin d'une lecture de trente secondes.
+        """
+        try:
+            synth = self._get_synthetiseur()
+            audio = synth.lire(text, self.config.synthesis.voice)
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            self._show_error("Lecture impossible", str(exc)[:400])
+            self._on_speech_done()
+            return
+
+        self._set_menu_title(self.read_item, READ_PLAYING_LABEL)
+        threading.Thread(
+            target=self._play_and_finish,
+            args=(audio, synth.sample_rate),
+            name="speech-play",
+            daemon=True,
+        ).start()
+
+    def _play_and_finish(self, audio, sample_rate: int) -> None:  # noqa: ANN001
+        try:
+            synthese.jouer(audio, sample_rate)
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            self._show_error("Lecture impossible", str(exc)[:400])
+        finally:
+            self._on_speech_done()
+
+    def _on_speech_done(self) -> None:
+        """Remet le menu et l'icône au repos. Depuis n'importe quel thread."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._on_speech_done)
+            return
+        self._speech_busy = False
+        self.read_item.title = READ_MENU_LABEL
+        self.read_item.set_callback(self.read_clipboard_aloud)
+        self._stop_animation()
+        # On ne rend le titre d'état que si c'est nous qui l'avions pris : une
+        # dictée a pu démarrer entre-temps et y afficher le sien.
+        if self.status_item.title == STATUS_SPEECH_DOWNLOAD:
+            self._set_status_title("État : prêt")
+        # Ne pas écraser le flash rouge d'une erreur qu'on vient d'afficher.
+        if self._error_flash_timer is None:
+            self._set_status_icon(SYMBOL_IDLE)
 
     # ------------------------------------------------------------------
     # Erreurs visibles (cause 5)
@@ -1175,6 +1334,7 @@ class VoxtralApp(rumps.App):
         self.file_job.cancel()
         self.dictation.shutdown(wait=False)
         self.inference.shutdown(wait=False)
+        synthese.arreter()
 
         threading.Thread(
             target=self._safe_release_resources, daemon=True, name="quit-release"

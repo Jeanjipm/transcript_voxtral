@@ -157,6 +157,18 @@ class FileTranscriptionConfig:
 
 
 @dataclass
+class SynthesisConfig:
+    # Synthèse vocale : « Lire le texte copié » dans le menu, et
+    # vocaliser_cahier.py. Modèle Voxtral 4B TTS en 4 bits (2,5 Go), téléchargé
+    # à la première demande — jamais exigé à l'enregistrement des Préférences,
+    # pour ne pas imposer 2,5 Go à qui n'utilise pas la lecture.
+    model: str = "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+    # Nom exact d'une voix du modèle (cf. synthese.LIBELLES_VOIX). Deux voix
+    # françaises : fr_female et fr_male.
+    voice: str = "fr_female"
+
+
+@dataclass
 class OfflineConfig:
     # Quand le modèle est déjà téléchargé, coupe tout accès réseau au
     # chargement. Sans ça, charger un modèle pourtant présent sur le disque
@@ -190,6 +202,7 @@ class Config:
     )
     offline: OfflineConfig = field(default_factory=OfflineConfig)
     maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
+    synthesis: SynthesisConfig = field(default_factory=SynthesisConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -226,6 +239,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         ),
         offline=_build(OfflineConfig, data.get("offline", {})),
         maintenance=_build(MaintenanceConfig, data.get("maintenance", {})),
+        synthesis=_build(SynthesisConfig, data.get("synthesis", {})),
     )
 
 

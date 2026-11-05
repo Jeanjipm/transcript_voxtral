@@ -58,7 +58,7 @@ def copy_to_clipboard(text: str) -> None:
     proc.communicate(text.encode("utf-8"))
 
 
-def _read_clipboard_text() -> str | None:
+def read_clipboard_text() -> str | None:
     """Retourne le contenu texte actuel du presse-papier, ou None si vide.
 
     Même règle de thread que `copy_to_clipboard`. `pbpaste` rend une chaîne
@@ -80,6 +80,10 @@ def _read_clipboard_text() -> str | None:
         return None
     text = result.stdout.decode("utf-8", errors="replace")
     return text or None
+
+
+# Ancien nom, gardé pour les appels existants (paste_text, tests).
+_read_clipboard_text = read_clipboard_text
 
 
 def simulate_paste() -> None:
