@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-4bit",
+ "sample": "synth_court_dictee",
+ "audio_s": 4.7745625,
+ "offline": true,
+ "ok": true,
+ "error": "",
+ "load_s": 1.498360249970574,
+ "cold_s": 0.6971358329756185,
+ "warm_s": 0.6580275419983082,
+ "peak_rss_mb": 3389.625,
+ "mlx_peak_mb": 5083.845672607422,
+ "text": "Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

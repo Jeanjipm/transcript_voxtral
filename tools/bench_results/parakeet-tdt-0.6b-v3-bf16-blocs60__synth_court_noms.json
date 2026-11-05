@@ -1,0 +1,26 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16-blocs60",
+ "sample": "synth_court_noms",
+ "audio_s": 6.2918125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.254352750023827,
+ "cold_s": 0.06388329097535461,
+ "warm_s": 0.045627249986864626,
+ "peak_rss_mb": 2730.25,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Poursain-sur-Sioul.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.24,
+   "text": " Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Poursain-sur-Sioul.",
+   "words": 58
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

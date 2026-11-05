@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-4bit",
+ "sample": "synth_moyen_audrey",
+ "audio_s": 15.1649375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.8176666669896804,
+ "cold_s": 1.3077898750198074,
+ "warm_s": 1.2239899160340428,
+ "peak_rss_mb": 3396.453125,
+ "mlx_peak_mb": 5056.974578857422,
+ "text": "Pour la commande du marché, il nous faut 3 kg de pommes, 2 bouquets de basilic, un litre d'huile d'olive, si ce et une baguette de tradition. Le total ne doit pas dépasser 40 euros, sinon on reporte le fromage à la semaine prochaine.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

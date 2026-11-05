@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-4bit",
+ "sample": "synth_court_sigles",
+ "audio_s": 6.3130625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.314230874995701,
+ "cold_s": 0.22783354198327288,
+ "warm_s": 0.19658824999351054,
+ "peak_rss_mb": 1942.734375,
+ "mlx_peak_mb": 2475.800640106201,
+ "text": "Le PDF de la direction des finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.3130625,
+   "text": "Le PDF de la direction des finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi."
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

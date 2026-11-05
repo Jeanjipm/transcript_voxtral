@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-8bit",
+ "sample": "synth_court_sigles",
+ "audio_s": 6.3130625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4726517910021357,
+ "cold_s": 0.9477769999648444,
+ "warm_s": 0.8898067909758538,
+ "peak_rss_mb": 5301.625,
+ "mlx_peak_mb": 6790.337818145752,
+ "text": "Le PDF de la Direction des Finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

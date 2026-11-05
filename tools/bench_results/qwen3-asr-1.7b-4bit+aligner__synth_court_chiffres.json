@@ -1,0 +1,152 @@
+{
+ "model": "qwen3-asr-1.7b-4bit+aligner",
+ "sample": "synth_court_chiffres",
+ "audio_s": 8.391375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4216642919927835,
+ "cold_s": 0.35207341698696837,
+ "warm_s": 0.31190124998101965,
+ "peak_rss_mb": 2904.8125,
+ "mlx_peak_mb": 3456.2598571777344,
+ "text": "La réunion est fixée au 12 mars 2026 à 14 heures 30, Salbey, avec un budget de 3 500 euros hors taxes.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 0.16,
+   "text": "La",
+   "word": true
+  },
+  {
+   "start": 0.16,
+   "end": 0.72,
+   "text": "réunion",
+   "word": true
+  },
+  {
+   "start": 0.72,
+   "end": 0.8,
+   "text": "est",
+   "word": true
+  },
+  {
+   "start": 0.8,
+   "end": 1.2,
+   "text": "fixée",
+   "word": true
+  },
+  {
+   "start": 1.2,
+   "end": 1.28,
+   "text": "au",
+   "word": true
+  },
+  {
+   "start": 1.28,
+   "end": 1.6,
+   "text": "12",
+   "word": true
+  },
+  {
+   "start": 1.6,
+   "end": 1.92,
+   "text": "mars",
+   "word": true
+  },
+  {
+   "start": 1.92,
+   "end": 2.96,
+   "text": "2026",
+   "word": true
+  },
+  {
+   "start": 2.96,
+   "end": 3.04,
+   "text": "à",
+   "word": true
+  },
+  {
+   "start": 3.04,
+   "end": 3.52,
+   "text": "14",
+   "word": true
+  },
+  {
+   "start": 3.52,
+   "end": 3.76,
+   "text": "heures",
+   "word": true
+  },
+  {
+   "start": 3.76,
+   "end": 4.16,
+   "text": "30",
+   "word": true
+  },
+  {
+   "start": 4.48,
+   "end": 5.12,
+   "text": "Salbey",
+   "word": true
+  },
+  {
+   "start": 5.28,
+   "end": 5.6,
+   "text": "avec",
+   "word": true
+  },
+  {
+   "start": 5.6,
+   "end": 5.68,
+   "text": "un",
+   "word": true
+  },
+  {
+   "start": 5.68,
+   "end": 6.08,
+   "text": "budget",
+   "word": true
+  },
+  {
+   "start": 6.08,
+   "end": 6.24,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 6.24,
+   "end": 6.48,
+   "text": "3",
+   "word": true
+  },
+  {
+   "start": 6.72,
+   "end": 7.2,
+   "text": "500",
+   "word": true
+  },
+  {
+   "start": 7.2,
+   "end": 7.44,
+   "text": "euros",
+   "word": true
+  },
+  {
+   "start": 7.44,
+   "end": 7.68,
+   "text": "hors",
+   "word": true
+  },
+  {
+   "start": 7.68,
+   "end": 8.16,
+   "text": "taxes",
+   "word": true
+  }
+ ],
+ "timestamps": "mot",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

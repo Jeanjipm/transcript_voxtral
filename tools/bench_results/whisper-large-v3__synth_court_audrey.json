@@ -1,0 +1,25 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_court_audrey",
+ "audio_s": 6.6260625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.9194214590243064,
+ "cold_s": 0.5328610420110635,
+ "warm_s": 0.42980445799184963,
+ "peak_rss_mb": 3478.765625,
+ "mlx_peak_mb": 3767.072313308716,
+ "text": "Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.26,
+   "text": "Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

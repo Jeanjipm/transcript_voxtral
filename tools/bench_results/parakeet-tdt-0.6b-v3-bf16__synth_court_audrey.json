@@ -1,0 +1,26 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16",
+ "sample": "synth_court_audrey",
+ "audio_s": 6.6260625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3125026670168154,
+ "cold_s": 0.05624004203127697,
+ "warm_s": 0.036795917025301605,
+ "peak_rss_mb": 2730.171875,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.48,
+   "text": " Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.",
+   "words": 35
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,30 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_moyen_audrey",
+ "audio_s": 15.1649375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.9394703339785337,
+ "cold_s": 1.0735009579802863,
+ "warm_s": 0.9649387499666773,
+ "peak_rss_mb": 3495.65625,
+ "mlx_peak_mb": 3772.759813308716,
+ "text": "Pour la commande du marché, il nous faut 3 kilos de pommes, 2 bouquets de basilic, 1 litre d'huile d'olive, 6 œufs et une baguette de tradition. Le total ne doit pas dépasser 40 euros, sinon on reporte le fromage à la semaine prochaine.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 8.76,
+   "text": "Pour la commande du marché, il nous faut 3 kilos de pommes, 2 bouquets de basilic, 1 litre d'huile d'olive, 6 œufs et une baguette de tradition."
+  },
+  {
+   "start": 9.200000000000001,
+   "end": 14.82,
+   "text": "Le total ne doit pas dépasser 40 euros, sinon on reporte le fromage à la semaine prochaine."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

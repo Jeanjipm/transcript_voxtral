@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-4bit",
+ "sample": "synth_court_audrey",
+ "audio_s": 6.6260625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.5841500419774093,
+ "cold_s": 0.6708789159893058,
+ "warm_s": 0.6443975419970229,
+ "peak_rss_mb": 3392.9375,
+ "mlx_peak_mb": 4925.048770904541,
+ "text": "Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,1 @@
+Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?

@@ -1,0 +1,50 @@
+{
+ "model": "whisper-large-v3-turbo",
+ "sample": "synth_long_dictee_pro",
+ "audio_s": 47.717125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.6152974169817753,
+ "cold_s": 0.8707588330144063,
+ "warm_s": 0.7691021669888869,
+ "peak_rss_mb": 1775.5,
+ "mlx_peak_mb": 2391.675672531128,
+ "text": "Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liée à la qualité des fichiers sources. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 10.6,
+   "text": "Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire."
+  },
+  {
+   "start": 10.9,
+   "end": 19.1,
+   "text": "Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier."
+  },
+  {
+   "start": 19.32,
+   "end": 28.28,
+   "text": "Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liée à la qualité des fichiers sources."
+  },
+  {
+   "start": 28.28,
+   "end": 34.58,
+   "text": "Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive."
+  },
+  {
+   "start": 34.86,
+   "end": 43.0,
+   "text": "Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier."
+  },
+  {
+   "start": 43.400000000000006,
+   "end": 47.34,
+   "text": "Prochaine réunion le 8 février à 10 heures, en visioconférence."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

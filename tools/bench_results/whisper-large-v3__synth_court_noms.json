@@ -1,0 +1,25 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_court_noms",
+ "audio_s": 6.2918125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.6693647500360385,
+ "cold_s": 0.8252100420068018,
+ "warm_s": 0.6843614160316065,
+ "peak_rss_mb": 3486.3125,
+ "mlx_peak_mb": 3766.853563308716,
+ "text": "Jean-Jérôme Danton rencontre l'office de tourisme de Serre-Chevalier-Briançon et la mairie de Saint-Pourcin-sur-Séoul.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.0200000000000005,
+   "text": "Jean-Jérôme Danton rencontre l'office de tourisme de Serre-Chevalier-Briançon et la mairie de Saint-Pourcin-sur-Séoul."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

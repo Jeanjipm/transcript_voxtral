@@ -1,0 +1,25 @@
+{
+ "model": "whisper-large-v3-turbo",
+ "sample": "synth_court_chiffres",
+ "audio_s": 8.391375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.7025591249694116,
+ "cold_s": 0.3229869580245577,
+ "warm_s": 0.21300929097924381,
+ "peak_rss_mb": 1765.5625,
+ "mlx_peak_mb": 2367.050676345825,
+ "text": "La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3500 euros hors taxe.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 8.18,
+   "text": "La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3500 euros hors taxe."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

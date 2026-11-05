@@ -1,0 +1,62 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16",
+ "sample": "synth_long_tourisme",
+ "audio_s": 54.38725,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3153529589762911,
+ "cold_s": 0.21294666698668152,
+ "warm_s": 0.191980000003241,
+ "peak_rss_mb": 2737.21875,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "Le tourisme de montagne traverse une période de transformation profonde. Les stations de moyenne altitude voient leur enneigement reculer d'année en année, et les offices de tourisme doivent réinventer leur offre pour attirer des visiteurs toute l'année. La randonnée, le vélo électrique, les activités en famille et le patrimoine local deviennent des arguments aussi importants que le ski. Dans la vallée de la Tarentaise, plusieurs communes ont choisi de mutualiser leurs moyens pour financer une plateforme de réservation commune. L'objectif est double, simplifier le parcours du client et récupérer des données fiables sur la fréquentation. Les premiers résultats montrent une hausse de 18% des séjours hors saison, portée surtout par une clientèle de proximité venue de Lyon, de Genève et de Grenoble. Reste la question du financement, les budgets communaux sont contraints, et les partenaires privés attendent des garanties avant de s'engager sur plusieurs années.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 4.5600000000000005,
+   "text": " Le tourisme de montagne traverse une période de transformation profonde.",
+   "words": 24
+  },
+  {
+   "start": 4.5600000000000005,
+   "end": 13.600000000000001,
+   "text": " Les stations de moyenne altitude voient leur enneigement reculer d'année en année, et les offices de tourisme doivent réinventer leur offre pour attirer des visiteurs toute l'année.",
+   "words": 63
+  },
+  {
+   "start": 13.600000000000001,
+   "end": 21.6,
+   "text": " La randonnée, le vélo électrique, les activités en famille et le patrimoine local deviennent des arguments aussi importants que le ski.",
+   "words": 47
+  },
+  {
+   "start": 21.6,
+   "end": 29.52,
+   "text": " Dans la vallée de la Tarentaise, plusieurs communes ont choisi de mutualiser leurs moyens pour financer une plateforme de réservation commune.",
+   "words": 48
+  },
+  {
+   "start": 29.52,
+   "end": 36.0,
+   "text": " L'objectif est double, simplifier le parcours du client et récupérer des données fiables sur la fréquentation.",
+   "words": 41
+  },
+  {
+   "start": 36.0,
+   "end": 45.67999999999999,
+   "text": " Les premiers résultats montrent une hausse de 18% des séjours hors saison, portée surtout par une clientèle de proximité venue de Lyon, de Genève et de Grenoble.",
+   "words": 61
+  },
+  {
+   "start": 45.67999999999999,
+   "end": 54.24,
+   "text": " Reste la question du financement, les budgets communaux sont contraints, et les partenaires privés attendent des garanties avant de s'engager sur plusieurs années.",
+   "words": 51
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

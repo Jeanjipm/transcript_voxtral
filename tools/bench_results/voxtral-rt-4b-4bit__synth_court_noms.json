@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-rt-4b-4bit",
+ "sample": "synth_court_noms",
+ "audio_s": 6.2918125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3645354170002975,
+ "cold_s": 2.4992434160085395,
+ "warm_s": 2.438001249975059,
+ "peak_rss_mb": 3454.171875,
+ "mlx_peak_mb": 4885.247131347656,
+ "text": "Jean-Jérôme dont on rencontre l'Office de tourisme de Serre-Chevalier-Briançon et la mairie de Saint-Pourcin-sur-Sioul.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

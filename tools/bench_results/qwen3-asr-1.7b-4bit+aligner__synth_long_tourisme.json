@@ -1,0 +1,890 @@
+{
+ "model": "qwen3-asr-1.7b-4bit+aligner",
+ "sample": "synth_long_tourisme",
+ "audio_s": 54.38725,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4469279160257429,
+ "cold_s": 1.523944583022967,
+ "warm_s": 1.5029121250263415,
+ "peak_rss_mb": 2944.75,
+ "mlx_peak_mb": 4060.0792236328125,
+ "text": "Le tourisme de montagne traverse une période de transformation profonde. Les stations de moyenne altitude voient leur enneigement reculer d'année en année, et les offices de tourisme doivent réinventer leur offre pour attirer des visiteurs toute l'année. La randonnée, le vélo électrique, les activités en famille et le patrimoine local deviennent des arguments aussi importants que le ski. Dans la vallée de la Tarentaise, plusieurs communes ont choisi de mutualiser leurs moyens pour financer une plateforme de réservation commune. L'objectif est double : simplifier le parcours du client et récupérer des données fiables sur la fréquentation. Les premiers résultats montrent une hausse de 10,8% des séjours hors saison, portée surtout par une clientèle de proximité venue de Lyon, de Genève et de Grenoble. Reste la question du financement. Les budgets communaux sont contraints, et les partenaires privés attendent des garanties avant de s'engager sur plusieurs années.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 0.16,
+   "text": "Le",
+   "word": true
+  },
+  {
+   "start": 0.16,
+   "end": 0.72,
+   "text": "tourisme",
+   "word": true
+  },
+  {
+   "start": 0.72,
+   "end": 0.88,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 0.88,
+   "end": 1.28,
+   "text": "montagne",
+   "word": true
+  },
+  {
+   "start": 1.44,
+   "end": 1.92,
+   "text": "traverse",
+   "word": true
+  },
+  {
+   "start": 1.92,
+   "end": 2.16,
+   "text": "une",
+   "word": true
+  },
+  {
+   "start": 2.16,
+   "end": 2.56,
+   "text": "période",
+   "word": true
+  },
+  {
+   "start": 2.56,
+   "end": 2.64,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 2.64,
+   "end": 3.68,
+   "text": "transformation",
+   "word": true
+  },
+  {
+   "start": 3.68,
+   "end": 4.4,
+   "text": "profonde",
+   "word": true
+  },
+  {
+   "start": 4.56,
+   "end": 4.72,
+   "text": "Les",
+   "word": true
+  },
+  {
+   "start": 4.72,
+   "end": 5.28,
+   "text": "stations",
+   "word": true
+  },
+  {
+   "start": 5.28,
+   "end": 5.36,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 5.44,
+   "end": 5.84,
+   "text": "moyenne",
+   "word": true
+  },
+  {
+   "start": 5.84,
+   "end": 6.32,
+   "text": "altitude",
+   "word": true
+  },
+  {
+   "start": 6.32,
+   "end": 6.64,
+   "text": "voient",
+   "word": true
+  },
+  {
+   "start": 6.64,
+   "end": 6.88,
+   "text": "leur",
+   "word": true
+  },
+  {
+   "start": 6.88,
+   "end": 7.36,
+   "text": "enneigement",
+   "word": true
+  },
+  {
+   "start": 7.36,
+   "end": 7.76,
+   "text": "reculer",
+   "word": true
+  },
+  {
+   "start": 7.76,
+   "end": 8.08,
+   "text": "d'année",
+   "word": true
+  },
+  {
+   "start": 8.08,
+   "end": 8.24,
+   "text": "en",
+   "word": true
+  },
+  {
+   "start": 8.24,
+   "end": 8.64,
+   "text": "année",
+   "word": true
+  },
+  {
+   "start": 8.88,
+   "end": 8.96,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 8.96,
+   "end": 9.12,
+   "text": "les",
+   "word": true
+  },
+  {
+   "start": 9.12,
+   "end": 9.52,
+   "text": "offices",
+   "word": true
+  },
+  {
+   "start": 9.52,
+   "end": 9.6,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 9.6,
+   "end": 10.24,
+   "text": "tourisme",
+   "word": true
+  },
+  {
+   "start": 10.24,
+   "end": 10.48,
+   "text": "doivent",
+   "word": true
+  },
+  {
+   "start": 10.48,
+   "end": 11.04,
+   "text": "réinventer",
+   "word": true
+  },
+  {
+   "start": 11.04,
+   "end": 11.2,
+   "text": "leur",
+   "word": true
+  },
+  {
+   "start": 11.2,
+   "end": 11.52,
+   "text": "offre",
+   "word": true
+  },
+  {
+   "start": 11.52,
+   "end": 11.76,
+   "text": "pour",
+   "word": true
+  },
+  {
+   "start": 11.76,
+   "end": 12.16,
+   "text": "attirer",
+   "word": true
+  },
+  {
+   "start": 12.16,
+   "end": 12.24,
+   "text": "des",
+   "word": true
+  },
+  {
+   "start": 12.24,
+   "end": 12.88,
+   "text": "visiteurs",
+   "word": true
+  },
+  {
+   "start": 12.88,
+   "end": 13.12,
+   "text": "toute",
+   "word": true
+  },
+  {
+   "start": 13.12,
+   "end": 13.52,
+   "text": "l'année",
+   "word": true
+  },
+  {
+   "start": 13.68,
+   "end": 13.84,
+   "text": "La",
+   "word": true
+  },
+  {
+   "start": 13.84,
+   "end": 14.48,
+   "text": "randonnée",
+   "word": true
+  },
+  {
+   "start": 14.64,
+   "end": 14.8,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 14.8,
+   "end": 15.2,
+   "text": "vélo",
+   "word": true
+  },
+  {
+   "start": 15.2,
+   "end": 15.92,
+   "text": "électrique",
+   "word": true
+  },
+  {
+   "start": 16.16,
+   "end": 16.4,
+   "text": "les",
+   "word": true
+  },
+  {
+   "start": 16.4,
+   "end": 17.04,
+   "text": "activités",
+   "word": true
+  },
+  {
+   "start": 17.04,
+   "end": 17.12,
+   "text": "en",
+   "word": true
+  },
+  {
+   "start": 17.12,
+   "end": 17.52,
+   "text": "famille",
+   "word": true
+  },
+  {
+   "start": 17.52,
+   "end": 17.6,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 17.6,
+   "end": 17.68,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 17.68,
+   "end": 18.4,
+   "text": "patrimoine",
+   "word": true
+  },
+  {
+   "start": 18.4,
+   "end": 18.8,
+   "text": "local",
+   "word": true
+  },
+  {
+   "start": 18.8,
+   "end": 19.2,
+   "text": "deviennent",
+   "word": true
+  },
+  {
+   "start": 19.2,
+   "end": 19.44,
+   "text": "des",
+   "word": true
+  },
+  {
+   "start": 19.44,
+   "end": 19.92,
+   "text": "arguments",
+   "word": true
+  },
+  {
+   "start": 19.92,
+   "end": 20.24,
+   "text": "aussi",
+   "word": true
+  },
+  {
+   "start": 20.24,
+   "end": 20.72,
+   "text": "importants",
+   "word": true
+  },
+  {
+   "start": 20.72,
+   "end": 20.8,
+   "text": "que",
+   "word": true
+  },
+  {
+   "start": 20.8,
+   "end": 20.96,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 20.96,
+   "end": 21.36,
+   "text": "ski",
+   "word": true
+  },
+  {
+   "start": 21.6,
+   "end": 21.76,
+   "text": "Dans",
+   "word": true
+  },
+  {
+   "start": 21.76,
+   "end": 21.92,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 21.92,
+   "end": 22.16,
+   "text": "vallée",
+   "word": true
+  },
+  {
+   "start": 22.16,
+   "end": 22.24,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 22.24,
+   "end": 22.4,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 22.4,
+   "end": 23.2,
+   "text": "Tarentaise",
+   "word": true
+  },
+  {
+   "start": 23.52,
+   "end": 24.08,
+   "text": "plusieurs",
+   "word": true
+  },
+  {
+   "start": 24.08,
+   "end": 24.48,
+   "text": "communes",
+   "word": true
+  },
+  {
+   "start": 24.48,
+   "end": 24.56,
+   "text": "ont",
+   "word": true
+  },
+  {
+   "start": 24.56,
+   "end": 24.96,
+   "text": "choisi",
+   "word": true
+  },
+  {
+   "start": 24.96,
+   "end": 25.12,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 25.12,
+   "end": 25.84,
+   "text": "mutualiser",
+   "word": true
+  },
+  {
+   "start": 25.84,
+   "end": 26.0,
+   "text": "leurs",
+   "word": true
+  },
+  {
+   "start": 26.0,
+   "end": 26.4,
+   "text": "moyens",
+   "word": true
+  },
+  {
+   "start": 26.4,
+   "end": 26.64,
+   "text": "pour",
+   "word": true
+  },
+  {
+   "start": 26.64,
+   "end": 27.12,
+   "text": "financer",
+   "word": true
+  },
+  {
+   "start": 27.12,
+   "end": 27.28,
+   "text": "une",
+   "word": true
+  },
+  {
+   "start": 27.28,
+   "end": 27.92,
+   "text": "plateforme",
+   "word": true
+  },
+  {
+   "start": 27.92,
+   "end": 28.0,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 28.0,
+   "end": 28.8,
+   "text": "réservation",
+   "word": true
+  },
+  {
+   "start": 28.8,
+   "end": 29.36,
+   "text": "commune",
+   "word": true
+  },
+  {
+   "start": 29.52,
+   "end": 30.4,
+   "text": "L'objectif",
+   "word": true
+  },
+  {
+   "start": 30.4,
+   "end": 30.48,
+   "text": "est",
+   "word": true
+  },
+  {
+   "start": 30.48,
+   "end": 30.88,
+   "text": "double",
+   "word": true
+  },
+  {
+   "start": 31.12,
+   "end": 31.84,
+   "text": "simplifier",
+   "word": true
+  },
+  {
+   "start": 31.84,
+   "end": 31.92,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 31.92,
+   "end": 32.4,
+   "text": "parcours",
+   "word": true
+  },
+  {
+   "start": 32.4,
+   "end": 32.56,
+   "text": "du",
+   "word": true
+  },
+  {
+   "start": 32.56,
+   "end": 32.96,
+   "text": "client",
+   "word": true
+  },
+  {
+   "start": 32.96,
+   "end": 33.04,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 33.04,
+   "end": 33.68,
+   "text": "récupérer",
+   "word": true
+  },
+  {
+   "start": 33.68,
+   "end": 33.76,
+   "text": "des",
+   "word": true
+  },
+  {
+   "start": 33.76,
+   "end": 34.08,
+   "text": "données",
+   "word": true
+  },
+  {
+   "start": 34.08,
+   "end": 34.56,
+   "text": "fiables",
+   "word": true
+  },
+  {
+   "start": 34.56,
+   "end": 34.72,
+   "text": "sur",
+   "word": true
+  },
+  {
+   "start": 34.72,
+   "end": 34.88,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 34.88,
+   "end": 35.84,
+   "text": "fréquentation",
+   "word": true
+  },
+  {
+   "start": 36.0,
+   "end": 36.16,
+   "text": "Les",
+   "word": true
+  },
+  {
+   "start": 36.16,
+   "end": 36.56,
+   "text": "premiers",
+   "word": true
+  },
+  {
+   "start": 36.56,
+   "end": 37.04,
+   "text": "résultats",
+   "word": true
+  },
+  {
+   "start": 37.04,
+   "end": 37.44,
+   "text": "montrent",
+   "word": true
+  },
+  {
+   "start": 37.44,
+   "end": 37.52,
+   "text": "une",
+   "word": true
+  },
+  {
+   "start": 37.52,
+   "end": 37.76,
+   "text": "hausse",
+   "word": true
+  },
+  {
+   "start": 37.76,
+   "end": 37.84,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 37.84,
+   "end": 38.8,
+   "text": "108",
+   "word": true
+  },
+  {
+   "start": 38.8,
+   "end": 38.88,
+   "text": "des",
+   "word": true
+  },
+  {
+   "start": 38.88,
+   "end": 39.36,
+   "text": "séjours",
+   "word": true
+  },
+  {
+   "start": 39.36,
+   "end": 39.52,
+   "text": "hors",
+   "word": true
+  },
+  {
+   "start": 39.52,
+   "end": 40.08,
+   "text": "saison",
+   "word": true
+  },
+  {
+   "start": 40.4,
+   "end": 40.72,
+   "text": "portée",
+   "word": true
+  },
+  {
+   "start": 40.72,
+   "end": 41.2,
+   "text": "surtout",
+   "word": true
+  },
+  {
+   "start": 41.2,
+   "end": 41.44,
+   "text": "par",
+   "word": true
+  },
+  {
+   "start": 41.44,
+   "end": 41.6,
+   "text": "une",
+   "word": true
+  },
+  {
+   "start": 41.6,
+   "end": 42.24,
+   "text": "clientèle",
+   "word": true
+  },
+  {
+   "start": 42.24,
+   "end": 42.24,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 42.32,
+   "end": 43.04,
+   "text": "proximité",
+   "word": true
+  },
+  {
+   "start": 43.04,
+   "end": 43.36,
+   "text": "venue",
+   "word": true
+  },
+  {
+   "start": 43.36,
+   "end": 43.52,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 43.52,
+   "end": 43.84,
+   "text": "Lyon",
+   "word": true
+  },
+  {
+   "start": 44.08,
+   "end": 44.24,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 44.24,
+   "end": 44.64,
+   "text": "Genève",
+   "word": true
+  },
+  {
+   "start": 44.64,
+   "end": 44.72,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 44.72,
+   "end": 44.8,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 44.88,
+   "end": 45.52,
+   "text": "Grenoble",
+   "word": true
+  },
+  {
+   "start": 45.68,
+   "end": 46.08,
+   "text": "Reste",
+   "word": true
+  },
+  {
+   "start": 46.08,
+   "end": 46.16,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 46.16,
+   "end": 46.64,
+   "text": "question",
+   "word": true
+  },
+  {
+   "start": 46.64,
+   "end": 46.8,
+   "text": "du",
+   "word": true
+  },
+  {
+   "start": 46.8,
+   "end": 47.6,
+   "text": "financement",
+   "word": true
+  },
+  {
+   "start": 47.76,
+   "end": 48.0,
+   "text": "Les",
+   "word": true
+  },
+  {
+   "start": 48.0,
+   "end": 48.4,
+   "text": "budgets",
+   "word": true
+  },
+  {
+   "start": 48.4,
+   "end": 48.8,
+   "text": "communaux",
+   "word": true
+  },
+  {
+   "start": 48.8,
+   "end": 49.04,
+   "text": "sont",
+   "word": true
+  },
+  {
+   "start": 49.04,
+   "end": 49.6,
+   "text": "contraints",
+   "word": true
+  },
+  {
+   "start": 49.84,
+   "end": 49.92,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 49.92,
+   "end": 50.08,
+   "text": "les",
+   "word": true
+  },
+  {
+   "start": 50.08,
+   "end": 50.72,
+   "text": "partenaires",
+   "word": true
+  },
+  {
+   "start": 50.72,
+   "end": 51.12,
+   "text": "privés",
+   "word": true
+  },
+  {
+   "start": 51.12,
+   "end": 51.44,
+   "text": "attendent",
+   "word": true
+  },
+  {
+   "start": 51.44,
+   "end": 51.6,
+   "text": "des",
+   "word": true
+  },
+  {
+   "start": 51.6,
+   "end": 52.16,
+   "text": "garanties",
+   "word": true
+  },
+  {
+   "start": 52.16,
+   "end": 52.4,
+   "text": "avant",
+   "word": true
+  },
+  {
+   "start": 52.4,
+   "end": 52.48,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 52.48,
+   "end": 53.12,
+   "text": "s'engager",
+   "word": true
+  },
+  {
+   "start": 53.12,
+   "end": 53.36,
+   "text": "sur",
+   "word": true
+  },
+  {
+   "start": 53.36,
+   "end": 53.92,
+   "text": "plusieurs",
+   "word": true
+  },
+  {
+   "start": 53.92,
+   "end": 54.24,
+   "text": "années",
+   "word": true
+  }
+ ],
+ "timestamps": "mot",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

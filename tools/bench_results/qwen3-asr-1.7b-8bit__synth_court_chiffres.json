@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-8bit",
+ "sample": "synth_court_chiffres",
+ "audio_s": 8.391375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3361427079653367,
+ "cold_s": 0.4075027499930002,
+ "warm_s": 0.3757157090003602,
+ "peak_rss_mb": 2765.1875,
+ "mlx_peak_mb": 3350.397304534912,
+ "text": "La réunion est fixée au douze mars deux mille vingt-six à quatorze heures trente, salle B, avec un budget de trois mille cinq cents euros hors taxes.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 8.391375,
+   "text": "La réunion est fixée au douze mars deux mille vingt-six à quatorze heures trente, salle B, avec un budget de trois mille cinq cents euros hors taxes."
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

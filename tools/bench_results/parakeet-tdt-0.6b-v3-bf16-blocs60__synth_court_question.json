@@ -1,0 +1,26 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16-blocs60",
+ "sample": "synth_court_question",
+ "audio_s": 5.12925,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.259234249999281,
+ "cold_s": 0.05576370802009478,
+ "warm_s": 0.03625391697278246,
+ "peak_rss_mb": 2730.390625,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 5.04,
+   "text": " Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?",
+   "words": 37
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

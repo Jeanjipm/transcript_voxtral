@@ -1,0 +1,110 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16",
+ "sample": "synth_long_dictee_pro",
+ "audio_s": 47.717125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.340586957987398,
+ "cold_s": 0.20294045802438632,
+ "warm_s": 0.18254866695497185,
+ "peak_rss_mb": 2736.640625,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point. L'état d'avancement du projet. Le lot 1 est livré. Le lot 2 est en recette depuis lundi. Et le lot 3 démarre le 15 janvier. Deuxième point. Les risques. Le prestataire signale un retard possible de 3 semaines sur la reprise des données, liée à la qualité des fichiers sources. Décision. Une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.",
+ "segments": [
+  {
+   "start": 0.08,
+   "end": 3.04,
+   "text": " Compte rendu de la réunion du comité de pilotage.",
+   "words": 19
+  },
+  {
+   "start": 3.04,
+   "end": 10.88,
+   "text": " Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire.",
+   "words": 38
+  },
+  {
+   "start": 10.88,
+   "end": 11.76,
+   "text": " Premier point.",
+   "words": 5
+  },
+  {
+   "start": 11.76,
+   "end": 13.440000000000001,
+   "text": " L'état d'avancement du projet.",
+   "words": 14
+  },
+  {
+   "start": 13.440000000000001,
+   "end": 14.879999999999999,
+   "text": " Le lot 1 est livré.",
+   "words": 8
+  },
+  {
+   "start": 14.879999999999999,
+   "end": 17.04,
+   "text": " Le lot 2 est en recette depuis lundi.",
+   "words": 15
+  },
+  {
+   "start": 17.04,
+   "end": 19.439999999999998,
+   "text": " Et le lot 3 démarre le 15 janvier.",
+   "words": 18
+  },
+  {
+   "start": 19.439999999999998,
+   "end": 20.56,
+   "text": " Deuxième point.",
+   "words": 6
+  },
+  {
+   "start": 20.560000000000002,
+   "end": 21.44,
+   "text": " Les risques.",
+   "words": 4
+  },
+  {
+   "start": 21.44,
+   "end": 28.639999999999997,
+   "text": " Le prestataire signale un retard possible de 3 semaines sur la reprise des données, liée à la qualité des fichiers sources.",
+   "words": 42
+  },
+  {
+   "start": 28.64,
+   "end": 29.36,
+   "text": " Décision.",
+   "words": 5
+  },
+  {
+   "start": 29.52,
+   "end": 34.88,
+   "text": " Une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive.",
+   "words": 35
+  },
+  {
+   "start": 34.88,
+   "end": 36.8,
+   "text": " Troisième point : le budget.",
+   "words": 11
+  },
+  {
+   "start": 36.800000000000004,
+   "end": 43.36000000000001,
+   "text": " L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier.",
+   "words": 43
+  },
+  {
+   "start": 43.36,
+   "end": 47.599999999999994,
+   "text": " Prochaine réunion le 8 février à 10h, en visioconférence.",
+   "words": 28
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}
