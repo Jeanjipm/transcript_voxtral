@@ -373,3 +373,24 @@ def test_diff_removes_emptied_sections():
         {"a": {"x": 1, "y": 2}, "b": {"z": 9}},
     )
     assert result == {"b": {"z": 3}}
+
+
+def test_synthesis_section_defaults_and_override(tmp_path: Path):
+    """Sprint vocalisation : modèle de lecture et voix, section `synthesis`."""
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    assert cfg.synthesis.model == "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+    assert cfg.synthesis.voice == "fr_female"
+
+    user = tmp_path / "user.yaml"
+    user.write_text("synthesis:\n  voice: fr_male\n", encoding="utf-8")
+    cfg = load_config(user_path=user)
+    assert cfg.synthesis.voice == "fr_male"
+    assert cfg.synthesis.model == "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+
+
+def test_synthesis_voice_survives_save_and_reload(tmp_path: Path):
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    cfg.synthesis.voice = "fr_male"
+    save_config(cfg, user_path=tmp_path / "saved.yaml")
+    assert load_config(user_path=tmp_path / "saved.yaml").synthesis.voice == "fr_male"
+

@@ -16,6 +16,7 @@ plusieurs endroits : régler sa dictée demandait de visiter trois onglets.
     Fichiers — transcrire un enregistrement existant
     Modèles  — quel modèle pour quoi, et la place qu'ils prennent
     Avancé   — réglages fins dont personne n'a besoin au quotidien
+    Lecture  — la voix qui lit le texte copié, et son modèle
     À propos
 
 ## Deux règles suivies partout
@@ -58,6 +59,7 @@ from model_manager import (
     scan_cached_models,
     selection_requiring,
 )
+from synthese import LIBELLES_VOIX, libelle_voix, voix_disponibles
 
 
 # Raccourcis système macOS connus → warning de conflit dans l'UI
@@ -248,6 +250,7 @@ class SettingsWindow:
         self._build_files_tab()
         self._build_models_tab()
         self._build_advanced_tab()
+        self._build_speech_tab()
         self._build_about_tab()
 
         btn_frame = ttk.Frame(self.root)
@@ -773,6 +776,7 @@ class SettingsWindow:
             self.model_var.get(),
             self.file_model_var.get(),
             diarization=bool(self.diarization_var.get()),
+            synthesis_repo=self.config.synthesis.model,
         )
         total = sum(c.size_bytes for c in cached)
 
@@ -808,9 +812,9 @@ class SettingsWindow:
         ttk.Label(
             frame,
             text=(
-                "Un modèle « en service » sert à la dictée, aux fichiers ou à\n"
-                "la traduction. Supprimer les autres est sans risque : ils se\n"
-                "re-téléchargent si tu les resélectionnes."
+                "Un modèle « en service » sert à la dictée, aux fichiers, à la\n"
+                "traduction ou à la lecture. Supprimer les autres est sans\n"
+                "risque : ils se re-téléchargent si tu les resélectionnes."
             ),
             foreground="gray",
             justify=tk.LEFT,
@@ -941,6 +945,90 @@ class SettingsWindow:
         ).grid(row=11, column=0, columnspan=2, sticky="w")
 
     # ------------------------------------------------------------------
+    # Onglet Lecture
+    # ------------------------------------------------------------------
+
+    def _build_speech_tab(self) -> None:
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Lecture")
+
+        ttk.Label(frame, text="Lire le texte copié", font=("", 12, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 4)
+        )
+        ttk.Label(
+            frame,
+            text="Copie un texte (Cmd+C), puis menu 🎤 → « Lire le texte copié » :\n"
+                 "il est lu au haut-parleur, sur ton Mac, avec la voix choisie ici.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 14))
+
+        ttk.Label(frame, text="Voix :").grid(row=2, column=0, sticky="w")
+        self.voice = LabelledChoice(
+            frame, self._voice_options(), self.config.synthesis.voice, width=32
+        ).grid(row=2, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(
+            frame,
+            text="Les deux voix françaises sont en tête de liste. Les autres\n"
+                 "lisent le français avec l'accent de leur langue.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
+            row=4, column=0, columnspan=2, sticky="ew", pady=(0, 12)
+        )
+        ttk.Label(frame, text="Modèle de lecture", font=("", 12, "bold")).grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(0, 4)
+        )
+        self._speech_status = ttk.Label(frame, justify=tk.LEFT)
+        self._speech_status.grid(row=6, column=0, columnspan=2, sticky="w")
+        self._speech_download_btn = ttk.Button(
+            frame, text="Télécharger maintenant…", command=self._download_speech_model
+        )
+        self._speech_download_btn.grid(row=7, column=0, sticky="w", pady=(8, 0))
+        self._render_speech_model()
+
+    def _voice_options(self) -> list[tuple[str, str]]:
+        """Les voix à proposer : nos libellés, restreints aux voix que le
+        modèle fournit vraiment quand il est sur le disque, plus celles qu'on
+        ne connaîtrait pas (affichées avec leur nom brut)."""
+        connues = voix_disponibles(self.config.synthesis.model)
+        options = [(code, label) for code, label in LIBELLES_VOIX if code in connues]
+        options += [(v, libelle_voix(v)) for v in connues if v not in dict(options)]
+        return options or list(LIBELLES_VOIX)
+
+    def _render_speech_model(self) -> None:
+        repo = self.config.synthesis.model
+        model = find_model(repo)
+        label = model.label if model is not None else repo
+        size = f"{model.size_gb:.1f} Go" if model is not None else "?"
+        if is_downloaded(repo):
+            self._speech_status.configure(
+                text=f"{label}   —   ✓ sur ton Mac ({size})"
+            )
+            self._speech_download_btn.state(["disabled"])
+        else:
+            self._speech_status.configure(
+                text=f"{label}   —   ⤓ {size} à télécharger\n"
+                     f"Sans lui, la première lecture proposera de le télécharger."
+            )
+            self._speech_download_btn.state(["!disabled"])
+
+    def _download_speech_model(self) -> None:
+        model = find_model(self.config.synthesis.model)
+        if model is None:
+            return
+        dialog = DownloadDialog(self.root, model)
+        if not dialog.run():
+            messagebox.showerror(
+                "Téléchargement échoué",
+                f"{dialog.error}\n\nVérifie ta connexion internet.",
+            )
+        self._render_speech_model()
+        self._render_storage()
+
+    # ------------------------------------------------------------------
     # Onglet À propos
     # ------------------------------------------------------------------
 
@@ -965,6 +1053,8 @@ class SettingsWindow:
                 "• Maintiens le raccourci, parle, relâche — le texte s'écrit.\n"
                 "• Pour un enregistrement déjà fait : menu → Transcrire un\n"
                 "  fichier audio…\n"
+                "• Pour entendre un texte : copie-le, puis menu → Lire le\n"
+                "  texte copié.\n"
                 "• Les réglages s'appliquent seuls en quelques secondes."
             ),
             justify=tk.LEFT,
@@ -1052,6 +1142,7 @@ class SettingsWindow:
         cfg.file_transcription.max_duration_s = int(
             float(self.file_max_hours_var.get()) * 3600
         )
+        cfg.synthesis.voice = self.voice.get_code()
         return cfg
 
     def _ensure_downloaded(self, repo_id: str) -> bool:

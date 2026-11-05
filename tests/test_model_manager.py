@@ -11,6 +11,7 @@ import model_manager as mm
 from model_manager import (
     USAGE_DICTATION,
     USAGE_FILES,
+    USAGE_SYNTHESIS,
     format_size,
     list_available_models,
     models_in_use,
@@ -20,9 +21,25 @@ from model_manager import (
 # ---- Catalogue ----
 
 
-def test_every_model_supports_dictation():
-    """La dictée est l'usage de base : tout modèle du catalogue doit l'assurer."""
-    assert all(m.supports(USAGE_DICTATION) for m in mm.AVAILABLE_MODELS)
+def test_every_model_transcribes_or_synthesizes_never_both():
+    """La dictée est l'usage de base de tout modèle de transcription ; le seul
+    autre genre est la synthèse vocale, qui ne transcrit rien."""
+    for m in mm.AVAILABLE_MODELS:
+        assert m.supports(USAGE_DICTATION) != m.supports(USAGE_SYNTHESIS), m.repo_id
+
+
+def test_synthesis_model_is_in_the_catalog_and_hidden_from_transcription_lists():
+    synth = list_available_models(USAGE_SYNTHESIS)
+    assert [m.repo_id for m in synth] == ["mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"]
+    assert synth[0].size_gb == 2.5
+    assert synth[0] not in list_available_models(USAGE_DICTATION)
+    assert synth[0] not in list_available_models(USAGE_FILES)
+
+
+def test_default_synthesis_model_is_in_the_catalog():
+    from config import SynthesisConfig
+
+    assert mm.find_model(SynthesisConfig().model) is not None
 
 
 def test_only_whisper_models_support_files():
@@ -113,6 +130,13 @@ def test_models_in_use_includes_translation_fallback():
     from transcriber import WHISPER_TRANSLATE_REPO
 
     assert WHISPER_TRANSLATE_REPO in models_in_use("a/b", "c/d")
+
+
+def test_models_in_use_protects_the_synthesis_model_when_given():
+    """Le modèle de lecture n'apparaît dans aucune liste de choix : sans ça,
+    Préférences → Stockage proposerait de supprimer 2,5 Go « inutilisés »."""
+    assert "org/tts" in models_in_use("a/b", "c/d", synthesis_repo="org/tts")
+    assert "org/tts" not in models_in_use("a/b", "c/d")
 
 
 # ---- scan_cached_models ----

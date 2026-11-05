@@ -134,3 +134,16 @@ maintenance:
   # ~/.voxtral/recordings/ ; celles plus vieilles que ce nombre de jours sont
   # supprimées. 0 = jamais.
   recordings_max_age_days: 30
+
+synthesis:
+  # Lecture à voix haute : menu « Lire le texte copié » (le presse-papier est
+  # lu au haut-parleur) et commande vocaliser_cahier.py. Tout se passe sur ton
+  # Mac, comme la dictée.
+  # Modèle Voxtral 4B TTS en 4 bits (2,5 Go). Il n'est téléchargé qu'à la
+  # première lecture, après confirmation — tu n'as rien à faire si tu ne te
+  # sers jamais de la lecture.
+  model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+  # La voix. Deux voix françaises : "fr_female" (femme) et "fr_male" (homme).
+  # Réglable dans Préférences → Lecture, où les 20 voix du modèle sont
+  # listées avec leur langue.
+  voice: "fr_female"
