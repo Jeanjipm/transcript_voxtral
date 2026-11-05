@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-8bit",
+ "sample": "synth_court_audrey",
+ "audio_s": 6.6260625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3456335829687305,
+ "cold_s": 0.27177875000052154,
+ "warm_s": 0.2401751249562949,
+ "peak_rss_mb": 2763.265625,
+ "mlx_peak_mb": 3301.8631706237793,
+ "text": "Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.6260625,
+   "text": "Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon."
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

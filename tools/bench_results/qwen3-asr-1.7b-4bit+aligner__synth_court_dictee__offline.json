@@ -1,0 +1,116 @@
+{
+ "model": "qwen3-asr-1.7b-4bit+aligner",
+ "sample": "synth_court_dictee",
+ "audio_s": 4.7745625,
+ "offline": true,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4264187089866027,
+ "cold_s": 0.262218167015817,
+ "warm_s": 0.2318760000052862,
+ "peak_rss_mb": 2902.109375,
+ "mlx_peak_mb": 3378.003604888916,
+ "text": "Peux-tu me rappeler demain matin à neuf heures pour finaliser le devis du client de Chambéry?",
+ "segments": [
+  {
+   "start": 0.16,
+   "end": 0.32,
+   "text": "Peuxtu",
+   "word": true
+  },
+  {
+   "start": 0.32,
+   "end": 0.48,
+   "text": "me",
+   "word": true
+  },
+  {
+   "start": 0.48,
+   "end": 0.88,
+   "text": "rappeler",
+   "word": true
+  },
+  {
+   "start": 0.88,
+   "end": 1.2,
+   "text": "demain",
+   "word": true
+  },
+  {
+   "start": 1.2,
+   "end": 1.52,
+   "text": "matin",
+   "word": true
+  },
+  {
+   "start": 1.52,
+   "end": 1.6,
+   "text": "à",
+   "word": true
+  },
+  {
+   "start": 1.6,
+   "end": 1.76,
+   "text": "neuf",
+   "word": true
+  },
+  {
+   "start": 1.84,
+   "end": 2.08,
+   "text": "heures",
+   "word": true
+  },
+  {
+   "start": 2.08,
+   "end": 2.24,
+   "text": "pour",
+   "word": true
+  },
+  {
+   "start": 2.24,
+   "end": 2.88,
+   "text": "finaliser",
+   "word": true
+  },
+  {
+   "start": 2.88,
+   "end": 3.04,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 3.04,
+   "end": 3.36,
+   "text": "devis",
+   "word": true
+  },
+  {
+   "start": 3.36,
+   "end": 3.52,
+   "text": "du",
+   "word": true
+  },
+  {
+   "start": 3.52,
+   "end": 3.84,
+   "text": "client",
+   "word": true
+  },
+  {
+   "start": 3.84,
+   "end": 4.0,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 4.0,
+   "end": 4.56,
+   "text": "Chambéry",
+   "word": true
+  }
+ ],
+ "timestamps": "mot",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

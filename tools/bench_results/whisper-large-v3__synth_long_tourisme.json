@@ -1,0 +1,70 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_long_tourisme",
+ "audio_s": 54.38725,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.9456029169959947,
+ "cold_s": 3.294413707975764,
+ "warm_s": 3.173334833001718,
+ "peak_rss_mb": 3512.90625,
+ "mlx_peak_mb": 3797.2910594940186,
+ "text": "Le tourisme de montagne traverse une période de transformation profonde. Les stations de moyenne altitude voient leur enneigement reculer d'année en année, et les offices de tourisme doivent réinventer leur offre pour attirer des visiteurs toute l'année. La randonnée, le vélo électrique, les activités en famille et le patrimoine local deviennent des arguments aussi importants que le ski. Dans la vallée de la Tarentaise, plusieurs communes ont choisi de mutualiser leurs moyens pour financer une plateforme de réservation commune. L'objectif est double, simplifier le parcours du client et récupérer des données fiables sur la fréquentation. Les premiers résultats montrent une hausse de 18% des séjours hors saison, portée surtout par une clientèle de proximité venue de Lyon, de Genève et de Grenoble. Reste la question du financement, les budgets communaux sont contraints, et les partenaires privés attendent des garanties avant de s'engager sur plusieurs années.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 4.32,
+   "text": "Le tourisme de montagne traverse une période de transformation profonde."
+  },
+  {
+   "start": 4.64,
+   "end": 8.5,
+   "text": "Les stations de moyenne altitude voient leur enneigement reculer d'année en année,"
+  },
+  {
+   "start": 8.84,
+   "end": 13.4,
+   "text": "et les offices de tourisme doivent réinventer leur offre pour attirer des visiteurs toute l'année."
+  },
+  {
+   "start": 13.4,
+   "end": 21.3,
+   "text": "La randonnée, le vélo électrique, les activités en famille et le patrimoine local deviennent des arguments aussi importants que le ski."
+  },
+  {
+   "start": 21.64,
+   "end": 29.5,
+   "text": "Dans la vallée de la Tarentaise, plusieurs communes ont choisi de mutualiser leurs moyens pour financer une plateforme de réservation commune."
+  },
+  {
+   "start": 29.5,
+   "end": 35.74,
+   "text": "L'objectif est double, simplifier le parcours du client et récupérer des données fiables sur la fréquentation."
+  },
+  {
+   "start": 36.06,
+   "end": 39.94,
+   "text": "Les premiers résultats montrent une hausse de 18% des séjours hors saison,"
+  },
+  {
+   "start": 40.120000000000005,
+   "end": 45.44,
+   "text": "portée surtout par une clientèle de proximité venue de Lyon, de Genève et de Grenoble."
+  },
+  {
+   "start": 45.82,
+   "end": 49.58,
+   "text": "Reste la question du financement, les budgets communaux sont contraints,"
+  },
+  {
+   "start": 49.86,
+   "end": 54.120000000000005,
+   "text": "et les partenaires privés attendent des garanties avant de s'engager sur plusieurs années."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

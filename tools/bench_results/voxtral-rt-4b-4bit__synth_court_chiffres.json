@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-rt-4b-4bit",
+ "sample": "synth_court_chiffres",
+ "audio_s": 8.391375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3588588330312632,
+ "cold_s": 3.056374625011813,
+ "warm_s": 3.0293758749612607,
+ "peak_rss_mb": 3455.171875,
+ "mlx_peak_mb": 4886.200256347656,
+ "text": "La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3 500 euros hors taxes.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

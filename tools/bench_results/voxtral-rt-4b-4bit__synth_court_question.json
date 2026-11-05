@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-rt-4b-4bit",
+ "sample": "synth_court_question",
+ "audio_s": 5.12925,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3714137920178473,
+ "cold_s": 2.0283774589770474,
+ "warm_s": 2.0093755410052836,
+ "peak_rss_mb": 3453.921875,
+ "mlx_peak_mb": 4884.762756347656,
+ "text": "Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas?",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

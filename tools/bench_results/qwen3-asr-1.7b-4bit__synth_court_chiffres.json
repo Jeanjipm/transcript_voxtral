@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-4bit",
+ "sample": "synth_court_chiffres",
+ "audio_s": 8.391375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3048482080339454,
+ "cold_s": 0.2903320829500444,
+ "warm_s": 0.25853612495120615,
+ "peak_rss_mb": 1944.390625,
+ "mlx_peak_mb": 2530.022304534912,
+ "text": "La réunion est fixée au 12 mars 2026 à 14 heures 30, Salbey, avec un budget de 3 500 euros hors taxes.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 8.391375,
+   "text": "La réunion est fixée au 12 mars 2026 à 14 heures 30, Salbey, avec un budget de 3 500 euros hors taxes."
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

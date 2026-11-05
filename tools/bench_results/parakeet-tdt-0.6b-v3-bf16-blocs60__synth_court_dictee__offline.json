@@ -1,0 +1,26 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16-blocs60",
+ "sample": "synth_court_dictee",
+ "audio_s": 4.7745625,
+ "offline": true,
+ "ok": true,
+ "error": "",
+ "load_s": 1.452744750014972,
+ "cold_s": 0.05385758401826024,
+ "warm_s": 0.03303395799594,
+ "peak_rss_mb": 2730.9375,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 4.640000000000001,
+   "text": " Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?",
+   "words": 34
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-4bit",
+ "sample": "synth_court_noms",
+ "audio_s": 6.2918125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.3183475830010138,
+ "cold_s": 0.24461854196852073,
+ "warm_s": 0.21384529198985547,
+ "peak_rss_mb": 1942.859375,
+ "mlx_peak_mb": 2475.800640106201,
+ "text": "Jean Jérôme dans ton rencontre l'office de tourisme de Ser Chevalier Briançon et la mairie de Saint Pourçain sur Siole.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 6.2918125,
+   "text": "Jean Jérôme dans ton rencontre l'office de tourisme de Ser Chevalier Briançon et la mairie de Saint Pourçain sur Siole."
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

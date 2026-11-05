@@ -1,0 +1,26 @@
+{
+ "model": "parakeet-tdt-0.6b-v3-bf16",
+ "sample": "synth_court_chiffres",
+ "audio_s": 8.391375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.333170792029705,
+ "cold_s": 0.06796579202637076,
+ "warm_s": 0.04796462500235066,
+ "peak_rss_mb": 2730.390625,
+ "mlx_peak_mb": 3024.738395690918,
+ "text": "La réunion est fixée au 12 mars 2026 à 14h30, Sal B, avec un budget de 3500 euros hors taxes.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 8.24,
+   "text": " La réunion est fixée au 12 mars 2026 à 14h30, Sal B, avec un budget de 3500 euros hors taxes.",
+   "words": 48
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

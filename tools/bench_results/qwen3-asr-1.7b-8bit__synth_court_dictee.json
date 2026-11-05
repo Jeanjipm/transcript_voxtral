@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-8bit",
+ "sample": "synth_court_dictee",
+ "audio_s": 4.7745625,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.2872340840403922,
+ "cold_s": 1.051022625004407,
+ "warm_s": 0.27275924995774403,
+ "peak_rss_mb": 2763.125,
+ "mlx_peak_mb": 3258.5446281433105,
+ "text": "Peux-tu me rappeler demain matin à neuf heures pour finaliser le devis du client de Chambéry?",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 4.7745625,
+   "text": "Peux-tu me rappeler demain matin à neuf heures pour finaliser le devis du client de Chambéry?"
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

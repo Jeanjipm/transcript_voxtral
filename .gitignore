@@ -41,3 +41,9 @@ config.local.yaml
 
 # Claude Code (réglages locaux uniquement)
 .claude/settings.local.json
+
+# Banc d'essai (tools/bench_models.py) : les enregistrements réels, leurs
+# références relues et leurs transcriptions sont des paroles privées — ils
+# restent sur le Mac. Les mesures chiffrées, elles, sont dans summary.md.
+tools/bench_samples/reel_*.txt
+tools/bench_results/*reel_*.json

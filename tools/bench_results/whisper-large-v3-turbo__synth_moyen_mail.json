@@ -1,0 +1,35 @@
+{
+ "model": "whisper-large-v3-turbo",
+ "sample": "synth_moyen_mail",
+ "audio_s": 21.4556875,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.6377953750197776,
+ "cold_s": 0.4561405419954099,
+ "warm_s": 0.3491665829787962,
+ "peak_rss_mb": 1771.390625,
+ "mlx_peak_mb": 2383.628801345825,
+ "text": "Bonjour Claire, merci pour ton retour rapide. Je te confirme que la formation sur l'intelligence artificielle aura lieu les 3 et 4 décembre à Annecy. Peux-tu réserver la salle du deuxième étage, celle avec le vidéoprojecteur, et prévenir les douze participants ? Je t'envoie le programme détaillé en fin de semaine. Bonne journée, Jean-Jérôme.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 9.200000000000001,
+   "text": "Bonjour Claire, merci pour ton retour rapide. Je te confirme que la formation sur l'intelligence artificielle aura lieu les 3 et 4 décembre à Annecy."
+  },
+  {
+   "start": 9.5,
+   "end": 19.080000000000002,
+   "text": "Peux-tu réserver la salle du deuxième étage, celle avec le vidéoprojecteur, et prévenir les douze participants ? Je t'envoie le programme détaillé en fin de semaine."
+  },
+  {
+   "start": 19.46,
+   "end": 21.22,
+   "text": "Bonne journée, Jean-Jérôme."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

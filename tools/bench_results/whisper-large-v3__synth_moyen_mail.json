@@ -1,0 +1,25 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_moyen_mail",
+ "audio_s": 21.4556875,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.9733392500202172,
+ "cold_s": 1.4035692090401426,
+ "warm_s": 1.285585041041486,
+ "peak_rss_mb": 3499.6875,
+ "mlx_peak_mb": 3784.791063308716,
+ "text": "Bonjour Claire, merci pour ton retour rapide. Je te confirme que la formation sur l'intelligence artificielle aura lieu les 3 et 4 décembre à Annecy. Peux-tu réserver la salle du deuxième étage, celle avec le vidéoprojecteur, et prévenir les douze participants ? Je t'envoie le programme détaillé en fin de semaine. Bonne journée, Jean-Jérôme.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 21.22,
+   "text": "Bonjour Claire, merci pour ton retour rapide. Je te confirme que la formation sur l'intelligence artificielle aura lieu les 3 et 4 décembre à Annecy. Peux-tu réserver la salle du deuxième étage, celle avec le vidéoprojecteur, et prévenir les douze participants ? Je t'envoie le programme détaillé en fin de semaine. Bonne journée, Jean-Jérôme."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

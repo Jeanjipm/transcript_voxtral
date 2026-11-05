@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-4bit",
+ "sample": "synth_long_dictee_pro",
+ "audio_s": 47.717125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.5062277920078486,
+ "cold_s": 3.243570542021189,
+ "warm_s": 3.220154792012181,
+ "peak_rss_mb": 3383.015625,
+ "mlx_peak_mb": 4992.655433654785,
+ "text": "Présent : la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire.\n\n1. L'état d'avancement du projet.\n   - Le lot 1 est livré, le lot 2 est en recette depuis lundi et le lot 3 démarre le 15 janvier.\n\n2. Les risques.\n   - Le prestataire signale un retard possible de 3 semaines sur la reprise des données, lié à la qualité des fichiers sources.\n   - Décision : une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive.\n\n3. Le budget.\n   - L'enveloppe initiale de 200 000 € est consommée à 65 %, ce qui est conforme au calendrier.\n\nProchaine réunion le 8 février à 10h, en visioconférence.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-8bit",
+ "sample": "synth_court_noms",
+ "audio_s": 6.2918125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4820725409663282,
+ "cold_s": 1.0780858339858241,
+ "warm_s": 1.020334290980827,
+ "peak_rss_mb": 5300.703125,
+ "mlx_peak_mb": 6454.701038360596,
+ "text": "Jean-Jérôme Danton rencontre l'Office de tourisme de Serres-Chevalier-Brianson et la mairie de Saint-Pourçain-sur-Sioule.",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

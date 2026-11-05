@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-8bit",
+ "sample": "synth_court_question",
+ "audio_s": 5.12925,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.334877791989129,
+ "cold_s": 0.292953459022101,
+ "warm_s": 0.26145075005479157,
+ "peak_rss_mb": 2762.484375,
+ "mlx_peak_mb": 3266.040760040283,
+ "text": "Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 5.12925,
+   "text": "Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?"
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

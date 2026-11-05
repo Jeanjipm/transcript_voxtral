@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-mini-3b-4bit",
+ "sample": "synth_moyen_mail",
+ "audio_s": 21.4556875,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4869135419721715,
+ "cold_s": 1.4325099589768797,
+ "warm_s": 1.3798759159981273,
+ "peak_rss_mb": 3389.65625,
+ "mlx_peak_mb": 4924.970642089844,
+ "text": "Bonjour Claire, merci pour ton retour rapide. Je te confirme que la formation sur l'intelligence artificielle aura lieu les 3 et 4 décembre à Annecy. Peux-tu réserver la salle du deuxième étage, celle avec le vidéoprojecteur ? Et prévenir les 12 participants. Je t'envoie le programme détaillé en fin de semaine. Bonne journée, Jean-Gérôme",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,25 @@
+{
+ "model": "qwen3-asr-1.7b-8bit",
+ "sample": "synth_long_dictee_pro",
+ "audio_s": 47.717125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.331238666025456,
+ "cold_s": 1.8298155830125324,
+ "warm_s": 1.8028300000005402,
+ "peak_rss_mb": 2794.140625,
+ "mlx_peak_mb": 3842.4352416992188,
+ "text": "Compte rendu de la réunion du comité de pilotage présent : la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point : l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point : les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, lié à la qualité des fichiers sources. Décision : une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archives. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65 %, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 47.717125,
+   "text": "Compte rendu de la réunion du comité de pilotage présent : la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point : l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point : les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, lié à la qualité des fichiers sources. Décision : une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archives. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65 %, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence."
+  }
+ ],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,338 @@
+{
+ "model": "qwen3-asr-1.7b-4bit+aligner",
+ "sample": "synth_moyen_mail",
+ "audio_s": 21.4556875,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4575170840253122,
+ "cold_s": 0.6536275840480812,
+ "warm_s": 0.6207387920003384,
+ "peak_rss_mb": 2923.4375,
+ "mlx_peak_mb": 3716.118309020996,
+ "text": "Bonjour Claire, merci pour ton retour rapide. Je te confirme que la formation sur l'intelligence artificielle aura lieu les 3 et 4 décembre à Nancy. Peux-tu réserver la salle du deuxième étage, celle avec le vidéoprojecteur, et prévenir les douze participants. Je t'envoie le programme détaillé en fin de semaine. Bonne journée, Jean-Gérome.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 0.56,
+   "text": "Bonjour",
+   "word": true
+  },
+  {
+   "start": 0.56,
+   "end": 1.04,
+   "text": "Claire",
+   "word": true
+  },
+  {
+   "start": 1.2,
+   "end": 1.68,
+   "text": "merci",
+   "word": true
+  },
+  {
+   "start": 1.68,
+   "end": 1.92,
+   "text": "pour",
+   "word": true
+  },
+  {
+   "start": 1.92,
+   "end": 2.08,
+   "text": "ton",
+   "word": true
+  },
+  {
+   "start": 2.08,
+   "end": 2.48,
+   "text": "retour",
+   "word": true
+  },
+  {
+   "start": 2.48,
+   "end": 3.04,
+   "text": "rapide",
+   "word": true
+  },
+  {
+   "start": 3.2,
+   "end": 3.36,
+   "text": "Je",
+   "word": true
+  },
+  {
+   "start": 3.36,
+   "end": 3.52,
+   "text": "te",
+   "word": true
+  },
+  {
+   "start": 3.52,
+   "end": 4.08,
+   "text": "confirme",
+   "word": true
+  },
+  {
+   "start": 4.08,
+   "end": 4.24,
+   "text": "que",
+   "word": true
+  },
+  {
+   "start": 4.24,
+   "end": 4.4,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 4.4,
+   "end": 5.04,
+   "text": "formation",
+   "word": true
+  },
+  {
+   "start": 5.04,
+   "end": 5.28,
+   "text": "sur",
+   "word": true
+  },
+  {
+   "start": 5.28,
+   "end": 6.0,
+   "text": "l'intelligence",
+   "word": true
+  },
+  {
+   "start": 6.0,
+   "end": 6.8,
+   "text": "artificielle",
+   "word": true
+  },
+  {
+   "start": 6.8,
+   "end": 7.04,
+   "text": "aura",
+   "word": true
+  },
+  {
+   "start": 7.04,
+   "end": 7.28,
+   "text": "lieu",
+   "word": true
+  },
+  {
+   "start": 7.28,
+   "end": 7.44,
+   "text": "les",
+   "word": true
+  },
+  {
+   "start": 7.44,
+   "end": 7.76,
+   "text": "3",
+   "word": true
+  },
+  {
+   "start": 7.76,
+   "end": 7.84,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 7.84,
+   "end": 8.16,
+   "text": "4",
+   "word": true
+  },
+  {
+   "start": 8.16,
+   "end": 8.72,
+   "text": "décembre",
+   "word": true
+  },
+  {
+   "start": 8.72,
+   "end": 8.88,
+   "text": "à",
+   "word": true
+  },
+  {
+   "start": 8.88,
+   "end": 9.28,
+   "text": "Nancy",
+   "word": true
+  },
+  {
+   "start": 9.44,
+   "end": 9.76,
+   "text": "Peuxtu",
+   "word": true
+  },
+  {
+   "start": 9.76,
+   "end": 10.24,
+   "text": "réserver",
+   "word": true
+  },
+  {
+   "start": 10.24,
+   "end": 10.4,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 10.4,
+   "end": 10.72,
+   "text": "salle",
+   "word": true
+  },
+  {
+   "start": 10.72,
+   "end": 10.8,
+   "text": "du",
+   "word": true
+  },
+  {
+   "start": 10.8,
+   "end": 11.28,
+   "text": "deuxième",
+   "word": true
+  },
+  {
+   "start": 11.28,
+   "end": 11.84,
+   "text": "étage",
+   "word": true
+  },
+  {
+   "start": 12.08,
+   "end": 12.4,
+   "text": "celle",
+   "word": true
+  },
+  {
+   "start": 12.4,
+   "end": 12.64,
+   "text": "avec",
+   "word": true
+  },
+  {
+   "start": 12.64,
+   "end": 12.72,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 12.72,
+   "end": 14.08,
+   "text": "vidéoprojecteur",
+   "word": true
+  },
+  {
+   "start": 14.24,
+   "end": 14.4,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 14.4,
+   "end": 14.96,
+   "text": "prévenir",
+   "word": true
+  },
+  {
+   "start": 14.96,
+   "end": 15.04,
+   "text": "les",
+   "word": true
+  },
+  {
+   "start": 15.04,
+   "end": 15.36,
+   "text": "douze",
+   "word": true
+  },
+  {
+   "start": 15.36,
+   "end": 16.16,
+   "text": "participants",
+   "word": true
+  },
+  {
+   "start": 16.4,
+   "end": 16.56,
+   "text": "Je",
+   "word": true
+  },
+  {
+   "start": 16.56,
+   "end": 16.96,
+   "text": "t'envoie",
+   "word": true
+  },
+  {
+   "start": 16.96,
+   "end": 17.12,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 17.12,
+   "end": 17.68,
+   "text": "programme",
+   "word": true
+  },
+  {
+   "start": 17.68,
+   "end": 18.08,
+   "text": "détaillé",
+   "word": true
+  },
+  {
+   "start": 18.16,
+   "end": 18.24,
+   "text": "en",
+   "word": true
+  },
+  {
+   "start": 18.24,
+   "end": 18.48,
+   "text": "fin",
+   "word": true
+  },
+  {
+   "start": 18.48,
+   "end": 18.56,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 18.56,
+   "end": 19.2,
+   "text": "semaine",
+   "word": true
+  },
+  {
+   "start": 19.36,
+   "end": 19.68,
+   "text": "Bonne",
+   "word": true
+  },
+  {
+   "start": 19.68,
+   "end": 20.24,
+   "text": "journée",
+   "word": true
+  },
+  {
+   "start": 20.4,
+   "end": 21.28,
+   "text": "JeanGérome",
+   "word": true
+  }
+ ],
+ "timestamps": "mot",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

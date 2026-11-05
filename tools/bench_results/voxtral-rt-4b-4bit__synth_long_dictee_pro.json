@@ -1,0 +1,19 @@
+{
+ "model": "voxtral-rt-4b-4bit",
+ "sample": "synth_long_dictee_pro",
+ "audio_s": 47.717125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.36581574997399,
+ "cold_s": 15.896365207969211,
+ "warm_s": 15.758234500011895,
+ "peak_rss_mb": 3476.953125,
+ "mlx_peak_mb": 5747.180637359619,
+ "text": "Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liées à la qualité des fichiers sources. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence..",
+ "segments": [],
+ "timestamps": "non",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

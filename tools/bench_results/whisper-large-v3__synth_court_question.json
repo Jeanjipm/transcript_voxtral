@@ -1,0 +1,25 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_court_question",
+ "audio_s": 5.12925,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.9431237499811687,
+ "cold_s": 0.5854159999871626,
+ "warm_s": 0.48989783303113654,
+ "peak_rss_mb": 3477.671875,
+ "mlx_peak_mb": 3766.087938308716,
+ "text": "Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 5.1000000000000005,
+   "text": "Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?"
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

@@ -1,0 +1,284 @@
+{
+ "model": "qwen3-asr-1.7b-4bit+aligner",
+ "sample": "synth_moyen_audrey",
+ "audio_s": 15.1649375,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 1.4307690000277944,
+ "cold_s": 0.5141935830470175,
+ "warm_s": 0.4828214999870397,
+ "peak_rss_mb": 2911.59375,
+ "mlx_peak_mb": 3580.622486114502,
+ "text": "Pour la commande du marché, il nous faut trois kilos de pommes, deux bouquets de basilic, un litre d'huile d'olive, six euros et une baguette de tradition. Le total ne doit pas dépasser quarante euros, sinon on reporte le fromage à la semaine prochaine.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 0.16,
+   "text": "Pour",
+   "word": true
+  },
+  {
+   "start": 0.16,
+   "end": 0.32,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 0.32,
+   "end": 0.8,
+   "text": "commande",
+   "word": true
+  },
+  {
+   "start": 0.8,
+   "end": 0.88,
+   "text": "du",
+   "word": true
+  },
+  {
+   "start": 0.88,
+   "end": 1.52,
+   "text": "marché",
+   "word": true
+  },
+  {
+   "start": 1.68,
+   "end": 1.84,
+   "text": "il",
+   "word": true
+  },
+  {
+   "start": 1.84,
+   "end": 2.0,
+   "text": "nous",
+   "word": true
+  },
+  {
+   "start": 2.0,
+   "end": 2.24,
+   "text": "faut",
+   "word": true
+  },
+  {
+   "start": 2.24,
+   "end": 2.56,
+   "text": "trois",
+   "word": true
+  },
+  {
+   "start": 2.56,
+   "end": 2.88,
+   "text": "kilos",
+   "word": true
+  },
+  {
+   "start": 2.88,
+   "end": 2.96,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 2.96,
+   "end": 3.44,
+   "text": "pommes",
+   "word": true
+  },
+  {
+   "start": 3.68,
+   "end": 3.84,
+   "text": "deux",
+   "word": true
+  },
+  {
+   "start": 3.84,
+   "end": 4.24,
+   "text": "bouquets",
+   "word": true
+  },
+  {
+   "start": 4.24,
+   "end": 4.32,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 4.32,
+   "end": 4.88,
+   "text": "basilic",
+   "word": true
+  },
+  {
+   "start": 5.28,
+   "end": 5.36,
+   "text": "un",
+   "word": true
+  },
+  {
+   "start": 5.36,
+   "end": 5.76,
+   "text": "litre",
+   "word": true
+  },
+  {
+   "start": 5.76,
+   "end": 6.08,
+   "text": "d'huile",
+   "word": true
+  },
+  {
+   "start": 6.08,
+   "end": 6.56,
+   "text": "d'olive",
+   "word": true
+  },
+  {
+   "start": 6.88,
+   "end": 7.2,
+   "text": "six",
+   "word": true
+  },
+  {
+   "start": 7.36,
+   "end": 7.44,
+   "text": "euros",
+   "word": true
+  },
+  {
+   "start": 7.44,
+   "end": 7.52,
+   "text": "et",
+   "word": true
+  },
+  {
+   "start": 7.52,
+   "end": 7.68,
+   "text": "une",
+   "word": true
+  },
+  {
+   "start": 7.68,
+   "end": 8.08,
+   "text": "baguette",
+   "word": true
+  },
+  {
+   "start": 8.08,
+   "end": 8.24,
+   "text": "de",
+   "word": true
+  },
+  {
+   "start": 8.24,
+   "end": 8.96,
+   "text": "tradition",
+   "word": true
+  },
+  {
+   "start": 9.2,
+   "end": 9.28,
+   "text": "Le",
+   "word": true
+  },
+  {
+   "start": 9.28,
+   "end": 9.76,
+   "text": "total",
+   "word": true
+  },
+  {
+   "start": 9.76,
+   "end": 9.92,
+   "text": "ne",
+   "word": true
+  },
+  {
+   "start": 9.92,
+   "end": 10.16,
+   "text": "doit",
+   "word": true
+  },
+  {
+   "start": 10.16,
+   "end": 10.4,
+   "text": "pas",
+   "word": true
+  },
+  {
+   "start": 10.4,
+   "end": 10.88,
+   "text": "dépasser",
+   "word": true
+  },
+  {
+   "start": 10.88,
+   "end": 11.28,
+   "text": "quarante",
+   "word": true
+  },
+  {
+   "start": 11.28,
+   "end": 11.68,
+   "text": "euros",
+   "word": true
+  },
+  {
+   "start": 11.92,
+   "end": 12.32,
+   "text": "sinon",
+   "word": true
+  },
+  {
+   "start": 12.32,
+   "end": 12.48,
+   "text": "on",
+   "word": true
+  },
+  {
+   "start": 12.48,
+   "end": 12.96,
+   "text": "reporte",
+   "word": true
+  },
+  {
+   "start": 12.96,
+   "end": 13.04,
+   "text": "le",
+   "word": true
+  },
+  {
+   "start": 13.04,
+   "end": 13.6,
+   "text": "fromage",
+   "word": true
+  },
+  {
+   "start": 13.6,
+   "end": 13.68,
+   "text": "à",
+   "word": true
+  },
+  {
+   "start": 13.68,
+   "end": 13.84,
+   "text": "la",
+   "word": true
+  },
+  {
+   "start": 13.84,
+   "end": 14.24,
+   "text": "semaine",
+   "word": true
+  },
+  {
+   "start": 14.24,
+   "end": 14.96,
+   "text": "prochaine",
+   "word": true
+  }
+ ],
+ "timestamps": "mot",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}

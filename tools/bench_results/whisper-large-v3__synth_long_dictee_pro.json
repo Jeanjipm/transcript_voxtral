@@ -1,0 +1,70 @@
+{
+ "model": "whisper-large-v3",
+ "sample": "synth_long_dictee_pro",
+ "audio_s": 47.717125,
+ "offline": false,
+ "ok": true,
+ "error": "",
+ "load_s": 0.9626962500042282,
+ "cold_s": 3.1387903750292026,
+ "warm_s": 2.9938832499901764,
+ "peak_rss_mb": 3512.140625,
+ "mlx_peak_mb": 3792.8379344940186,
+ "text": "Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liées à la qualité des fichiers sources. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.",
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 2.7800000000000002,
+   "text": "Compte rendu de la réunion du comité de pilotage."
+  },
+  {
+   "start": 3.08,
+   "end": 10.6,
+   "text": "Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire."
+  },
+  {
+   "start": 10.9,
+   "end": 13.38,
+   "text": "Premier point, l'état d'avancement du projet."
+  },
+  {
+   "start": 13.700000000000001,
+   "end": 19.1,
+   "text": "Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier."
+  },
+  {
+   "start": 19.5,
+   "end": 21.240000000000002,
+   "text": "Deuxième point, les risques."
+  },
+  {
+   "start": 21.240000000000002,
+   "end": 28.28,
+   "text": "Le prestataire signale un retard possible de trois semaines sur la reprise des données, liées à la qualité des fichiers sources."
+  },
+  {
+   "start": 28.28,
+   "end": 34.58,
+   "text": "Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive."
+  },
+  {
+   "start": 34.88,
+   "end": 36.56,
+   "text": "Troisième point, le budget."
+  },
+  {
+   "start": 36.96,
+   "end": 43.0,
+   "text": "L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier."
+  },
+  {
+   "start": 43.400000000000006,
+   "end": 47.34,
+   "text": "Prochaine réunion le 8 février à 10h, en visioconférence."
+  }
+ ],
+ "timestamps": "phrase",
+ "wer": null,
+ "ref_words": 0,
+ "errors": 0
+}
