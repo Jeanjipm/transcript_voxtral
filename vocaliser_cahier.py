@@ -37,7 +37,7 @@ import subprocess
 import sys
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -327,6 +327,8 @@ class Bilan:
     supprimes: int
     tout_regenere: bool
     duree_s: float
+    # (id, texte, erreur) des phrases que le modèle n'a pas su lire.
+    echecs: list[tuple[str, str, str]] = field(default_factory=list)
 
     @property
     def manquants(self) -> int:
@@ -400,15 +402,24 @@ def generer(
     a_faire = [p for p in phrases if p.id not in presents]
     conserves = len(phrases) - len(a_faire)
     generes = 0
+    echecs: list[tuple[str, str, str]] = []
     try:
         if afficher and a_faire:
             print(f"  {conserves} MP3 déjà présents, {len(a_faire)} à générer.")
-        for phrase in a_faire:
-            audio = lire(adapter_oral(phrase.texte), voix)
-            vers_mp3(audio, audio_dir / f"{phrase.id}.mp3")
-            generes += 1
+        for i, phrase in enumerate(a_faire, start=1):
+            try:
+                audio = lire(adapter_oral(phrase.texte), voix)
+                vers_mp3(audio, audio_dir / f"{phrase.id}.mp3")
+            except synthese.SynthesisError as exc:
+                # Une phrase que le modèle ne sait pas finir ne doit pas
+                # bloquer les mille autres : on la note et on continue.
+                echecs.append((phrase.id, phrase.texte, str(exc)))
+                if afficher:
+                    print(f"\n  ✗ {phrase.texte[:70]} — {exc}")
+            else:
+                generes += 1
             if afficher:
-                _afficher_progression(generes, len(a_faire), debut)
+                _afficher_progression(i, len(a_faire), debut)
     finally:
         if afficher and a_faire:
             print()
@@ -422,6 +433,7 @@ def generer(
         supprimes=len(orphelins),
         tout_regenere=tout_regenere,
         duree_s=time.monotonic() - debut,
+        echecs=echecs,
     )
 
 
@@ -591,13 +603,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         n = len(lire_manifest(dossier)["fichiers"])
         print(f"  manifest.json : {n} fichiers.")
+        if bilan.echecs:
+            print(f"\n  {len(bilan.echecs)} phrase(s) non lues (relance la commande pour réessayer) :")
+            for _, texte, erreur in bilan.echecs:
+                print(f"    - {texte[:80]} — {erreur}")
 
         if args.sans_publication:
             print("\nPublication sautée (--sans-publication).")
-            return 0
+            return 1 if bilan.echecs else 0
         print()
         publier(dossier)
-        return 0 if verifier_publication(n) else 1
+        ok = verifier_publication(n)
+        return 0 if ok and not bilan.echecs else 1
     except KeyboardInterrupt:
         print("\nInterrompu. Relance la même commande pour reprendre.")
         return 130

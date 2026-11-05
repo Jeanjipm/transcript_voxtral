@@ -42,6 +42,22 @@ SAMPLE_RATE = 24_000
 # Un presse-papier peut contenir un article entier, et le modèle plafonne de
 # toute façon à 4 096 jetons audio (quelques minutes).
 MAX_CHARS = 2_000
+# Budget de génération. Le modèle produit 12,5 trames audio par seconde et
+# s'arrête normalement tout seul ; mais il lui arrive, au hasard de
+# l'échantillonnage, de ne jamais émettre sa fin et de dérouler jusqu'au
+# plafond par défaut de mlx-audio (4 096 trames ≈ 5 min 30), où le décodage
+# audio a tenté d'allouer 32 Go et tué le processus (constaté sur une phrase
+# de 38 caractères). On plafonne donc selon la longueur du texte — une
+# lecture lente fait ~8 caractères par seconde, on prend large — et une
+# génération qui touche son plafond est tenue pour « partie en boucle » :
+# on la rejoue, puis on renonce avec une erreur propre.
+# Débit mesuré sur le cahier : de 5,6 caractères/s (phrase courte, pauses)
+# à 15 (phrase longue) — on prend le plus lent, plus une marge fixe.
+FRAMES_PAR_SECONDE = 12.5
+CHARS_PAR_SECONDE = 5.0
+MARGE_SECONDES = 8.0
+MAX_TOKENS_PLAFOND = 2_000  # 160 s ; le plus long texte du cahier (600 car.) tient en ~128 s
+TENTATIVES = 3
 # Dossier du dépôt HF qui contient une empreinte par voix (`<nom>.safetensors`).
 VOICE_DIR = "voice_embedding"
 PREFIXE_FRANCAIS = "fr_"
@@ -120,6 +136,12 @@ def voix_francaises(repo: str = DEFAULT_MODEL) -> list[str]:
 # ----------------------------------------------------------------------
 
 
+def budget_tokens(texte: str) -> int:
+    """Nombre maximal de trames audio à générer pour ce texte."""
+    secondes = len(texte) / CHARS_PAR_SECONDE + MARGE_SECONDES
+    return min(MAX_TOKENS_PLAFOND, int(secondes * FRAMES_PAR_SECONDE))
+
+
 def _vers_numpy(audio: Any) -> np.ndarray:
     """Tableau MLX (ou autre) → numpy float32 mono, à plat."""
     try:
@@ -195,10 +217,26 @@ class Synthetiseur:
             raise SynthesisError(
                 f"Voix inconnue « {voix} ». Voix disponibles : {', '.join(connues)}."
             )
-        morceaux = [
-            _vers_numpy(resultat.audio)
-            for resultat in self._model.generate(text=texte, voice=voix)
-        ]
+        max_tokens = budget_tokens(texte)
+        for tentative in range(1, TENTATIVES + 1):
+            morceaux: list[np.ndarray] = []
+            trames = 0
+            for resultat in self._model.generate(
+                text=texte, voice=voix, max_tokens=max_tokens
+            ):
+                morceaux.append(_vers_numpy(resultat.audio))
+                trames += int(getattr(resultat, "token_count", 0) or 0)
+            if trames < max_tokens:
+                break
+            print(
+                f"[synthese] lecture partie en boucle ({trames} trames, "
+                f"tentative {tentative}/{TENTATIVES}) : « {texte[:60]} »"
+            )
+        else:
+            raise SynthesisError(
+                f"Le modèle n'arrive pas à finir cette phrase après {TENTATIVES} "
+                f"tentatives : « {texte[:80]} »"
+            )
         morceaux = [m for m in morceaux if m.size]
         if not morceaux:
             raise SynthesisError("Le modèle n'a produit aucun son.")

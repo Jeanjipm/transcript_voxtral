@@ -73,13 +73,24 @@ def test_libelles_put_french_voices_first():
 # ---- lire ----
 
 
-def _fake_model(chunks: list[np.ndarray], voices=("fr_female", "fr_male")):
-    def generate(text: str, voice: str):
+def _fake_model(
+    chunks: list[np.ndarray],
+    voices=("fr_female", "fr_male"),
+    token_counts: list[int] | None = None,
+):
+    """`token_counts` : nombre de trames rendu à chaque appel de generate
+    (pour simuler une lecture partie en boucle)."""
+    appels: list[dict] = []
+
+    def generate(text: str, voice: str, max_tokens: int = 4096):
+        appels.append({"text": text, "voice": voice, "max_tokens": max_tokens})
+        trames = token_counts[len(appels) - 1] if token_counts else len(chunks)
         for c in chunks:
-            yield SimpleNamespace(audio=c, sample_rate=24_000)
+            yield SimpleNamespace(audio=c, sample_rate=24_000, token_count=trames)
 
     return SimpleNamespace(
         generate=generate,
+        appels=appels,
         sample_rate=24_000,
         _voice_embedding_files={v: Path(f"{v}.safetensors") for v in voices},
     )
@@ -114,6 +125,46 @@ def test_lire_rejects_silent_generation():
     synth._model = _fake_model([np.zeros(0, dtype=np.float32)])
     with pytest.raises(SynthesisError, match="aucun son"):
         synth.lire("Bonjour.", "fr_male")
+
+
+def test_budget_tokens_grows_with_text_and_is_capped():
+    court = synthese.budget_tokens("Bonjour.")
+    long = synthese.budget_tokens("x" * 300)
+    assert court < long < synthese.MAX_TOKENS_PLAFOND
+    assert synthese.budget_tokens("x" * 5000) == synthese.MAX_TOKENS_PLAFOND
+    # Une phrase de 38 caractères mesurée à 6,8 s d'audio (85 trames) doit
+    # tenir largement dans son budget.
+    assert synthese.budget_tokens("75 plus 9 : par quelle dizaine je passe ?") > 85 * 1.5
+
+
+def test_lire_passes_a_text_sized_max_tokens():
+    """Sans plafond, une lecture partie en boucle déroulait 4 096 trames et
+    le décodage audio tentait d'allouer 32 Go (processus tué)."""
+    synth = Synthetiseur("org/tts")
+    synth._model = _fake_model([np.ones(2, dtype=np.float32)])
+    synth.lire("Bonjour.", "fr_female")
+    assert synth._model.appels[0]["max_tokens"] == synthese.budget_tokens("Bonjour.")
+
+
+def test_lire_retries_a_runaway_generation_then_succeeds(capsys):
+    synth = Synthetiseur("org/tts")
+    budget = synthese.budget_tokens("Bonjour.")
+    synth._model = _fake_model(
+        [np.ones(2, dtype=np.float32)], token_counts=[budget, budget, 10]
+    )
+    audio = synth.lire("Bonjour.", "fr_female")
+    assert len(synth._model.appels) == 3
+    assert audio.tolist() == [1, 1]
+    assert "partie en boucle" in capsys.readouterr().out
+
+
+def test_lire_gives_up_after_three_runaway_generations():
+    synth = Synthetiseur("org/tts")
+    budget = synthese.budget_tokens("Bonjour.")
+    synth._model = _fake_model([np.ones(2, dtype=np.float32)], token_counts=[budget] * 5)
+    with pytest.raises(SynthesisError, match="n'arrive pas à finir"):
+        synth.lire("Bonjour.", "fr_female")
+    assert len(synth._model.appels) == synthese.TENTATIVES
 
 
 def test_module_lire_reuses_shared_instance_per_repo(monkeypatch: pytest.MonkeyPatch):

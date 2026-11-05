@@ -139,10 +139,13 @@ class FauxMoteur:
         self.lus: list[tuple[str, str]] = []
         self.corbeille: list[list[Path]] = []
         self.interrompre_a: int | None = None
+        self.illisibles: set[str] = set()
 
     def lire(self, texte: str, voix: str) -> np.ndarray:
         if self.interrompre_a is not None and len(self.lus) == self.interrompre_a:
             raise KeyboardInterrupt
+        if texte in self.illisibles:
+            raise vc.synthese.SynthesisError("n'arrive pas à finir")
         self.lus.append((texte, voix))
         return np.full(4, len(self.lus), dtype=np.float32)
 
@@ -271,6 +274,23 @@ def test_interruption_keeps_a_clean_state_and_resumes(
     assert len(lire_manifest(tmp_path)["fichiers"]) == 3
 
 
+def test_unreadable_phrase_is_recorded_and_does_not_stop_the_run(
+    tmp_path: Path, moteur: FauxMoteur
+):
+    """Une génération partie en boucle (erreur du moteur) ne doit pas bloquer
+    les mille autres phrases : elle est notée, le manifeste ne la liste pas,
+    et la relance suivante la retente."""
+    moteur.illisibles = {adapter_oral(PHRASES[1].texte)}
+    bilan = moteur.generer(PHRASES, "fr_female", tmp_path)
+    assert (bilan.generes, bilan.conserves) == (2, 0)
+    assert [(i, t) for i, t, _ in bilan.echecs] == [(PHRASES[1].id, PHRASES[1].texte)]
+    assert PHRASES[1].id not in lire_manifest(tmp_path)["fichiers"]
+
+    moteur.illisibles = set()
+    bilan = moteur.generer(PHRASES, "fr_female", tmp_path)
+    assert (bilan.generes, bilan.conserves, bilan.echecs) == (1, 2, [])
+
+
 def test_leftover_tmp_files_are_discarded(tmp_path: Path, moteur: FauxMoteur):
     audio = tmp_path / "audio"
     audio.mkdir(parents=True)
@@ -332,7 +352,7 @@ def commande(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
     def fake_generer(phrases, voix, dossier):
         appels["generer"] = (list(phrases), voix)
-        return vc.Bilan(3, 3, 0, 0, False, 1.0)
+        return vc.Bilan(3, 3, 0, 0, False, 1.0, echecs=appels.get("echecs", []))
 
     monkeypatch.setattr(vc, "generer", fake_generer)
     monkeypatch.setattr(vc, "publier", lambda dossier: appels.setdefault("publie", True))
@@ -363,6 +383,14 @@ def test_main_generates_then_publishes(commande: dict):
     assert vc.main(["--voix", "fr_male", "--dossier", str(commande["dossier"])]) == 0
     assert commande["generer"] == (list(PHRASES), "fr_male")
     assert commande["publie"] is True
+
+
+def test_main_reports_unread_phrases_and_fails(commande: dict, capsys):
+    commande["echecs"] = [("abcd", "Phrase impossible", "n'arrive pas à finir")]
+    code = vc.main(["--voix", "fr_male", "--dossier", str(commande["dossier"])])
+    assert code == 1
+    assert "Phrase impossible" in capsys.readouterr().out
+    assert commande["publie"] is True  # ce qui existe est publié quand même
 
 
 def test_main_sans_publication_skips_vercel(commande: dict):
