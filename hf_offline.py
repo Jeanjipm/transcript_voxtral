@@ -46,6 +46,7 @@ un endpoint HuggingFace volontairement injoignable.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import sys
 import traceback
@@ -55,34 +56,96 @@ from typing import Iterator
 
 ENV_VAR = "HF_HUB_OFFLINE"
 
-# Sentinelle présente dans à peu près tous les repos MLX / transformers :
-# si elle est en cache, le repo est utilisable hors-ligne.
+# Point d'entrée dans le cache : présent dans à peu près tous les repos MLX /
+# transformers, et c'est le premier fichier téléchargé. Sa présence prouve
+# que le repo est CONNU du cache — pas qu'il est complet, d'où
+# `_complete_snapshot`.
 _CACHE_SENTINEL = "config.json"
+# Carte des fichiers de poids quand ils sont découpés en plusieurs morceaux.
+_WEIGHTS_INDEX = "model.safetensors.index.json"
+# Extensions de poids que nos modèles utilisent (Voxtral, Whisper MLX,
+# Sortformer : safetensors ; anciens Whisper MLX : npz).
+_WEIGHT_SUFFIXES = (".safetensors", ".npz")
+# Suffixe que huggingface_hub donne à un blob en cours de téléchargement.
+_INCOMPLETE_SUFFIX = ".incomplete"
 
 
-def is_model_cached(repo_id: str) -> bool:
-    """True si `repo_id` est présent dans le cache HuggingFace local.
+def _complete_snapshot(repo_id: str) -> Path | None:
+    """Dossier du snapshot local de `repo_id` s'il est COMPLET, sinon None.
 
-    Best-effort : si `huggingface_hub` est absent ou trop ancien pour
-    exposer l'API de cache, on répond False — donc on n'active pas le mode
-    hors-ligne, donc on ne risque pas de bloquer un téléchargement légitime.
+    Constaté en vrai : un téléchargement interrompu (l'app tuée pendant le
+    préchargement d'un modèle qu'on venait de choisir) laisse `config.json`
+    et un blob `.incomplete` de 200 Mo. Se fier à `config.json` seul faisait
+    alors tout dérailler : mode hors-ligne activé, chargement sur « No weight
+    files found », et Préférences qui affichait « ✓ sur ton Mac ».
+
+    Trois vérifications, toutes locales et sans réseau :
+    1. aucun blob `.incomplete` dans le repo ;
+    2. si `model.safetensors.index.json` est là, chaque morceau qu'il nomme
+       existe ;
+    3. sinon, au moins un fichier de poids est présent.
+
+    Best-effort : hf_hub absent, API qui lève, dossier incohérent, index
+    illisible → None. Répondre « incomplet » est le côté sûr : le réseau
+    reste autorisé et `snapshot_download` reprend ou vérifie, là où un faux
+    « complet » bloque tout.
     """
     try:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
-        return False
+        return None
 
     try:
-        result = try_to_load_from_cache(
+        cached = try_to_load_from_cache(
             repo_id=repo_id, filename=_CACHE_SENTINEL
         )
     except Exception:  # noqa: BLE001 — API instable entre versions de hf_hub
-        return False
+        return None
 
     # try_to_load_from_cache retourne le chemin (str) si le fichier est là,
     # un objet sentinelle _CACHED_NO_EXIST si le fichier est connu absent,
     # ou None si le repo n'est pas en cache. Seul le chemin nous intéresse.
-    return isinstance(result, (str, bytes))
+    if not isinstance(cached, (str, bytes)):
+        return None
+
+    snapshot = Path(os.fsdecode(cached)).parent
+    if not snapshot.is_dir():
+        return None
+
+    # 1) models--org--nom/blobs/ est le frère de snapshots/.
+    blobs = snapshot.parent.parent / "blobs"
+    if blobs.is_dir() and any(blobs.glob(f"*{_INCOMPLETE_SUFFIX}")):
+        return None
+
+    # 2) Poids découpés : chaque morceau annoncé doit exister (un lien
+    # symbolique vers un blob absent compte comme absent).
+    index = snapshot / _WEIGHTS_INDEX
+    if index.is_file():
+        try:
+            with open(index, "r", encoding="utf-8") as f:
+                shards = set(json.load(f)["weight_map"].values())
+        except (OSError, ValueError, KeyError, AttributeError):
+            return None
+        if not shards or not all((snapshot / s).exists() for s in shards):
+            return None
+        return snapshot
+
+    # 3) Poids en un seul fichier.
+    for entry in snapshot.iterdir():
+        if entry.name.endswith(_WEIGHT_SUFFIXES) and entry.exists():
+            return snapshot
+    return None
+
+
+def is_model_cached(repo_id: str) -> bool:
+    """True si `repo_id` est présent ET complet dans le cache HuggingFace.
+
+    Best-effort : si `huggingface_hub` est absent ou trop ancien pour
+    exposer l'API de cache, on répond False — donc on n'active pas le mode
+    hors-ligne, donc on ne risque pas de bloquer un téléchargement légitime.
+    Cf. `_complete_snapshot` pour ce que « complet » veut dire.
+    """
+    return _complete_snapshot(repo_id) is not None
 
 
 def resolve_local_path(repo_id: str) -> str:
@@ -90,8 +153,9 @@ def resolve_local_path(repo_id: str) -> str:
 
     Retourne le dossier du snapshot en cache (ex.
     `~/.cache/huggingface/hub/models--org--nom/snapshots/<sha>/`) quand le
-    modèle est déjà téléchargé, sinon `repo_id` inchangé — auquel cas
-    l'appelant fera un vrai téléchargement, ce qui est le comportement voulu.
+    modèle est déjà téléchargé EN ENTIER, sinon `repo_id` inchangé — auquel
+    cas l'appelant fera un vrai téléchargement (ou le reprendra), ce qui est
+    le comportement voulu.
 
     C'est LE contournement du bug `mistral_common` décrit dans la docstring
     du module : passer un dossier à `from_pretrained` évite tout appel au
@@ -99,27 +163,11 @@ def resolve_local_path(repo_id: str) -> str:
     hors-ligne.
 
     Best-effort et sans effet de bord : toute anomalie (hf_hub absent, cache
-    corrompu, `repo_id` qui est déjà un chemin) retourne `repo_id` tel quel.
+    corrompu ou partiel, `repo_id` qui est déjà un chemin) retourne `repo_id`
+    tel quel.
     """
-    try:
-        from huggingface_hub import try_to_load_from_cache
-    except ImportError:
-        return repo_id
-
-    try:
-        cached = try_to_load_from_cache(
-            repo_id=repo_id, filename=_CACHE_SENTINEL
-        )
-    except Exception:  # noqa: BLE001 — API instable entre versions de hf_hub
-        return repo_id
-
-    if not isinstance(cached, (str, bytes)):
-        return repo_id
-
-    snapshot_dir = Path(os.fsdecode(cached)).parent
-    if not snapshot_dir.is_dir():
-        return repo_id
-    return str(snapshot_dir)
+    snapshot = _complete_snapshot(repo_id)
+    return repo_id if snapshot is None else str(snapshot)
 
 
 def set_offline(enabled: bool) -> None:

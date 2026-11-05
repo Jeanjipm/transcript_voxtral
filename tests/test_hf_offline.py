@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -31,13 +32,96 @@ def clean_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(hf_offline.ENV_VAR, raising=False)
 
 
+def make_snapshot(
+    root: Path,
+    fake_hub,
+    weights: tuple[str, ...] = ("model.safetensors",),
+    index: dict | None = None,
+    incomplete_blob: bool = False,
+) -> Path:
+    """Fabrique un repo du cache HuggingFace tel qu'il est sur le disque :
+    `models--org--m/blobs/` et `models--org--m/snapshots/<sha>/`, et branche
+    `try_to_load_from_cache` dessus. Les poids sont des liens vers des blobs,
+    comme en vrai — un morceau listé dans `index` mais absent de `weights`
+    n'a donc ni lien ni blob."""
+    repo = root / "models--org--m"
+    blobs = repo / "blobs"
+    snapshot = repo / "snapshots" / "abc123"
+    blobs.mkdir(parents=True)
+    snapshot.mkdir(parents=True)
+    (blobs / "cfg").write_text("{}", encoding="utf-8")
+    (snapshot / "config.json").symlink_to(blobs / "cfg")
+    for i, name in enumerate(weights):
+        (blobs / f"w{i}").write_bytes(b"\0" * 16)
+        (snapshot / name).symlink_to(blobs / f"w{i}")
+    if index is not None:
+        (snapshot / "model.safetensors.index.json").write_text(
+            json.dumps({"weight_map": index}), encoding="utf-8"
+        )
+    if incomplete_blob:
+        (blobs / "deadbeef.incomplete").write_bytes(b"\0" * 16)
+    fake_hub.try_to_load_from_cache.return_value = str(snapshot / "config.json")
+    return snapshot
+
+
 # ---- is_model_cached ----
 
 
-def test_is_model_cached_true_when_path_returned(fake_hub):
-    """try_to_load_from_cache qui rend un chemin => modèle en cache."""
-    fake_hub.try_to_load_from_cache.return_value = "/cache/models--x/snapshots/a/config.json"
+def test_is_model_cached_true_for_a_complete_snapshot(fake_hub, tmp_path: Path):
+    """config.json + un fichier de poids => modèle en cache."""
+    make_snapshot(tmp_path, fake_hub)
     assert hf_offline.is_model_cached("org/modele") is True
+
+
+def test_is_model_cached_false_when_only_config_json(fake_hub, tmp_path: Path):
+    """Le cas vécu : téléchargement tué juste après config.json. Se fier à
+    config.json seul activait le hors-ligne sur un modèle sans poids."""
+    make_snapshot(tmp_path, fake_hub, weights=())
+    assert hf_offline.is_model_cached("org/modele") is False
+
+
+def test_is_model_cached_false_while_a_blob_is_incomplete(fake_hub, tmp_path: Path):
+    """Un blob .incomplete = huggingface_hub n'a pas fini : pas complet,
+    même si d'autres poids sont déjà là."""
+    make_snapshot(tmp_path, fake_hub, incomplete_blob=True)
+    assert hf_offline.is_model_cached("org/modele") is False
+
+
+def test_is_model_cached_checks_every_shard_of_the_index(fake_hub, tmp_path: Path):
+    """Poids découpés (Voxtral 8 bits : 2 morceaux) : il faut TOUS les
+    morceaux annoncés par model.safetensors.index.json."""
+    index = {"a": "model-00001-of-00002.safetensors", "b": "model-00002-of-00002.safetensors"}
+    make_snapshot(
+        tmp_path, fake_hub, weights=("model-00001-of-00002.safetensors",), index=index
+    )
+    assert hf_offline.is_model_cached("org/modele") is False
+
+
+def test_is_model_cached_true_when_all_shards_present(fake_hub, tmp_path: Path):
+    shards = ("model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors")
+    make_snapshot(tmp_path, fake_hub, weights=shards, index={"a": shards[0], "b": shards[1]})
+    assert hf_offline.is_model_cached("org/modele") is True
+
+
+def test_is_model_cached_false_when_index_is_unreadable(fake_hub, tmp_path: Path):
+    """Index corrompu : on répond « incomplet », le côté sûr (réseau autorisé,
+    snapshot_download vérifie), plutôt que de deviner."""
+    snapshot = make_snapshot(tmp_path, fake_hub, weights=("model.safetensors",))
+    (snapshot / "model.safetensors.index.json").write_text("{pas du json", encoding="utf-8")
+    assert hf_offline.is_model_cached("org/modele") is False
+
+
+def test_is_model_cached_accepts_whisper_style_weights(fake_hub, tmp_path: Path):
+    """Les Whisper MLX n'ont pas d'index : un seul weights.safetensors."""
+    make_snapshot(tmp_path, fake_hub, weights=("weights.safetensors",))
+    assert hf_offline.is_model_cached("org/modele") is True
+
+
+def test_is_model_cached_false_when_weight_symlink_dangles(fake_hub, tmp_path: Path):
+    """Lien vers un blob supprimé (cache nettoyé à la main) : absent."""
+    snapshot = make_snapshot(tmp_path, fake_hub)
+    (snapshot / "model.safetensors").resolve().unlink()
+    assert hf_offline.is_model_cached("org/modele") is False
 
 
 def test_is_model_cached_false_when_none(fake_hub):
@@ -80,8 +164,8 @@ def test_set_offline_false_clears_both(fake_hub):
 # ---- refresh ----
 
 
-def test_refresh_enables_offline_when_cached(fake_hub):
-    fake_hub.try_to_load_from_cache.return_value = "/cache/x/config.json"
+def test_refresh_enables_offline_when_cached(fake_hub, tmp_path: Path):
+    make_snapshot(tmp_path, fake_hub)
     assert hf_offline.refresh("org/modele") is True
     assert fake_hub.constants.HF_HUB_OFFLINE is True
 
@@ -95,10 +179,10 @@ def test_refresh_allows_network_when_not_cached(fake_hub, capsys):
     assert "absent du cache" in capsys.readouterr().err
 
 
-def test_refresh_respects_prefer_offline_false(fake_hub):
+def test_refresh_respects_prefer_offline_false(fake_hub, tmp_path: Path):
     """prefer_offline=false dans la config => on n'active jamais le hors-ligne,
     même si le modèle est en cache."""
-    fake_hub.try_to_load_from_cache.return_value = "/cache/x/config.json"
+    make_snapshot(tmp_path, fake_hub)
     assert hf_offline.refresh("org/modele", prefer_offline=False) is False
     assert fake_hub.constants.HF_HUB_OFFLINE is False
 
@@ -129,12 +213,21 @@ def test_allow_network_restores_even_on_exception(fake_hub):
 def test_resolve_local_path_returns_snapshot_dir(fake_hub, tmp_path: Path):
     """Le contournement du bug mistral_common : on doit rendre le DOSSIER du
     snapshot, pas l'identifiant du repo."""
-    snapshot = tmp_path / "models--org--m" / "snapshots" / "abc123"
-    snapshot.mkdir(parents=True)
-    (snapshot / "config.json").write_text("{}", encoding="utf-8")
-    fake_hub.try_to_load_from_cache.return_value = str(snapshot / "config.json")
+    snapshot = make_snapshot(tmp_path, fake_hub)
 
     assert hf_offline.resolve_local_path("org/m") == str(snapshot)
+
+
+def test_resolve_local_path_falls_back_when_snapshot_is_partial(
+    fake_hub, tmp_path: Path
+):
+    """Snapshot sans poids : rendre le dossier ferait échouer from_pretrained
+    sur « No weight files found ». On rend le repo_id, pour que le
+    téléchargement reprenne (le réseau est ouvert par network_if_missing,
+    puisque is_model_cached dit la même chose)."""
+    make_snapshot(tmp_path, fake_hub, weights=(), incomplete_blob=True)
+    assert hf_offline.resolve_local_path("org/m") == "org/m"
+    assert hf_offline.is_model_cached("org/m") is False
 
 
 def test_resolve_local_path_falls_back_to_repo_id_when_absent(fake_hub):
@@ -188,9 +281,9 @@ def test_network_if_missing_opens_network_for_an_absent_model(fake_hub):
     assert hf_offline.is_offline() is True
 
 
-def test_network_if_missing_keeps_offline_for_a_cached_model(fake_hub):
+def test_network_if_missing_keeps_offline_for_a_cached_model(fake_hub, tmp_path: Path):
     """Modèle en cache : on ne rouvre jamais le réseau sans raison."""
-    fake_hub.try_to_load_from_cache.return_value = "/cache/models--x/snapshots/a/config.json"
+    make_snapshot(tmp_path, fake_hub)
     hf_offline.set_offline(True)
 
     with hf_offline.network_if_missing("org/present"):

@@ -67,7 +67,7 @@ ne se fusionne pas.
 | `transcriber.py` | 26 | factory, délégation translate, garde-fou turbo, réseau ouvert si le modèle manque, budget de jetons proportionnel à la durée |
 | `config.py` | 25 | I/O, fusion defaults+user, dataclasses, roundtrip, clés obsolètes ignorées (`model.path`), sections `ui` et `maintenance` |
 | `audio_level.py` | 20 | RMS de la fenêtre la plus forte (dBFS), normalisation int16/float/stéréo, salve brève dans un long silence, lecture d'un WAV, décision avec filtre coupé |
-| `hf_offline.py` | 19 | détection du cache, bascule hors-ligne, résolution locale, `network_if_missing` |
+| `hf_offline.py` | 27 | détection du cache et de sa COMPLÉTUDE (blob `.incomplete`, morceaux de l'index, poids absents), bascule hors-ligne, résolution locale, `network_if_missing` |
 | `file_job.py` | 18 | cycle de vie, chemin de sortie, annulation, erreurs |
 | `audio_convert.py` | 17 | afconvert, formats refusés par libsndfile, lecture par blocs |
 | `clipboard.py` | 18 | paste_text, préservation clipboard, délai de restauration configurable, règle de thread |
@@ -76,7 +76,7 @@ ne se fusionne pas.
 | `audio_device.py` | 9 | détection d'un changement de micro par défaut : premier sondage muet, lecture échouée ignorée, exceptions avalées |
 | `transcribe.py` (CLI) | 3 | conversion par `ensure_16k_mono`, temporaire nettoyé, fichier illisible → code 1 sans charger le modèle |
 
-**Total : 539 tests** (certains sont paramétrés, d'où un total supérieur à la
+**Total : 548 tests** (certains sont paramétrés, d'où un total supérieur à la
 somme des fonctions de test).
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui
