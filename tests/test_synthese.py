@@ -158,6 +158,39 @@ def test_lire_retries_a_runaway_generation_then_succeeds(capsys):
     assert "partie en boucle" in capsys.readouterr().out
 
 
+def test_lire_retries_an_implausibly_long_reading(capsys):
+    """« oiseau » lu en 6 s de charabia : la génération s'arrête d'elle-même
+    (le plafond ne voit rien) mais la durée trahit le problème."""
+    synth = Synthetiseur("org/tts")
+    charabia = np.zeros(int(6.2 * 24_000), dtype=np.float32)
+    normal = np.zeros(int(0.6 * 24_000), dtype=np.float32)
+    appels = {"n": 0}
+
+    def generate(text, voice, max_tokens=4096):
+        appels["n"] += 1
+        yield SimpleNamespace(audio=charabia if appels["n"] == 1 else normal, token_count=10)
+
+    synth._model = SimpleNamespace(
+        generate=generate, sample_rate=24_000,
+        _voice_embedding_files={"fr_female": Path("x")},
+    )
+    audio = synth.lire("oiseau", "fr_female")
+    assert appels["n"] == 2
+    assert len(audio) == len(normal)
+    assert "trop longue pour le texte" in capsys.readouterr().out
+
+
+def test_duree_max_plausible_accepts_normal_readings():
+    # Mesuré : 75 caractères lus en 4,9 à 6,7 s ; 38 caractères en 6,8 s au plus lent.
+    assert synthese.duree_max_plausible("x" * 75) > 7
+    assert synthese.duree_max_plausible("x" * 38) > 7
+    # Un mot seul se lit en 0,4 à 0,7 s : 1,9 s de charabia (« heure »),
+    # 3,8 s (« arbre ») et 6 s (« oiseau ») doivent être rejetés.
+    assert 0.7 < synthese.duree_max_plausible("heure") < 1.9
+    assert synthese.duree_max_plausible("arbre") < 3.8
+    assert synthese.duree_max_plausible("oiseau") < 6
+
+
 def test_lire_gives_up_after_three_runaway_generations():
     synth = Synthetiseur("org/tts")
     budget = synthese.budget_tokens("Bonjour.")
@@ -279,3 +312,62 @@ def test_chemin_ffmpeg_looks_in_homebrew_when_path_is_minimal(
     assert synthese.chemin_ffmpeg() == str(binaire)
     monkeypatch.setattr(synthese, "FFMPEG_CANDIDATES", (str(tmp_path / "absent"),))
     assert synthese.chemin_ffmpeg() is None
+
+
+# ---- Correctif des débuts de phrase (mlx-audio < 0.5.8) ----
+
+
+@pytest.mark.parametrize(
+    "version,attendu",
+    [((0, 4, 6), True), ((0, 4, 2), True), ((0, 5, 7), True), ((0, 5, 8), False),
+     ((0, 6, 4), False), ((1, 0, 0), False), (None, False)],
+)
+def test_correctif_debuts_necessaire_before_0_5_8(version, attendu):
+    assert synthese.correctif_debuts_necessaire(version) is attendu
+
+
+def test_appliquer_correctif_binds_the_corrected_generate(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(synthese, "_version_mlx_audio", lambda: (0, 4, 6))
+    model = SimpleNamespace(generate="original")
+    assert synthese.appliquer_correctif_debuts(model) is True
+    assert model.generate.__func__ is synthese._generate_corrige
+    assert model.generate.__self__ is model
+
+
+def test_appliquer_correctif_leaves_recent_versions_alone(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(synthese, "_version_mlx_audio", lambda: (0, 5, 8))
+    model = SimpleNamespace(generate="original")
+    assert synthese.appliquer_correctif_debuts(model) is False
+    assert model.generate == "original"
+
+
+def test_corrected_generate_has_no_extra_audio_token_step():
+    """Le bug : un décodage supplémentaire avec le jeton [AUDIO] juste après le
+    préremplissage. La copie embarquée ne doit pas le contenir, et doit garder
+    la signature publique de mlx-audio."""
+    import inspect
+
+    source = inspect.getsource(synthese._generate_corrige)
+    assert "audio_tok_emb" not in source
+    assert "decode_one_frame" in source  # le reste de la boucle est bien là
+    params = list(inspect.signature(synthese._generate_corrige).parameters)
+    assert params[:3] == ["self", "text", "voice"] and "max_tokens" in params
+
+
+def test_synthetiseur_applies_the_fix_when_loading(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    fake_model = SimpleNamespace(sample_rate=24_000, generate="original")
+    fake_utils = SimpleNamespace(load=lambda source: fake_model)
+    import sys
+    monkeypatch.setitem(sys.modules, "mlx_audio", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "mlx_audio.tts", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "mlx_audio.tts.utils", fake_utils)
+    monkeypatch.setattr(synthese.hf_offline, "resolve_local_path", lambda repo: repo)
+    applied: list = []
+    monkeypatch.setattr(
+        synthese, "appliquer_correctif_debuts", lambda m: applied.append(m) or True
+    )
+    synth = Synthetiseur("org/tts")
+    synth.preload()
+    assert applied == [fake_model]
+    assert synth.correctif_debuts is True and synth.is_loaded
+

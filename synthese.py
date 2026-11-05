@@ -24,6 +24,7 @@ la dictée et obligerait tous les utilisateurs à réinstaller.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import threading
@@ -58,6 +59,14 @@ CHARS_PAR_SECONDE = 5.0
 MARGE_SECONDES = 8.0
 MAX_TOKENS_PLAFOND = 2_000  # 160 s ; le plus long texte du cahier (600 car.) tient en ~128 s
 TENTATIVES = 3
+# Second garde-fou, pour les lectures qui s'arrêtent d'elles-mêmes mais en
+# charabia : un mot seul (« oiseau », « heure ») sort normalement en 0,4 à
+# 0,7 s, et une fois sur dix environ en 2 à 6 s de syllabes inventées. Le
+# débit le plus lent mesuré sur une vraie phrase est 5,6 caractères/s ; au-delà
+# de ce maximum (texte lu à 4 car./s, plus 0,3 s), la lecture n'est pas
+# plausible et on la rejoue. Pour 5 lettres : 1,55 s ; pour 38 : 9,8 s.
+CHARS_PAR_SECONDE_MIN = 4.0
+MARGE_DUREE_S = 0.3
 # Dossier du dépôt HF qui contient une empreinte par voix (`<nom>.safetensors`).
 VOICE_DIR = "voice_embedding"
 PREFIXE_FRANCAIS = "fr_"
@@ -142,6 +151,11 @@ def budget_tokens(texte: str) -> int:
     return min(MAX_TOKENS_PLAFOND, int(secondes * FRAMES_PAR_SECONDE))
 
 
+def duree_max_plausible(texte: str) -> float:
+    """Au-delà de cette durée (en secondes), la lecture est du charabia."""
+    return len(texte) / CHARS_PAR_SECONDE_MIN + MARGE_DUREE_S
+
+
 def _vers_numpy(audio: Any) -> np.ndarray:
     """Tableau MLX (ou autre) → numpy float32 mono, à plat."""
     try:
@@ -166,6 +180,8 @@ class Synthetiseur:
         self.sample_rate = SAMPLE_RATE
         self._model: Any = None
         self._lock = threading.Lock()
+        # True une fois le modèle chargé si la génération corrigée a été posée.
+        self.correctif_debuts = False
 
     @property
     def is_loaded(self) -> bool:
@@ -185,6 +201,8 @@ class Synthetiseur:
             with hf_offline.network_if_missing(self.repo):
                 model = load(source)
             self.sample_rate = int(getattr(model, "sample_rate", SAMPLE_RATE))
+            # Cf. le bloc « Correctif des débuts de phrase » plus bas.
+            self.correctif_debuts = appliquer_correctif_debuts(model)
             self._model = model
 
     def preload(self) -> None:
@@ -218,6 +236,7 @@ class Synthetiseur:
                 f"Voix inconnue « {voix} ». Voix disponibles : {', '.join(connues)}."
             )
         max_tokens = budget_tokens(texte)
+        duree_max = duree_max_plausible(texte)
         for tentative in range(1, TENTATIVES + 1):
             morceaux: list[np.ndarray] = []
             trames = 0
@@ -226,11 +245,16 @@ class Synthetiseur:
             ):
                 morceaux.append(_vers_numpy(resultat.audio))
                 trames += int(getattr(resultat, "token_count", 0) or 0)
-            if trames < max_tokens:
+            duree = sum(m.size for m in morceaux) / self.sample_rate
+            if trames < max_tokens and duree <= duree_max:
                 break
+            motif = (
+                "partie en boucle" if trames >= max_tokens
+                else f"trop longue pour le texte ({duree:.1f} s, max {duree_max:.1f} s)"
+            )
             print(
-                f"[synthese] lecture partie en boucle ({trames} trames, "
-                f"tentative {tentative}/{TENTATIVES}) : « {texte[:60]} »"
+                f"[synthese] lecture {motif}, tentative {tentative}/{TENTATIVES} : "
+                f"« {texte[:60]} »"
             )
         else:
             raise SynthesisError(
@@ -390,3 +414,274 @@ def arreter() -> None:
         sd.stop()
     except Exception:  # noqa: BLE001
         pass
+
+
+# ----------------------------------------------------------------------
+# Correctif des débuts de phrase (mlx-audio < 0.5.8)
+#
+# Dans mlx-audio 0.4.6, `Model.generate` glisse un jeton [AUDIO] de trop entre
+# la lecture du texte et la première trame de son. Toute la séquence est
+# décalée d'une position et le début de chaque phrase est abîmé : bruit,
+# syllabe inventée (« Zal écrit »), premier mot avalé. Mesuré sur 16 lectures
+# transcrites par Whisper : 9 débuts faux avec la 0.4.6, 0 avec la fonction
+# ci-dessous. Corrigé en amont dans la 0.5.8 (5 oct. 2026), que l'on ne peut
+# pas installer sans monter transformers puis mlx — donc réinstallation pour
+# tous. On embarque la fonction corrigée (copie à l'identique de la 0.5.8,
+# seul l'import de `make_prompt_cache` est adapté ; le reste du module est
+# identique entre 0.4.6 et 0.6.4) et on la pose sur le modèle chargé, tant que
+# la version installée est antérieure à la 0.5.8. Quand requirements.lock
+# passera au-dessus, ce bloc cessera de s'appliquer tout seul.
+# ----------------------------------------------------------------------
+
+VERSION_CORRIGEE = (0, 5, 8)
+
+
+def _version_mlx_audio() -> tuple[int, ...] | None:
+    try:
+        from mlx_audio.version import __version__  # type: ignore[import-not-found]
+    except Exception:  # noqa: BLE001
+        return None
+    nombres = re.findall(r"\d+", __version__)
+    return tuple(int(n) for n in nombres[:3]) if nombres else None
+
+
+def correctif_debuts_necessaire(version: tuple[int, ...] | None = None) -> bool:
+    """True si la version de mlx-audio a encore le jeton [AUDIO] de trop."""
+    if version is None:
+        version = _version_mlx_audio()
+    return version is not None and version < VERSION_CORRIGEE
+
+
+def appliquer_correctif_debuts(model: Any) -> bool:
+    """Pose la génération corrigée sur `model` si nécessaire. Retourne True si
+    elle a été appliquée."""
+    if not correctif_debuts_necessaire():
+        return False
+    import types
+
+    model.generate = types.MethodType(_generate_corrige, model)
+    return True
+
+
+# Copie de `Model.generate` de mlx-audio 0.5.8 (sans le jeton [AUDIO] de trop),
+# rendue autonome par ses imports en tête ; le corps est inchangé.
+def _generate_corrige(  # noqa: PLR0912, PLR0915
+    self,
+    text: str,
+    voice: str = "casual_male",
+    temperature: float = 0.8,
+    top_k: int = 50,
+    top_p: float = 0.95,
+    max_tokens: int = 4096,
+    verbose: bool = False,
+    stream: bool = False,
+    streaming_interval: float = 2.0,
+    **kwargs,
+):
+    """Generate speech from text.
+
+    Args:
+        text: Input text to synthesize.
+        voice: Voice preset name (e.g. "casual_male", "fr_female").
+        temperature: Sampling temperature for the LM.
+        top_k: Top-k sampling.
+        top_p: Nucleus sampling threshold.
+        max_tokens: Maximum number of audio tokens to generate.
+        verbose: Show progress bar.
+        stream: Enable streaming output. When True, intermediate audio
+            chunks are yielded during generation for lower latency.
+        streaming_interval: Approximate seconds of audio per streaming
+            chunk. Each frame is 80 ms, so the interval is converted to
+            a frame count (``max(1, int(streaming_interval / 0.08))``).
+
+    Yields:
+        GenerationResult with audio waveform. When *stream* is True,
+        intermediate results have ``is_streaming_chunk=True`` and the
+        last result additionally has ``is_final_chunk=True``.
+    """
+    import time
+
+    import mlx.core as mx  # type: ignore[import-not-found]
+    from mlx_audio.tts.models.base import GenerationResult  # type: ignore[import-not-found]
+    from mlx_lm.models.cache import make_prompt_cache  # type: ignore[import-not-found]
+    from tqdm import tqdm
+
+    if self.tokenizer is None:
+        raise RuntimeError(
+            "Tokenizer not loaded. Ensure post_load_hook was called."
+        )
+
+    time_start = time.time()
+
+    input_ids = self._encode_text(text, voice)
+    input_ids_mx = mx.array(input_ids)[None, :]  # (1, seq_len)
+    input_embeddings = self._build_input_embeddings(input_ids_mx, voice)
+
+    # LM backbone returns hidden states; full model returns logits
+    lm_backbone = self.language_model.model.model
+
+    # Prefill: run prompt through LM with KV cache. The prompt ends with
+    # [BEGIN_AUDIO], so its last hidden state already predicts the first
+    # audio frame (as in vllm-omni). Feeding an extra [AUDIO] token here
+    # shifts every frame by one position and garbles the opening words.
+    cache = make_prompt_cache(self.language_model.model)
+    hidden = lm_backbone(
+        input_ids_mx, cache=cache, input_embeddings=input_embeddings
+    )
+
+    all_codes = []
+    yielded_frames = 0
+    chunk_idx = 0
+    # Convert streaming_interval (seconds) to frames (1 frame = 80 ms)
+    frames_per_chunk = max(1, int(streaming_interval / 0.08))
+    # Context frames for overlap-add decoding.  The codec decoder uses
+    # sliding-window attention with windows up to 16 (at the final stage).
+    # Including context frames from the previous chunk ensures smooth
+    # transitions without boundary artifacts.
+    context_frames = 16
+    # Each codec frame produces 1920 samples (8x upsample × 240 patch)
+    samples_per_frame = 1920
+
+    for i in tqdm(range(max_tokens), disable=not verbose):
+        h = hidden[:, -1, :]  # (1, dim)
+
+        codes = self.acoustic_transformer.decode_one_frame(h)  # (1, 37)
+
+        # End-of-audio: semantic code == END_AUDIO special token (index 1)
+        semantic_code = codes[0, 0].item()
+        if semantic_code <= 1:  # 0=empty_audio, 1=end_audio
+            break
+
+        all_codes.append(codes[:, None, :])  # (1, 1, 37)
+
+        # Embed audio codes back as LLM input for next step.
+        # Each codebook has its own offset in the global embedding table:
+        #   Codebook 0 (semantic): offset=0, size=semantic_codebook_size+2
+        #   Codebook 1..36 (acoustic): offset=prev+prev_size, size=acoustic_codebook_size+2
+        global_codes = self._codes_to_global_indices(codes)  # (1, 37)
+        code_embeddings = self.audio_codebook_embeddings["embeddings"](global_codes)
+        next_embedding = code_embeddings.sum(axis=1, keepdims=True)  # (1, 1, dim)
+
+        # Feed back through LM for next step using KV cache
+        dummy_input = mx.array([[self.config.audio_token_id]])
+        hidden = lm_backbone(
+            dummy_input, cache=cache, input_embeddings=next_embedding
+        )
+
+        if i % 50 == 0:
+            mx.clear_cache()
+
+        # Streaming: yield chunk when buffer is full
+        if stream and len(all_codes) - yielded_frames >= frames_per_chunk:
+            # Include context frames from earlier in the sequence so the
+            # codec decoder's sliding-window attention has proper context,
+            # avoiding boundary artifacts between chunks.
+            ctx_start = max(0, yielded_frames - context_frames)
+            chunk_codes = mx.concatenate(all_codes[ctx_start:], axis=1)
+            full_waveform = self.audio_tokenizer.decode(chunk_codes)
+            full_waveform = full_waveform.squeeze(0)
+
+            # Trim the context portion — keep only new audio
+            ctx_used = yielded_frames - ctx_start
+            trim_samples = ctx_used * samples_per_frame
+            chunk_waveform = full_waveform[trim_samples:]
+
+            chunk_samples = chunk_waveform.shape[0]
+            chunk_duration = chunk_samples / self.config.sample_rate
+            chunk_time = time.time() - time_start
+            chunk_token_count = len(all_codes) - yielded_frames
+
+            yield GenerationResult(
+                audio=chunk_waveform,
+                sample_rate=self.config.sample_rate,
+                samples=chunk_samples,
+                segment_idx=chunk_idx,
+                token_count=chunk_token_count,
+                audio_samples={
+                    "samples": chunk_samples,
+                    "samples-per-sec": self.config.sample_rate,
+                },
+                audio_duration=self._format_duration(chunk_duration),
+                real_time_factor=(
+                    chunk_duration / chunk_time if chunk_time > 0 else 0
+                ),
+                prompt={
+                    "tokens": chunk_token_count,
+                    "tokens-per-sec": (
+                        round(chunk_token_count / chunk_time, 2)
+                        if chunk_time > 0
+                        else 0
+                    ),
+                },
+                processing_time_seconds=chunk_time,
+                peak_memory_usage=mx.get_peak_memory() / 1e9,
+                is_streaming_chunk=True,
+                is_final_chunk=False,
+            )
+            yielded_frames = len(all_codes)
+            chunk_idx += 1
+            time_start = time.time()
+
+    if not all_codes:
+        raise RuntimeError("No audio frames generated")
+
+    # Final chunk: decode remaining frames (or all frames if not streaming)
+    remaining = len(all_codes) - yielded_frames
+    if stream and yielded_frames > 0 and remaining > 0:
+        # Decode remainder with context for smooth transition
+        ctx_start = max(0, yielded_frames - context_frames)
+        final_codes = mx.concatenate(all_codes[ctx_start:], axis=1)
+        full_waveform = self.audio_tokenizer.decode(final_codes).squeeze(0)
+        ctx_used = yielded_frames - ctx_start
+        trim_samples = ctx_used * samples_per_frame
+        waveform = full_waveform[trim_samples:]
+    elif stream and yielded_frames > 0 and remaining == 0:
+        # Everything already yielded — emit a zero-length final marker
+        waveform = mx.zeros((0,))
+    else:
+        # Non-streaming (or no intermediate chunks were yielded):
+        # decode everything at once — identical to the original path
+        audio_codes = mx.concatenate(all_codes, axis=1)
+        waveform = self.audio_tokenizer.decode(audio_codes).squeeze(0)
+
+    time_end = time.time()
+
+    audio_samples = waveform.shape[0]
+    audio_duration = audio_samples / self.config.sample_rate
+
+    processing_time = time_end - time_start
+
+    yield GenerationResult(
+        audio=waveform,
+        sample_rate=self.config.sample_rate,
+        samples=audio_samples,
+        segment_idx=chunk_idx if stream else 0,
+        token_count=remaining if stream and yielded_frames > 0 else len(all_codes),
+        audio_samples={
+            "samples": audio_samples,
+            "samples-per-sec": self.config.sample_rate,
+        },
+        audio_duration=self._format_duration(audio_duration),
+        real_time_factor=(
+            audio_duration / processing_time if processing_time > 0 else 0
+        ),
+        prompt={
+            "tokens": (
+                remaining if stream and yielded_frames > 0 else len(all_codes)
+            ),
+            "tokens-per-sec": (
+                round(
+                    (remaining if stream and yielded_frames > 0 else len(all_codes))
+                    / processing_time,
+                    2,
+                )
+                if processing_time > 0
+                else 0
+            ),
+        },
+        processing_time_seconds=processing_time,
+        peak_memory_usage=mx.get_peak_memory() / 1e9,
+        is_streaming_chunk=stream,
+        is_final_chunk=stream,
+    )
+    mx.clear_cache()

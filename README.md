@@ -176,6 +176,7 @@ voxtral
 ~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --essai
 ~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --voix fr_female
 ~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --voix fr_female --sans-publication
+~/.voxtral/venv/bin/python ~/.voxtral/app/vocaliser_cahier.py --voix fr_female --tout   # tout refaire après un changement du moteur
 ```
 
 ---

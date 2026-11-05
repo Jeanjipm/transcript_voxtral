@@ -4,6 +4,7 @@ Voix du cahier de révisions CE1 : toutes ses phrases en MP3, publiées sur Verc
     python vocaliser_cahier.py --essai                 # écouter les voix, choisir
     python vocaliser_cahier.py --voix fr_female        # tout générer puis publier
     python vocaliser_cahier.py --voix fr_female --sans-publication
+    python vocaliser_cahier.py --voix fr_female --tout   # après un changement du moteur
 
 Comment ça s'emboîte :
   1. Le site (https://revisions-ce1-ki-xi-t.vercel.app) publie un petit script
@@ -190,10 +191,11 @@ _UNITE_AVEC_NOMBRE = re.compile(r"(\d+)\s*(cm|mm)\b")
 _UNITE_SEULE = re.compile(r"\b(cm|mm)\b")
 _UNITES = {"cm": "centimètre", "mm": "millimètre"}
 # Signes isolés en tête, suivis d'espaces : « !  Le point d'exclamation »,
-# « •  Le point ». Les points de suspension n'en font pas partie : en tête
-# d'une phrase à trous (« … achète des prunes. »), ils marquent le blanc et
-# deviennent une pause, pas un mot à lire.
-_SIGNE_EN_TETE = re.compile(r"^[!?,;:•]+(\s+|$)")
+# « •  Le point ». Le point y figure aussi, pour les phrases à trous qui
+# commencent par « … » (devenu « . ») : mesuré, un point en tête fait inventer
+# des mots au modèle (« Vous avez de briller. Avions volent… »), alors que la
+# phrase sans lui est lue proprement.
+_SIGNE_EN_TETE = re.compile(r"^[!?,;:•.]+(\s+|$)")
 _SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
     ("=", " égale "),
     ("+", " plus "),
@@ -365,12 +367,14 @@ def generer(
     vers_mp3: Encodeur = synthese.vers_mp3,
     corbeille: Corbeille = mettre_a_la_corbeille,
     afficher: bool = True,
+    tout: bool = False,
 ) -> Bilan:
     """Génère les MP3 manquants, de façon incrémentale et interruptible.
 
     - un MP3 déjà présent est conservé ;
-    - si la voix du manifeste diffère de `voix`, tout est régénéré (les
-      anciens MP3 partent à la corbeille) ;
+    - si la voix du manifeste diffère de `voix`, ou si `tout` est demandé
+      (le moteur a changé), tout est régénéré (les anciens MP3 partent à la
+      corbeille) ;
     - un MP3 dont l'identifiant a disparu de la liste part à la corbeille ;
     - le manifeste est réécrit à la fin, même après une interruption, et ne
       liste que les fichiers présents.
@@ -387,7 +391,9 @@ def generer(
 
     manifest = lire_manifest(dossier)
     presents = {p.stem: p for p in audio_dir.glob("*.mp3")}
-    tout_regenere = bool(presents) and bool(manifest["voix"]) and manifest["voix"] != voix
+    tout_regenere = bool(presents) and (
+        tout or (bool(manifest["voix"]) and manifest["voix"] != voix)
+    )
     if tout_regenere:
         corbeille(list(presents.values()))
         presents = {}
@@ -561,6 +567,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="génère sans déployer sur Vercel",
     )
     parser.add_argument(
+        "--tout", action="store_true",
+        help="régénère aussi les MP3 déjà présents (après un changement du moteur)",
+    )
+    parser.add_argument(
         "--dossier", type=Path, default=DOSSIER, help=argparse.SUPPRESS
     )
     args = parser.parse_args(argv)
@@ -594,9 +604,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  {len(phrases)} phrases.")
 
         print(f"\n→ Génération avec la voix {args.voix} dans {dossier} :")
-        bilan = generer(phrases, args.voix, dossier)
+        bilan = generer(phrases, args.voix, dossier, tout=args.tout)
         if bilan.tout_regenere:
-            print("  (changement de voix : les anciens MP3 sont partis à la corbeille)")
+            print("  (tout régénéré : les anciens MP3 sont partis à la corbeille)")
         print(
             f"  {bilan.generes} générés, {bilan.conserves} conservés, "
             f"{bilan.supprimes} orphelins à la corbeille, en {_format_duree(bilan.duree_s)}."

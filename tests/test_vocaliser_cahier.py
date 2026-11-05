@@ -101,8 +101,12 @@ def test_charger_phrases_rejects_empty_list():
         ("19 > 16", "19 est plus grand que 16"),
         # Nettoyage
         ("1 cm = … mm", "1 centimètre égale. millimètre"),
-        ("… + 6 = 13", ". plus 6 égale 13"),
+        ("… + 6 = 13", "plus 6 égale 13"),
         ("3. Ce qui se passera  le futur", "3. Ce qui se passera le futur"),
+        # Un « … » en tête (phrase à trous) disparaît : lu, le point fait
+        # inventer des mots au modèle.
+        ("… achète des prunes.", "achète des prunes."),
+        ("… avion vole très haut.", "avion vole très haut."),
         ("Rien à changer.", "Rien à changer."),
     ],
 )
@@ -155,11 +159,11 @@ class FauxMoteur:
     def jeter(self, chemins) -> None:
         self.corbeille.append(sorted(Path(c) for c in chemins))
 
-    def generer(self, phrases, voix, dossier):
+    def generer(self, phrases, voix, dossier, tout=False):
         return generer(
             phrases, voix, dossier,
             lire=self.lire, vers_mp3=self.vers_mp3, corbeille=self.jeter,
-            afficher=False,
+            afficher=False, tout=tout,
         )
 
 
@@ -242,6 +246,17 @@ def test_changing_voice_regenerates_everything(tmp_path: Path, moteur: FauxMoteu
     assert lire_manifest(tmp_path)["voix"] == "fr_male"
     for p in (tmp_path / "audio").glob("*.mp3"):
         assert p.read_bytes() == b"mp3:fr_male"
+
+
+def test_tout_regenerates_even_with_the_same_voice(tmp_path: Path, moteur: FauxMoteur):
+    """Après un changement du moteur (correctif des débuts), les MP3 présents
+    sont tous à refaire bien que la voix n'ait pas changé."""
+    moteur.generer(PHRASES, "fr_female", tmp_path)
+    anciens = sorted((tmp_path / "audio").glob("*.mp3"))
+    moteur.lus.clear()
+    bilan = moteur.generer(PHRASES, "fr_female", tmp_path, tout=True)
+    assert bilan.tout_regenere is True and bilan.generes == 3
+    assert moteur.corbeille == [anciens]
 
 
 def test_same_voice_with_empty_manifest_does_not_regenerate(
@@ -350,8 +365,9 @@ def commande(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     )
     monkeypatch.setattr(vc, "recuperer_phrases", lambda dossier: list(PHRASES))
 
-    def fake_generer(phrases, voix, dossier):
+    def fake_generer(phrases, voix, dossier, tout=False):
         appels["generer"] = (list(phrases), voix)
+        appels["tout"] = tout
         return vc.Bilan(3, 3, 0, 0, False, 1.0, echecs=appels.get("echecs", []))
 
     monkeypatch.setattr(vc, "generer", fake_generer)
@@ -391,6 +407,11 @@ def test_main_reports_unread_phrases_and_fails(commande: dict, capsys):
     assert code == 1
     assert "Phrase impossible" in capsys.readouterr().out
     assert commande["publie"] is True  # ce qui existe est publié quand même
+
+
+def test_main_tout_is_passed_to_generer(commande: dict):
+    assert vc.main(["--voix", "fr_male", "--tout", "--dossier", str(commande["dossier"])]) == 0
+    assert commande["tout"] is True
 
 
 def test_main_sans_publication_skips_vercel(commande: dict):
