@@ -2,17 +2,17 @@
 
 | Modèle | Disque | WER synthé | WER réel | Temps réel (× à chaud) | 1re transcription 10 s | Chargement | Pic RAM | Horodatages | Hors-ligne |
 |---|---|---|---|---|---|---|---|---|---|
-| Voxtral Mini 3B 8-bit (dictée actuelle) | 5.4 Go | 4.4 % | 2.8 % | 10× (min 6×) | 1.0 s | 1.5 s | 5.3 Go | non | oui |
-| Voxtral Mini 3B 4-bit (catalogue) | 3.2 Go | 4.8 % | 3.3 % | 12× (min 7×) | 0.8 s | 7.1 s | 5.8 Go | non | oui |
-| Whisper large-v3-turbo (fichiers actuels) | 1.6 Go | 4.1 % | 3.1 % | 43× (min 17×) | 0.3 s | 0.7 s | 1.8 Go | phrase | oui |
-| Whisper large-v3 (traduction) | 3.1 Go | 1.7 % | 3.1 % | 14× (min 7×) | 0.7 s | 1.0 s | 3.5 Go | phrase | oui |
-| Voxtral Mini 4B Realtime 4-bit (Apache 2.0) | 3.1 Go | 2.6 % | 2.5 % | 3× (min 3×) | 2.5 s | 1.4 s | 3.5 Go | non | oui |
-| Qwen3-ASR 1.7B 8-bit (Apache 2.0) | 2.5 Go | 1.8 % | 7.3 % | 25× (min 18×) | 0.5 s | 1.3 s | 3.0 Go | non | oui |
+| Voxtral Mini 3B 8-bit (dictée actuelle) | 5.4 Go | 3.9 % | 2.8 % | 10× (min 6×) | 1.0 s | 1.5 s | 5.3 Go | non | oui |
+| Voxtral Mini 3B 4-bit (catalogue) | 3.2 Go | 3.3 % | 3.3 % | 12× (min 7×) | 0.8 s | 7.1 s | 5.8 Go | non | oui |
+| Whisper large-v3-turbo (fichiers actuels) | 1.6 Go | 3.1 % | 3.1 % | 43× (min 17×) | 0.3 s | 0.7 s | 1.8 Go | phrase | oui |
+| Whisper large-v3 (traduction) | 3.1 Go | 1.7 % | 3.1 % | 14× (min 7×) | 0.6 s | 1.0 s | 3.5 Go | phrase | oui |
+| Voxtral Mini 4B Realtime 4-bit (Apache 2.0) | 3.1 Go | 2.6 % | 2.5 % | 3× (min 3×) | 2.4 s | 1.4 s | 3.5 Go | non | oui |
+| Qwen3-ASR 1.7B 8-bit (Apache 2.0) | 2.5 Go | 2.3 % | 7.3 % | 25× (min 18×) | 0.5 s | 1.3 s | 3.0 Go | non | oui |
 | Qwen3-ASR 1.7B 4-bit (Apache 2.0) | 1.6 Go | 3.8 % | 8.0 % | 37× (min 26×) | 0.2 s | 1.3 s | 2.2 Go | non | oui |
-| Qwen3-ASR 4-bit + aligneur 0.6B (horodatages) | 1.6 Go | 3.8 % | 8.0 % | 31× (min 20×) | 0.3 s | 1.4 s | 3.2 Go | mot | oui |
-| Parakeet TDT 0.6B v3 (CC BY 4.0, fp32) | 2.5 Go | 5.5 % | 19.6 % | 154× (min 108×) | 0.3 s | 1.3 s | 2.7 Go | phrase | oui |
-| Parakeet TDT 0.6B v3 converti en bf16 | 2.5 Go | 5.5 % | 18.6 % | 204× (min 136×) | 0.1 s | 1.3 s | 2.7 Go | phrase | oui |
-| Parakeet TDT 0.6B v3 bf16, blocs de 60 s | 2.5 Go | 5.5 % | 25.9 % | 205× (min 138×) | 0.1 s | 1.3 s | 2.7 Go | phrase | oui |
+| Qwen3-ASR 4-bit + aligneur 0.6B (horodatages) | 1.6 Go | 3.8 % | 8.0 % | 30× (min 20×) | 0.3 s | 1.4 s | 3.2 Go | mot | oui |
+| Parakeet TDT 0.6B v3 (CC BY 4.0, fp32) | 2.5 Go | 4.5 % | 19.6 % | 154× (min 109×) | 0.3 s | 1.3 s | 2.7 Go | phrase | oui |
+| Parakeet TDT 0.6B v3 converti en bf16 | 2.5 Go | 4.5 % | 18.6 % | 204× (min 137×) | 0.1 s | 1.3 s | 2.7 Go | phrase | oui |
+| Parakeet TDT 0.6B v3 bf16, blocs de 60 s | 2.5 Go | 4.5 % | 25.9 % | 205× (min 140×) | 0.1 s | 1.3 s | 2.7 Go | phrase | oui |
 | Parakeet TDT 0.6B v3 bf16, blocs de 20 s | 2.5 Go | — | 2.5 % | 181× (min 174×) | 0.0 s | 1.4 s | 2.7 Go | phrase | non testé |
 
 ## Détail par fichier
@@ -26,7 +26,7 @@
 | voxtral-mini-3b-8bit | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.76 s | 0.81 s | 9× |
 | voxtral-mini-3b-8bit | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 1.09 s | 1.15 s | 8× |
 | voxtral-mini-3b-8bit | synth_court_dictee | 5 s | 17.6 % | 3 / 17 | 0.78 s | 1.28 s | 6× |
-| voxtral-mini-3b-8bit | synth_court_noms | 6 s | 10.0 % | 2 / 20 | 1.02 s | 1.08 s | 6× |
+| voxtral-mini-3b-8bit | synth_court_noms | 6 s | 5.0 % | 1 / 20 | 0.97 s | 1.22 s | 6× |
 | voxtral-mini-3b-8bit | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.81 s | 0.87 s | 6× |
 | voxtral-mini-3b-8bit | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 0.89 s | 0.95 s | 7× |
 | voxtral-mini-3b-8bit | synth_long_dictee_pro | 48 s | 3.3 % | 4 / 123 | 4.32 s | 4.37 s | 11× |
@@ -40,7 +40,7 @@
 | voxtral-mini-3b-4bit | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.64 s | 0.67 s | 10× |
 | voxtral-mini-3b-4bit | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 0.85 s | 0.89 s | 10× |
 | voxtral-mini-3b-4bit | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.65 s | 0.70 s | 7× |
-| voxtral-mini-3b-4bit | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 0.82 s | 0.87 s | 8× |
+| voxtral-mini-3b-4bit | synth_court_noms | 6 s | 5.0 % | 1 / 20 | 0.78 s | 0.83 s | 8× |
 | voxtral-mini-3b-4bit | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.68 s | 0.71 s | 8× |
 | voxtral-mini-3b-4bit | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 0.72 s | 0.79 s | 9× |
 | voxtral-mini-3b-4bit | synth_long_dictee_pro | 48 s | 14.6 % | 18 / 123 | 3.22 s | 3.24 s | 15× |
@@ -54,7 +54,7 @@
 | whisper-large-v3-turbo | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.19 s | 0.30 s | 34× |
 | whisper-large-v3-turbo | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 0.21 s | 0.32 s | 39× |
 | whisper-large-v3-turbo | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.20 s | 0.31 s | 24× |
-| whisper-large-v3-turbo | synth_court_noms | 6 s | 15.0 % | 3 / 20 | 0.24 s | 0.34 s | 26× |
+| whisper-large-v3-turbo | synth_court_noms | 6 s | 5.0 % | 1 / 20 | 0.23 s | 0.33 s | 26× |
 | whisper-large-v3-turbo | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.20 s | 0.31 s | 25× |
 | whisper-large-v3-turbo | synth_court_sigles | 6 s | 18.2 % | 4 / 22 | 0.21 s | 0.32 s | 29× |
 | whisper-large-v3-turbo | synth_long_dictee_pro | 48 s | 2.4 % | 3 / 123 | 0.77 s | 0.87 s | 62× |
@@ -68,7 +68,7 @@
 | whisper-large-v3 | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.43 s | 0.53 s | 15× |
 | whisper-large-v3 | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 0.54 s | 0.65 s | 16× |
 | whisper-large-v3 | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.57 s | 0.72 s | 8× |
-| whisper-large-v3 | synth_court_noms | 6 s | 10.0 % | 2 / 20 | 0.68 s | 0.83 s | 9× |
+| whisper-large-v3 | synth_court_noms | 6 s | 10.0 % | 2 / 20 | 0.62 s | 0.72 s | 10× |
 | whisper-large-v3 | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.49 s | 0.59 s | 10× |
 | whisper-large-v3 | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 0.58 s | 0.66 s | 11× |
 | whisper-large-v3 | synth_long_dictee_pro | 48 s | 2.4 % | 3 / 123 | 2.99 s | 3.14 s | 16× |
@@ -82,7 +82,7 @@
 | voxtral-rt-4b-4bit | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 2.49 s | 2.48 s | 3× |
 | voxtral-rt-4b-4bit | synth_court_chiffres | 8 s | 0.0 % | 0 / 22 | 3.03 s | 3.06 s | 3× |
 | voxtral-rt-4b-4bit | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 1.89 s | 2.42 s | 3× |
-| voxtral-rt-4b-4bit | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 2.44 s | 2.50 s | 3× |
+| voxtral-rt-4b-4bit | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 2.27 s | 2.28 s | 3× |
 | voxtral-rt-4b-4bit | synth_court_question | 5 s | 0.0 % | 0 / 18 | 2.01 s | 2.03 s | 3× |
 | voxtral-rt-4b-4bit | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 2.37 s | 2.39 s | 3× |
 | voxtral-rt-4b-4bit | synth_long_dictee_pro | 48 s | 2.4 % | 3 / 123 | 15.76 s | 15.90 s | 3× |
@@ -96,7 +96,7 @@
 | qwen3-asr-1.7b-8bit | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.24 s | 0.27 s | 28× |
 | qwen3-asr-1.7b-8bit | synth_court_chiffres | 8 s | 0.0 % | 0 / 22 | 0.38 s | 0.41 s | 22× |
 | qwen3-asr-1.7b-8bit | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.27 s | 1.05 s | 18× |
-| qwen3-asr-1.7b-8bit | synth_court_noms | 6 s | 15.0 % | 3 / 20 | 0.33 s | 0.36 s | 19× |
+| qwen3-asr-1.7b-8bit | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 0.34 s | 0.37 s | 18× |
 | qwen3-asr-1.7b-8bit | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.26 s | 0.29 s | 20× |
 | qwen3-asr-1.7b-8bit | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 0.29 s | 0.32 s | 22× |
 | qwen3-asr-1.7b-8bit | synth_long_dictee_pro | 48 s | 0.8 % | 1 / 123 | 1.80 s | 1.83 s | 26× |
@@ -110,7 +110,7 @@
 | qwen3-asr-1.7b-4bit | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.17 s | 0.20 s | 40× |
 | qwen3-asr-1.7b-4bit | synth_court_chiffres | 8 s | 9.1 % | 2 / 22 | 0.26 s | 0.29 s | 32× |
 | qwen3-asr-1.7b-4bit | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.18 s | 0.21 s | 26× |
-| qwen3-asr-1.7b-4bit | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 0.21 s | 0.24 s | 29× |
+| qwen3-asr-1.7b-4bit | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 0.23 s | 0.25 s | 27× |
 | qwen3-asr-1.7b-4bit | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.18 s | 0.21 s | 29× |
 | qwen3-asr-1.7b-4bit | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 0.20 s | 0.23 s | 32× |
 | qwen3-asr-1.7b-4bit | synth_long_dictee_pro | 48 s | 1.6 % | 2 / 123 | 1.17 s | 1.19 s | 41× |
@@ -124,7 +124,7 @@
 | qwen3-asr-1.7b-4bit+aligner | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.22 s | 0.25 s | 30× |
 | qwen3-asr-1.7b-4bit+aligner | synth_court_chiffres | 8 s | 9.1 % | 2 / 22 | 0.31 s | 0.35 s | 27× |
 | qwen3-asr-1.7b-4bit+aligner | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.24 s | 0.49 s | 20× |
-| qwen3-asr-1.7b-4bit+aligner | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 0.26 s | 0.30 s | 24× |
+| qwen3-asr-1.7b-4bit+aligner | synth_court_noms | 6 s | 20.0 % | 4 / 20 | 0.30 s | 0.31 s | 20× |
 | qwen3-asr-1.7b-4bit+aligner | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.23 s | 0.26 s | 23× |
 | qwen3-asr-1.7b-4bit+aligner | synth_court_sigles | 6 s | 0.0 % | 0 / 22 | 0.25 s | 0.28 s | 25× |
 | qwen3-asr-1.7b-4bit+aligner | synth_long_dictee_pro | 48 s | 1.6 % | 2 / 123 | 1.32 s | 1.35 s | 36× |
@@ -138,7 +138,7 @@
 | parakeet-tdt-0.6b-v3 | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.05 s | 0.07 s | 146× |
 | parakeet-tdt-0.6b-v3 | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 0.06 s | 0.08 s | 145× |
 | parakeet-tdt-0.6b-v3 | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.04 s | 1.39 s | 112× |
-| parakeet-tdt-0.6b-v3 | synth_court_noms | 6 s | 25.0 % | 5 / 20 | 0.06 s | 0.08 s | 108× |
+| parakeet-tdt-0.6b-v3 | synth_court_noms | 6 s | 15.0 % | 3 / 20 | 0.06 s | 0.07 s | 109× |
 | parakeet-tdt-0.6b-v3 | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.04 s | 0.06 s | 114× |
 | parakeet-tdt-0.6b-v3 | synth_court_sigles | 6 s | 18.2 % | 4 / 22 | 0.05 s | 0.07 s | 129× |
 | parakeet-tdt-0.6b-v3 | synth_long_dictee_pro | 48 s | 2.4 % | 3 / 123 | 0.25 s | 0.27 s | 189× |
@@ -152,7 +152,7 @@
 | parakeet-tdt-0.6b-v3-bf16 | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.04 s | 0.06 s | 180× |
 | parakeet-tdt-0.6b-v3-bf16 | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 0.05 s | 0.07 s | 175× |
 | parakeet-tdt-0.6b-v3-bf16 | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.03 s | 0.09 s | 148× |
-| parakeet-tdt-0.6b-v3-bf16 | synth_court_noms | 6 s | 25.0 % | 5 / 20 | 0.05 s | 0.07 s | 136× |
+| parakeet-tdt-0.6b-v3-bf16 | synth_court_noms | 6 s | 15.0 % | 3 / 20 | 0.04 s | 0.06 s | 141× |
 | parakeet-tdt-0.6b-v3-bf16 | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.04 s | 0.06 s | 137× |
 | parakeet-tdt-0.6b-v3-bf16 | synth_court_sigles | 6 s | 18.2 % | 4 / 22 | 0.04 s | 0.06 s | 161× |
 | parakeet-tdt-0.6b-v3-bf16 | synth_long_dictee_pro | 48 s | 2.4 % | 3 / 123 | 0.18 s | 0.20 s | 261× |
@@ -166,7 +166,7 @@
 | parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_audrey | 7 s | 0.0 % | 0 / 16 | 0.04 s | 0.06 s | 180× |
 | parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_chiffres | 8 s | 4.5 % | 1 / 22 | 0.05 s | 0.07 s | 174× |
 | parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_dictee | 5 s | 0.0 % | 0 / 17 | 0.03 s | 0.05 s | 146× |
-| parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_noms | 6 s | 25.0 % | 5 / 20 | 0.05 s | 0.06 s | 138× |
+| parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_noms | 6 s | 15.0 % | 3 / 20 | 0.04 s | 0.06 s | 140× |
 | parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_question | 5 s | 0.0 % | 0 / 18 | 0.04 s | 0.06 s | 141× |
 | parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_court_sigles | 6 s | 18.2 % | 4 / 22 | 0.04 s | 0.06 s | 163× |
 | parakeet-tdt-0.6b-v3-bf16-blocs60 | synth_long_dictee_pro | 48 s | 2.4 % | 3 / 123 | 0.18 s | 0.20 s | 259× |
@@ -185,7 +185,7 @@
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3500 euros hors taxe.
 - **synth_court_dictee** (17.6 %) : Je peux te rappeler demain matin à 9h pour finaliser le devis du client de Chambéry.
-- **synth_court_noms** (10.0 %) : Jean-Jérôme Danton rencontre l'Office de tourisme de Serres-Chevalier-Brianson et la mairie de Saint-Pourçain-sur-Sioule.
+- **synth_court_noms** (5.0 %) : Jean-Jérôme Danton rencontre l'Office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Ovrin-sur-Mérel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension ? Ou pas?
 - **synth_court_sigles** (0.0 %) : Le PDF de la Direction des Finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (3.3 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données liées à la qualité des fichiers sources. Décision : une lecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point : le budget L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.
@@ -198,7 +198,7 @@
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3500 euros hors taxe.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?
-- **synth_court_noms** (20.0 %) : Jean-Jérôme Danton rencontre l'Office de tourisme de Serres-Chevalier-Brianson et la mairie de Saint-Pourcin-sur-Siéoul.
+- **synth_court_noms** (5.0 %) : Jean-Jérôme Danton rencontre l'Office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Ovrin-sur-Mérel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension ? Ou pas ?
 - **synth_court_sigles** (0.0 %) : Le PDF de la Direction des Finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (14.6 %) : Présent : la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire.
@@ -223,7 +223,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3500 euros hors taxe.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?
-- **synth_court_noms** (15.0 %) : Jean-Jérôme Danton rencontre l'office de tourisme de Serre-Chevalier-Brianson et la mairie de Saint-Pourcin-sur-Séoul.
+- **synth_court_noms** (5.0 %) : Jean-Jérôme Danton rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Ovrin-sur-Mérel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?
 - **synth_court_sigles** (18.2 %) : Le PDF de la Direction des Finances sur la TV a été envoyé à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (2.4 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liée à la qualité des fichiers sources. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence.
@@ -236,7 +236,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3500 euros hors taxe.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?
-- **synth_court_noms** (10.0 %) : Jean-Jérôme Danton rencontre l'office de tourisme de Serre-Chevalier-Briançon et la mairie de Saint-Pourcin-sur-Séoul.
+- **synth_court_noms** (10.0 %) : Jean-Jérôme Danton rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auvrin-sur-Merrel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?
 - **synth_court_sigles** (0.0 %) : Le PDF de la Direction des Finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (2.4 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liées à la qualité des fichiers sources. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.
@@ -249,7 +249,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (0.0 %) : La réunion est fixée au 12 mars 2026 à 14h30, salle B, avec un budget de 3 500 euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry?
-- **synth_court_noms** (20.0 %) : Jean-Jérôme dont on rencontre l'Office de tourisme de Serre-Chevalier-Briançon et la mairie de Saint-Pourcin-sur-Sioul.
+- **synth_court_noms** (20.0 %) : Jean-Jérôme dont on rencontre l'Office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auverin-sur-Mérel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas?
 - **synth_court_sigles** (0.0 %) : Le PDF de la Direction des Finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (2.4 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point, les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, liées à la qualité des fichiers sources. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point, le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence..
@@ -262,7 +262,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (0.0 %) : La réunion est fixée au douze mars deux mille vingt-six à quatorze heures trente, salle B, avec un budget de trois mille cinq cents euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à neuf heures pour finaliser le devis du client de Chambéry?
-- **synth_court_noms** (15.0 %) : Jean Jérôme dans ton rencontre l'office de tourisme de Cère Chevalier Briançon et la mairie de Saint Pourçain sur Sioule.
+- **synth_court_noms** (20.0 %) : Jean Jérôme, dont on rencontre l'office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Ouvrain-sur-Merel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?
 - **synth_court_sigles** (0.0 %) : Le PDF de la direction des finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (0.8 %) : Compte rendu de la réunion du comité de pilotage présent : la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point : l'état d'avancement du projet. Le lot 1 est livré, le lot 2 est en recette depuis lundi, et le lot 3 démarre le 15 janvier. Deuxième point : les risques. Le prestataire signale un retard possible de trois semaines sur la reprise des données, lié à la qualité des fichiers sources. Décision : une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archives. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65 %, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence.
@@ -275,7 +275,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (9.1 %) : La réunion est fixée au 12 mars 2026 à 14 heures 30, Salbey, avec un budget de 3 500 euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à neuf heures pour finaliser le devis du client de Chambéry?
-- **synth_court_noms** (20.0 %) : Jean Jérôme dans ton rencontre l'office de tourisme de Ser Chevalier Briançon et la mairie de Saint Pourçain sur Siole.
+- **synth_court_noms** (20.0 %) : Jean Jérôme, dont on rencontre l'office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Auvrin-sur-Merel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas?
 - **synth_court_sigles** (0.0 %) : Le PDF de la direction des finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (1.6 %) : Compte rendu de la réunion du comité de pilotage présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet, le lot 1 est livré, le lot 2 est en recette depuis lundi et le lot 3 démarre le 15 janvier. Deuxième point, les risques, le prestataire signale un retard possible de trois semaines sur la reprise des données, lié à la qualité des fichiers source. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archives. Troisième point, le budget, l'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence.
@@ -288,7 +288,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (9.1 %) : La réunion est fixée au 12 mars 2026 à 14 heures 30, Salbey, avec un budget de 3 500 euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à neuf heures pour finaliser le devis du client de Chambéry?
-- **synth_court_noms** (20.0 %) : Jean Jérôme dans ton rencontre l'office de tourisme de Ser Chevalier Briançon et la mairie de Saint Pourçain sur Siole.
+- **synth_court_noms** (20.0 %) : Jean Jérôme, dont on rencontre l'office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Auvrin-sur-Merel.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas?
 - **synth_court_sigles** (0.0 %) : Le PDF de la direction des finances sur la TVA est à envoyer à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (1.6 %) : Compte rendu de la réunion du comité de pilotage présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point, l'état d'avancement du projet, le lot 1 est livré, le lot 2 est en recette depuis lundi et le lot 3 démarre le 15 janvier. Deuxième point, les risques, le prestataire signale un retard possible de trois semaines sur la reprise des données, lié à la qualité des fichiers source. Décision, une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archives. Troisième point, le budget, l'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10 heures, en visioconférence.
@@ -301,7 +301,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, Sal B, avec un budget de 3500 euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?
-- **synth_court_noms** (25.0 %) : Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Pourcin-sur-Sioul.
+- **synth_court_noms** (15.0 %) : Jean-Jérôme dont on rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auvrain-sur-Mérelle.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?
 - **synth_court_sigles** (18.2 %) : Le PDF de la direction des finances sur la TV a été envoyé à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (2.4 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point. L'état d'avancement du projet. Le lot 1 est livré. Le lot 2 est en recette depuis lundi. Et le lot 3 démarre le 15 janvier. Deuxième point. Les risques. Le prestataire signale un retard possible de 3 semaines sur la reprise des données, liée à la qualité des fichiers sources. Décision. Une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.
@@ -314,7 +314,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, Sal B, avec un budget de 3500 euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?
-- **synth_court_noms** (25.0 %) : Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Poursain-sur-Sioul.
+- **synth_court_noms** (15.0 %) : Jean-Jérôme dont on rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auvrain-sur-Mérelle.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?
 - **synth_court_sigles** (18.2 %) : Le PDF de la direction des finances sur la TV a été envoyé à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (2.4 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point. L'état d'avancement du projet. Le lot 1 est livré. Le lot 2 est en recette depuis lundi. Et le lot 3 démarre le 15 janvier. Deuxième point. Les risques. Le prestataire signale un retard possible de 3 semaines sur la reprise des données, liée à la qualité des fichiers sources. Décision. Une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.
@@ -327,7 +327,7 @@ Prochaine réunion le 8 février à 10h, en visioconférence.
 - **synth_court_audrey** (0.0 %) : Bonjour, je voudrais réserver deux places pour le concert de samedi soir, si possible côté balcon.
 - **synth_court_chiffres** (4.5 %) : La réunion est fixée au 12 mars 2026 à 14h30, Sal B, avec un budget de 3500 euros hors taxes.
 - **synth_court_dictee** (0.0 %) : Peux-tu me rappeler demain matin à 9h pour finaliser le devis du client de Chambéry ?
-- **synth_court_noms** (25.0 %) : Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Poursain-sur-Sioul.
+- **synth_court_noms** (15.0 %) : Jean-Jérôme dont on rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auvrain-sur-Mérelle.
 - **synth_court_question** (0.0 %) : Est-ce que l'outil reconnaît bien les questions, les virgules et les points de suspension, ou pas ?
 - **synth_court_sigles** (18.2 %) : Le PDF de la direction des finances sur la TV a été envoyé à l'URSSAF et à la CCI avant vendredi.
 - **synth_long_dictee_pro** (2.4 %) : Compte rendu de la réunion du comité de pilotage. Présent, la directrice générale, le responsable informatique, deux représentants des utilisateurs et le prestataire. Premier point. L'état d'avancement du projet. Le lot 1 est livré. Le lot 2 est en recette depuis lundi. Et le lot 3 démarre le 15 janvier. Deuxième point. Les risques. Le prestataire signale un retard possible de 3 semaines sur la reprise des données, liée à la qualité des fichiers sources. Décision. Une relecture manuelle des 500 fiches les plus anciennes sera confiée au service archive. Troisième point : le budget. L'enveloppe initiale de 200 000 euros est consommée à 65%, ce qui est conforme au calendrier. Prochaine réunion le 8 février à 10h, en visioconférence.

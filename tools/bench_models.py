@@ -91,8 +91,8 @@ SYNTH_SAMPLES: dict[str, tuple[str, str]] = {
     ),
     "synth_court_noms": (
         "Thomas",
-        "Jean-Jérôme Danton rencontre l'office de tourisme de Serre Chevalier "
-        "Briançon et la mairie de Saint-Pourçain-sur-Sioule.",
+        "Jean-Jérôme Danton rencontre l'office de tourisme de Brumeval Les "
+        "Sorbiers et la mairie de Saint-Ovrin-sur-Mérelle.",
     ),
     "synth_court_sigles": (
         "Thomas",

@@ -1,21 +1,21 @@
 {
  "model": "qwen3-asr-1.7b-8bit",
  "sample": "synth_court_noms",
- "audio_s": 6.2918125,
+ "audio_s": 6.1525,
  "offline": false,
  "ok": true,
  "error": "",
- "load_s": 1.3380935000022873,
- "cold_s": 0.35844612499931827,
- "warm_s": 0.32762795902090147,
- "peak_rss_mb": 2763.703125,
- "mlx_peak_mb": 3296.175640106201,
- "text": "Jean Jérôme dans ton rencontre l'office de tourisme de Cère Chevalier Briançon et la mairie de Saint Pourçain sur Sioule.",
+ "load_s": 1.3802889580001647,
+ "cold_s": 0.36679033300060837,
+ "warm_s": 0.33836012500069046,
+ "peak_rss_mb": 2763.0,
+ "mlx_peak_mb": 3292.175624847412,
+ "text": "Jean Jérôme, dont on rencontre l'office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Ouvrain-sur-Merel.",
  "segments": [
   {
    "start": 0.0,
-   "end": 6.2918125,
-   "text": "Jean Jérôme dans ton rencontre l'office de tourisme de Cère Chevalier Briançon et la mairie de Saint Pourçain sur Sioule."
+   "end": 6.1525,
+   "text": "Jean Jérôme, dont on rencontre l'office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Ouvrain-sur-Merel."
   }
  ],
  "timestamps": "non",

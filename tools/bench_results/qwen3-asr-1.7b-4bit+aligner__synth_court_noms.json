@@ -1,16 +1,16 @@
 {
  "model": "qwen3-asr-1.7b-4bit+aligner",
  "sample": "synth_court_noms",
- "audio_s": 6.2918125,
+ "audio_s": 6.1525,
  "offline": false,
  "ok": true,
  "error": "",
- "load_s": 1.4320141249918379,
- "cold_s": 0.2983437909861095,
- "warm_s": 0.2648926670080982,
- "peak_rss_mb": 2903.46875,
- "mlx_peak_mb": 3407.897319793701,
- "text": "Jean Jérôme dans ton rencontre l'office de tourisme de Ser Chevalier Briançon et la mairie de Saint Pourçain sur Siole.",
+ "load_s": 1.4854379590015014,
+ "cold_s": 0.3080577500004438,
+ "warm_s": 0.30175395799960825,
+ "peak_rss_mb": 2904.609375,
+ "mlx_peak_mb": 3403.897304534912,
+ "text": "Jean Jérôme, dont on rencontre l'office de tourisme de Brumeval, les Sorbiers et la mairie de Saint-Auvrin-sur-Merel.",
  "segments": [
   {
    "start": 0.0,
@@ -27,13 +27,13 @@
   {
    "start": 0.64,
    "end": 0.8,
-   "text": "dans",
+   "text": "dont",
    "word": true
   },
   {
-   "start": 0.8,
+   "start": 0.88,
    "end": 0.96,
-   "text": "ton",
+   "text": "on",
    "word": true
   },
   {
@@ -68,68 +68,50 @@
   },
   {
    "start": 2.72,
-   "end": 3.04,
-   "text": "Ser",
+   "end": 3.36,
+   "text": "Brumeval",
    "word": true
   },
   {
-   "start": 3.04,
-   "end": 3.6,
-   "text": "Chevalier",
+   "start": 3.36,
+   "end": 3.44,
+   "text": "les",
    "word": true
   },
   {
-   "start": 3.6,
-   "end": 4.16,
-   "text": "Briançon",
+   "start": 3.44,
+   "end": 4.0,
+   "text": "Sorbiers",
    "word": true
   },
   {
-   "start": 4.16,
-   "end": 4.16,
+   "start": 4.0,
+   "end": 4.0,
    "text": "et",
    "word": true
   },
   {
-   "start": 4.16,
-   "end": 4.32,
+   "start": 4.0,
+   "end": 4.16,
    "text": "la",
    "word": true
   },
   {
-   "start": 4.32,
-   "end": 4.64,
+   "start": 4.16,
+   "end": 4.48,
    "text": "mairie",
    "word": true
   },
   {
-   "start": 4.64,
-   "end": 4.72,
+   "start": 4.48,
+   "end": 4.56,
    "text": "de",
    "word": true
   },
   {
-   "start": 4.72,
-   "end": 4.96,
-   "text": "Saint",
-   "word": true
-  },
-  {
-   "start": 4.96,
-   "end": 5.36,
-   "text": "Pourçain",
-   "word": true
-  },
-  {
-   "start": 5.36,
-   "end": 5.6,
-   "text": "sur",
-   "word": true
-  },
-  {
-   "start": 5.6,
-   "end": 6.08,
-   "text": "Siole",
+   "start": 4.56,
+   "end": 6.0,
+   "text": "SaintAuvrinsurMerel",
    "word": true
   }
  ],
