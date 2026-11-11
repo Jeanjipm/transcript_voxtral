@@ -1,21 +1,21 @@
 {
  "model": "whisper-large-v3-turbo",
  "sample": "synth_court_noms",
- "audio_s": 6.2918125,
+ "audio_s": 6.1525,
  "offline": false,
  "ok": true,
  "error": "",
- "load_s": 0.6099947500042617,
- "cold_s": 0.34429349994752556,
- "warm_s": 0.2425524169811979,
- "peak_rss_mb": 1766.09375,
- "mlx_peak_mb": 2365.691301345825,
- "text": "Jean-Jérôme Danton rencontre l'office de tourisme de Serre-Chevalier-Brianson et la mairie de Saint-Pourcin-sur-Séoul.",
+ "load_s": 0.7537290000000212,
+ "cold_s": 0.3328058749993943,
+ "warm_s": 0.23344437499872583,
+ "peak_rss_mb": 1766.25,
+ "mlx_peak_mb": 2365.597551345825,
+ "text": "Jean-Jérôme Danton rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Ovrin-sur-Mérel.",
  "segments": [
   {
    "start": 0.0,
-   "end": 6.0200000000000005,
-   "text": "Jean-Jérôme Danton rencontre l'office de tourisme de Serre-Chevalier-Brianson et la mairie de Saint-Pourcin-sur-Séoul."
+   "end": 5.88,
+   "text": "Jean-Jérôme Danton rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Ovrin-sur-Mérel."
   }
  ],
  "timestamps": "phrase",

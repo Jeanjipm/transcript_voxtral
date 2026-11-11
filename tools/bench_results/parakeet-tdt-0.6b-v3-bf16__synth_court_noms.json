@@ -1,22 +1,22 @@
 {
  "model": "parakeet-tdt-0.6b-v3-bf16",
  "sample": "synth_court_noms",
- "audio_s": 6.2918125,
+ "audio_s": 6.1525,
  "offline": false,
  "ok": true,
  "error": "",
- "load_s": 1.3178286660113372,
- "cold_s": 0.06610100000398234,
- "warm_s": 0.04632912500528619,
- "peak_rss_mb": 2730.296875,
+ "load_s": 1.2182390409998334,
+ "cold_s": 0.06317283299904375,
+ "warm_s": 0.04361649999918882,
+ "peak_rss_mb": 2729.8125,
  "mlx_peak_mb": 3024.738395690918,
- "text": "Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Poursain-sur-Sioul.",
+ "text": "Jean-Jérôme dont on rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auvrain-sur-Mérelle.",
  "segments": [
   {
    "start": 0.0,
-   "end": 6.24,
-   "text": " Jean-Jérôme dont on rencontre l'office de tourisme de Cerf Chevalier-Briançon et la mairie de Saint-Poursain-sur-Sioul.",
-   "words": 58
+   "end": 6.08,
+   "text": " Jean-Jérôme dont on rencontre l'office de tourisme de Brumeval-les-Sorbiers et la mairie de Saint-Auvrain-sur-Mérelle.",
+   "words": 55
   }
  ],
  "timestamps": "phrase",
