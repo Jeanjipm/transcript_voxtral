@@ -29,7 +29,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 
@@ -40,8 +40,8 @@ DEFAULT_MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
 # Fréquence d'échantillonnage de sortie du modèle (fixe, cf. son config.json).
 SAMPLE_RATE = 24_000
 # Garde-fou pour « Lire le texte copié » : au-delà, on lit le début seulement.
-# Un presse-papier peut contenir un article entier, et le modèle plafonne de
-# toute façon à 4 096 jetons audio (quelques minutes).
+# Un presse-papier peut contenir un article entier, et la génération est de
+# toute façon plafonnée à MAX_TOKENS_PLAFOND trames (160 s de son).
 MAX_CHARS = 2_000
 # Budget de génération. Le modèle produit 12,5 trames audio par seconde et
 # s'arrête normalement tout seul ; mais il lui arrive, au hasard de
@@ -71,6 +71,28 @@ TENTATIVES = 3
 CHARS_PAR_SECONDE_MIN = 4.0
 MARGE_DUREE_S = 0.3
 POIDS_CHIFFRE = 4
+# Décodage du son par tranches. Le décodeur audio de mlx-audio calcule, pour N
+# trames, des tableaux d'attention de 8 × (8 N)² nombres : la mémoire croît
+# comme le CARRÉ de la durée. Mesuré : 2,8 Go pour 40 s, 12 Go pour 2 min,
+# 21 Go pour 160 s (notre plafond de 2 000 trames), et à 4 096 trames un seul
+# tableau de 32 Gio que Metal refuse — le plantage des générations en série.
+# Le plafond de génération ci-dessus évite les 32 Gio, mais 21 Go restent
+# hors de portée d'un Mac de 8 ou 16 Go. Or le
+# décodeur ne regarde que le passé proche (attention à fenêtre glissante,
+# convolutions causales) : on peut donc décoder par tranches, chacune précédée
+# de quelques trames déjà décodées qui servent de contexte et dont on jette le
+# son. Mesuré sur les codes de vraies lectures de 23 à 41 s : l'influence du
+# début de tranche s'éteint en 16 à 24 trames ; au-delà, le son recollé reste
+# à ~60 dB sous le signal de celui du décodage d'un bloc, écart qui ne diminue
+# pas quand on élargit le contexte (ce n'est donc pas un défaut de raccord) et
+# qui est 15 à 25 dB plus faible que l'erreur d'arrondi du modèle lui-même
+# (livré en demi-précision, comparé au même en simple précision). Whisper
+# entend le même texte des deux façons.
+# La mémoire ne dépend plus de la durée : ~1,7 Go par tranche.
+# Une lecture de 20 s ou moins — presque tout le cahier — tient en une tranche
+# et suit exactement le même chemin qu'avant.
+TRANCHE_TRAMES = 250  # 20 s de son
+CONTEXTE_TRAMES = 32
 # Dossier du dépôt HF qui contient une empreinte par voix (`<nom>.safetensors`).
 VOICE_DIR = "voice_embedding"
 PREFIXE_FRANCAIS = "fr_"
@@ -162,8 +184,66 @@ def duree_max_plausible(texte: str) -> float:
     return longueur / CHARS_PAR_SECONDE_MIN + MARGE_DUREE_S
 
 
+def decoder_par_tranches(
+    decode: Callable[[Any], Any],
+    codes: Any,
+    tranche: int = TRANCHE_TRAMES,
+    contexte: int = CONTEXTE_TRAMES,
+) -> Any:
+    """Décode `codes` (1, trames, 37) en son (1, échantillons), par tranches.
+
+    `decode` est le décodeur d'origine de mlx-audio. Jusqu'à `tranche` trames,
+    on l'appelle une seule fois, comme avant. Au-delà, chaque tranche est
+    décodée avec les `contexte` trames qui la précèdent, dont le son est jeté :
+    la mémoire reste celle d'une tranche, quelle que soit la durée.
+    """
+    total = codes.shape[1]
+    if total <= tranche:
+        return decode(codes)
+    import mlx.core as mx  # type: ignore[import-not-found]
+
+    morceaux = []
+    for debut in range(0, total, tranche):
+        depart = max(0, debut - contexte)
+        fin = min(total, debut + tranche)
+        onde = decode(codes[:, depart:fin, :])
+        par_trame = onde.shape[1] // (fin - depart)
+        onde = onde[:, (debut - depart) * par_trame :]
+        # Calculé tout de suite : MLX est paresseux, et sans cela toutes les
+        # tranches attendraient en mémoire le calcul final.
+        mx.eval(onde)
+        morceaux.append(onde)
+    return mx.concatenate(morceaux, axis=1)
+
+
+def appliquer_decodage_par_tranches(model: Any) -> bool:
+    """Borne la mémoire du décodeur audio de `model`. Retourne True si posé."""
+    tokenizer = getattr(model, "audio_tokenizer", None)
+    decode = getattr(tokenizer, "decode", None)
+    if decode is None:
+        return False
+
+    def decode_borne(codes: Any) -> Any:
+        return decoder_par_tranches(decode, codes)
+
+    tokenizer.decode = decode_borne
+    return True
+
+
+def _est_mlx(tableau: Any) -> bool:
+    return type(tableau).__module__.split(".")[0] == "mlx"
+
+
 def _vers_numpy(audio: Any) -> np.ndarray:
     """Tableau MLX (ou autre) → numpy float32 mono, à plat."""
+    if _est_mlx(audio):
+        # MLX ne calcule le son qu'ici. Si Metal refuse une allocation pendant
+        # la conversion numpy, l'erreur ne peut pas remonter jusqu'à Python et
+        # tue le processus (« abort ») ; déclenché explicitement, le même
+        # calcul lève une RuntimeError ordinaire, que `lire` sait traiter.
+        import mlx.core as mx  # type: ignore[import-not-found]
+
+        mx.eval(audio)
     try:
         return np.asarray(audio, dtype=np.float32).reshape(-1)
     except TypeError:
@@ -209,6 +289,8 @@ class Synthetiseur:
             self.sample_rate = int(getattr(model, "sample_rate", SAMPLE_RATE))
             # Cf. le bloc « Correctif des débuts de phrase » plus bas.
             self.correctif_debuts = appliquer_correctif_debuts(model)
+            # Cf. « Décodage du son par tranches » en tête de module.
+            appliquer_decodage_par_tranches(model)
             self._model = model
 
     def preload(self) -> None:
@@ -246,11 +328,20 @@ class Synthetiseur:
         for tentative in range(1, TENTATIVES + 1):
             morceaux: list[np.ndarray] = []
             trames = 0
-            for resultat in self._model.generate(
-                text=texte, voice=voix, max_tokens=max_tokens
-            ):
-                morceaux.append(_vers_numpy(resultat.audio))
-                trames += int(getattr(resultat, "token_count", 0) or 0)
+            try:
+                for resultat in self._model.generate(
+                    text=texte, voice=voix, max_tokens=max_tokens
+                ):
+                    morceaux.append(_vers_numpy(resultat.audio))
+                    trames += int(getattr(resultat, "token_count", 0) or 0)
+            except RuntimeError as exc:
+                if "malloc" not in str(exc):
+                    raise
+                # Metal n'a pas pu fournir la mémoire demandée. Une erreur
+                # propre, que le lot du cahier note avant de passer à la suite.
+                raise SynthesisError(
+                    f"Mémoire insuffisante pour lire ce texte : « {texte[:80]} » ({exc})"
+                ) from exc
             duree = sum(m.size for m in morceaux) / self.sample_rate
             if trames < max_tokens and duree <= duree_max:
                 break

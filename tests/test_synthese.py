@@ -203,6 +203,158 @@ def test_lire_gives_up_after_three_runaway_generations():
     assert len(synth._model.appels) == synthese.TENTATIVES
 
 
+# ---- Décodage du son par tranches (mémoire bornée) ----
+
+
+ECH_PAR_TRAME = 4  # le vrai décodeur en rend 1 920 ; 4 suffisent ici
+
+
+@pytest.fixture
+def faux_mlx(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Un `mlx.core` minimal : numpy fait le travail, `eval` note ses appels."""
+    import sys
+
+    evalues: list = []
+    core = SimpleNamespace(
+        eval=lambda *tableaux: evalues.extend(tableaux),
+        concatenate=np.concatenate,
+        evalues=evalues,
+    )
+    monkeypatch.setitem(sys.modules, "mlx", SimpleNamespace(core=core))
+    monkeypatch.setitem(sys.modules, "mlx.core", core)
+    return core
+
+
+def _faux_decodeur(contexte_utile: int):
+    """Décodeur factice qui se comporte comme le vrai : chaque trame rend
+    ECH_PAR_TRAME échantillons portant sa valeur, mais les `contexte_utile`
+    premières trames d'un appel sortent fausses (−1), faute de passé — sauf si
+    l'appel commence au tout début de la phrase (première valeur 0)."""
+    appels: list[int] = []
+
+    def decode(codes: np.ndarray) -> np.ndarray:
+        trames = codes[0, :, 0].astype(np.float32)
+        appels.append(len(trames))
+        onde = np.repeat(trames, ECH_PAR_TRAME)
+        if trames[0] != 0:
+            onde[: contexte_utile * ECH_PAR_TRAME] = -1
+        return onde[None, :]
+
+    return decode, appels
+
+
+def _codes(n: int) -> np.ndarray:
+    """(1, n, 37) : la première colonne numérote les trames."""
+    codes = np.zeros((1, n, 37), dtype=np.int64)
+    codes[0, :, 0] = np.arange(n)
+    return codes
+
+
+def test_decoder_par_tranches_short_audio_is_one_untouched_call():
+    """Jusqu'à une tranche, rien ne change : un seul appel, mêmes codes, et
+    MLX n'est même pas importé (le test n'en fournit pas)."""
+    decode, appels = _faux_decodeur(contexte_utile=16)
+    codes = _codes(synthese.TRANCHE_TRAMES)
+    onde = synthese.decoder_par_tranches(decode, codes)
+    assert appels == [synthese.TRANCHE_TRAMES]
+    assert onde.shape == (1, synthese.TRANCHE_TRAMES * ECH_PAR_TRAME)
+
+
+def test_decoder_par_tranches_long_audio_matches_one_block(faux_mlx: SimpleNamespace):
+    """Le plantage des générations en série : 4 096 trames décodées d'un bloc demandaient
+    un tableau de 32 Gio. Par tranches, aucun appel ne dépasse une tranche plus
+    son contexte, et le son recollé est celui du décodage d'un bloc."""
+    decode, appels = _faux_decodeur(contexte_utile=synthese.CONTEXTE_TRAMES)
+    codes = _codes(4096)
+    onde = synthese.decoder_par_tranches(decode, codes)
+    attendu = np.repeat(np.arange(4096, dtype=np.float32), ECH_PAR_TRAME)[None, :]
+    assert np.array_equal(onde, attendu)
+    assert max(appels) <= synthese.TRANCHE_TRAMES + synthese.CONTEXTE_TRAMES
+    assert len(appels) == -(-4096 // synthese.TRANCHE_TRAMES)
+    # Chaque tranche est calculée tout de suite, pas toutes à la fin.
+    assert len(faux_mlx.evalues) == len(appels)
+
+
+def test_decoder_par_tranches_needs_its_context(faux_mlx: SimpleNamespace):
+    """Sans contexte, le début de chaque tranche est faux : c'est bien le
+    contexte jeté qui rend les raccords propres."""
+    decode, _ = _faux_decodeur(contexte_utile=8)
+    onde = synthese.decoder_par_tranches(decode, _codes(100), tranche=40, contexte=0)
+    assert (onde == -1).any()
+    decode, _ = _faux_decodeur(contexte_utile=8)
+    onde = synthese.decoder_par_tranches(decode, _codes(100), tranche=40, contexte=8)
+    assert not (onde == -1).any()
+    assert onde.shape == (1, 100 * ECH_PAR_TRAME)
+
+
+def test_appliquer_decodage_par_tranches_wraps_the_model_decoder(faux_mlx: SimpleNamespace):
+    decode, appels = _faux_decodeur(contexte_utile=synthese.CONTEXTE_TRAMES)
+    model = SimpleNamespace(audio_tokenizer=SimpleNamespace(decode=decode))
+    assert synthese.appliquer_decodage_par_tranches(model) is True
+    onde = model.audio_tokenizer.decode(_codes(600))
+    assert onde.shape == (1, 600 * ECH_PAR_TRAME)
+    assert len(appels) == 3 and max(appels) <= synthese.TRANCHE_TRAMES + synthese.CONTEXTE_TRAMES
+
+
+def test_appliquer_decodage_par_tranches_without_decoder_does_nothing():
+    assert synthese.appliquer_decodage_par_tranches(SimpleNamespace()) is False
+
+
+class _TableauMlx:
+    """Se fait passer pour un mx.array : numpy sait le convertir."""
+
+    def __init__(self, valeurs: list[float]) -> None:
+        self._valeurs = np.asarray(valeurs, dtype=np.float32)
+
+    def __array__(self, dtype=None, copy=None):
+        return self._valeurs if dtype is None else self._valeurs.astype(dtype)
+
+
+_TableauMlx.__module__ = "mlx.core"
+
+
+def test_vers_numpy_evaluates_an_mlx_array_before_converting(faux_mlx: SimpleNamespace):
+    """Le calcul est déclenché explicitement : une allocation refusée par
+    Metal devient une exception Python au lieu de tuer le processus pendant
+    la conversion numpy."""
+    tableau = _TableauMlx([0.5, -0.5])
+    assert synthese._vers_numpy(tableau).tolist() == [0.5, -0.5]
+    assert faux_mlx.evalues == [tableau]
+
+
+def test_lire_turns_a_metal_allocation_failure_into_a_clean_error():
+    synth = Synthetiseur("org/tts")
+
+    def generate(text, voice, max_tokens=4096):
+        raise RuntimeError(
+            "[metal::malloc] Attempting to allocate 34359738368 bytes which is "
+            "greater than the maximum allowed buffer size."
+        )
+        yield  # pragma: no cover — fait de `generate` un générateur
+
+    synth._model = SimpleNamespace(
+        generate=generate, sample_rate=24_000,
+        _voice_embedding_files={"fr_female": Path("x")},
+    )
+    with pytest.raises(SynthesisError, match="Mémoire insuffisante"):
+        synth.lire("Bonjour.", "fr_female")
+
+
+def test_lire_lets_other_runtime_errors_through():
+    synth = Synthetiseur("org/tts")
+
+    def generate(text, voice, max_tokens=4096):
+        raise RuntimeError("No audio frames generated")
+        yield  # pragma: no cover
+
+    synth._model = SimpleNamespace(
+        generate=generate, sample_rate=24_000,
+        _voice_embedding_files={"fr_female": Path("x")},
+    )
+    with pytest.raises(RuntimeError, match="No audio frames"):
+        synth.lire("Bonjour.", "fr_female")
+
+
 def test_module_lire_reuses_shared_instance_per_repo(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(synthese, "_partage", None)
     a = synthese.synthetiseur("org/a")
@@ -358,7 +510,11 @@ def test_corrected_generate_has_no_extra_audio_token_step():
 
 
 def test_synthetiseur_applies_the_fix_when_loading(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    fake_model = SimpleNamespace(sample_rate=24_000, generate="original")
+    decode_origine = lambda codes: codes  # noqa: E731
+    fake_model = SimpleNamespace(
+        sample_rate=24_000, generate="original",
+        audio_tokenizer=SimpleNamespace(decode=decode_origine),
+    )
     fake_utils = SimpleNamespace(load=lambda source: fake_model)
     import sys
     monkeypatch.setitem(sys.modules, "mlx_audio", SimpleNamespace())
@@ -373,4 +529,6 @@ def test_synthetiseur_applies_the_fix_when_loading(monkeypatch: pytest.MonkeyPat
     synth.preload()
     assert applied == [fake_model]
     assert synth.correctif_debuts is True and synth.is_loaded
+    # Le décodeur audio est lui aussi remplacé par sa version à mémoire bornée.
+    assert fake_model.audio_tokenizer.decode is not decode_origine
 
