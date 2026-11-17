@@ -134,8 +134,14 @@ class Transcriber(ABC):
         language: str = "auto",
         task: str = "transcribe",
         max_new_tokens: int = 1024,
+        initial_prompt: str | None = None,
     ) -> str:
-        """Retourne le texte transcrit (chaîne UTF-8, espaces nettoyés)."""
+        """Retourne le texte transcrit (chaîne UTF-8, espaces nettoyés).
+
+        `initial_prompt` est l'amorce du lexique personnel (cf. lexique.py) :
+        des mots soufflés au modèle avant qu'il transcrive. Seul Whisper sait
+        s'en servir ; les autres backends l'ignorent.
+        """
 
     @abstractmethod
     def is_available(self) -> bool:
@@ -272,6 +278,7 @@ class VoxtralTranscriber(Transcriber):
         language: str = "auto",
         task: str = "transcribe",
         max_new_tokens: int = 1024,
+        initial_prompt: str | None = None,  # noqa: ARG002 — mlx-voxtral n'a pas d'amorce
     ) -> str:
         if task == "translate":
             # Voxtral Mini ne sait pas traduire via mlx-voxtral 0.0.4.
@@ -351,6 +358,7 @@ class WhisperTranscriber(Transcriber):
         language: str = "auto",
         task: str = "transcribe",
         max_new_tokens: int = 1024,  # noqa: ARG002 — non utilisé par Whisper
+        initial_prompt: str | None = None,
     ) -> str:
         import mlx_whisper  # type: ignore[import-not-found]
         import soundfile as sf
@@ -385,6 +393,9 @@ class WhisperTranscriber(Transcriber):
                 path_or_hf_repo=hf_offline.resolve_local_path(repo),
                 language=whisper_lang,
                 task=task,
+                # Pas d'amorce en traduction : elle est dans la langue parlée,
+                # et tirerait vers elle un texte qu'on veut en anglais.
+                initial_prompt=initial_prompt if task == "transcribe" else None,
             )
         return str(result.get("text", "")).strip()
 

@@ -394,3 +394,57 @@ def test_synthesis_voice_survives_save_and_reload(tmp_path: Path):
     save_config(cfg, user_path=tmp_path / "saved.yaml")
     assert load_config(user_path=tmp_path / "saved.yaml").synthesis.voice == "fr_male"
 
+
+
+# ---- Lexique personnel (cf. lexique.py) ----
+
+
+def test_lexicon_section_is_empty_and_off_by_default(tmp_path: Path):
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    assert cfg.lexicon.corrections == {}
+    assert cfg.lexicon.words == []
+    assert cfg.lexicon.prompt_words is False
+
+
+def test_lexicon_survives_save_and_reload(tmp_path: Path):
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    cfg.lexicon.corrections = {"KickSit": "Kixit", "la TV a": "la TVA"}
+    cfg.lexicon.words = ["Kixit", "Jean-Jérôme"]
+    cfg.lexicon.prompt_words = True
+    save_config(cfg, user_path=tmp_path / "saved.yaml")
+
+    cfg2 = load_config(user_path=tmp_path / "saved.yaml")
+    assert cfg2.lexicon.corrections == {"KickSit": "Kixit", "la TV a": "la TVA"}
+    assert cfg2.lexicon.words == ["Kixit", "Jean-Jérôme"]
+    assert cfg2.lexicon.prompt_words is True
+
+
+def test_emptying_the_lexicon_removes_it_from_the_user_file(tmp_path: Path):
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    cfg.lexicon.corrections = {"a": "b"}
+    save_config(cfg, user_path=tmp_path / "saved.yaml")
+    cfg.lexicon.corrections = {}
+    save_config(cfg, user_path=tmp_path / "saved.yaml")
+    assert "lexicon" not in (tmp_path / "saved.yaml").read_text(encoding="utf-8")
+
+
+def test_hand_edited_lexicon_never_blocks_startup(tmp_path: Path):
+    """La seule section remplie de texte libre : un YAML retouché à la main
+    (nombres, valeurs vides, mauvais types) ne doit pas faire planter l'app."""
+    user = tmp_path / "user.yaml"
+    user.write_text(
+        "lexicon:\n"
+        "  corrections:\n"
+        "    2026: deux mille vingt-six\n"
+        "    euh:\n"
+        "  words: Kixit\n"
+        "  prompt_words: 1\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(user_path=user)
+    assert cfg.lexicon.corrections == {"2026": "deux mille vingt-six", "euh": ""}
+    assert cfg.lexicon.words == []
+    assert cfg.lexicon.prompt_words is True
+
+    user.write_text("lexicon: n'importe quoi\n", encoding="utf-8")
+    assert load_config(user_path=user).lexicon.corrections == {}

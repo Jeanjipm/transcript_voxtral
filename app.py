@@ -81,6 +81,8 @@ from inference_worker import (
     InferenceWorker,
 )
 from model_manager import find_model
+import lecture
+import lexique
 import synthese
 from transcriber import Transcriber, make_transcriber, repo_for_task
 import updater
@@ -183,8 +185,9 @@ FILE_CANCEL_LABEL = "Annuler la transcription"
 # fichiers, l'item sert d'affichage d'état pendant le travail — titres
 # distincts de tous les autres items, rumps indexant par titre.
 READ_MENU_LABEL = "Lire le texte copié"
-READ_BUSY_LABEL = "Lecture : préparation…"
-READ_PLAYING_LABEL = "Lecture : en cours…"
+# Pendant une lecture, le même item sert à l'arrêter : un long texte ne doit
+# pas obliger à tout écouter.
+READ_STOP_LABEL = "Arrêter la lecture"
 STATUS_SPEECH_DOWNLOAD = "État : téléchargement du modèle de lecture…"
 # Haut-parleur à 1 puis 3 ondes : silhouettes distinctes du sablier et du doc.
 SYMBOL_SPEECH_FRAMES = ("speaker.wave.1.fill", "speaker.wave.3.fill")
@@ -338,7 +341,9 @@ class VoxtralApp(rumps.App):
         self.read_item = rumps.MenuItem(
             READ_MENU_LABEL, callback=self.read_clipboard_aloud
         )
-        self._speech_busy = False
+        # Lecture en cours (cf. lecture.py), ou None. Lu et écrit sur le
+        # main thread ; `cancel()` peut, lui, être appelé de partout.
+        self._lecture: "lecture.Lecture | None" = None
 
         self.menu = [
             self.status_item,
@@ -585,6 +590,9 @@ class VoxtralApp(rumps.App):
     def _on_dictation_state(self, state: DictationState, label: str) -> None:
         """Reflète l'état de la dictée dans la menu bar."""
         if state is DictationState.RECORDING:
+            # Le micro entendrait la voix de synthèse, et la dictée
+            # ressortirait mêlée du texte lu : on se tait pour écouter.
+            self._stop_reading()
             self._set_state(SYMBOL_RECORDING, label, red=True)
         elif state is DictationState.PENDING:
             self._start_animation(SYMBOL_TRANSCRIBING_FRAMES, 0.4)
@@ -646,12 +654,22 @@ class VoxtralApp(rumps.App):
             if self._model_needs_download():
                 self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
                 self._set_status_title("État : téléchargement du modèle…")
+            lex = self.config.lexicon
+            # Amorce : seulement si l'utilisateur l'a activée (expérimental,
+            # cf. lexique.py). Les backends qui n'en veulent pas l'ignorent.
+            amorce = lexique.amorce(lex.words) if lex.prompt_words else None
             text = self.transcriber.transcribe(
                 wav_path,
                 language=self.config.transcription.language,
                 task=self.config.transcription.task,
                 max_new_tokens=self.config.transcription.max_new_tokens,
+                initial_prompt=amorce,
             )
+            if lexique.est_echo_amorce(text, amorce):
+                print("[app] le modèle a recraché l'amorce : rien à coller.",
+                      file=sys.stderr)
+                text = ""
+            text = lexique.corriger(text, lex.corrections)
             paste_text(
                 text,
                 auto_paste=self.config.ui.auto_paste,
@@ -721,6 +739,7 @@ class VoxtralApp(rumps.App):
             task=self.config.transcription.task,
             include_timestamps=cfg.include_timestamps,
             diarization=cfg.diarization,
+            corrections=self.config.lexicon.corrections,
         )
         if not started:
             return
@@ -846,14 +865,14 @@ class VoxtralApp(rumps.App):
         Tout ce qui demande une décision à l'utilisateur se passe ici, avant
         de lancer quoi que ce soit : presse-papier vide, texte trop long,
         modèle à télécharger (2,5 Go — on ne le fait jamais en silence).
-        La synthèse part ensuite sur l'inference-worker, seul propriétaire
-        des modèles MLX ; en priorité basse, une dictée passe donc devant.
+        La lecture part ensuite phrase par phrase (cf. lecture.py) : la
+        synthèse sur l'inference-worker, seul propriétaire des modèles MLX,
+        en priorité basse — une dictée passe donc devant entre deux phrases.
         """
-        if self._speech_busy:
-            rumps.alert(
-                title=APP_NAME,
-                message="Une lecture est déjà en cours. Attends qu'elle finisse.",
-            )
+        if self._lecture is not None:
+            # L'item est normalement « Arrêter la lecture » à ce moment-là ;
+            # ce garde couvre un clic arrivé pendant la bascule.
+            self._stop_reading()
             return
 
         text = (read_clipboard_text() or "").strip()
@@ -891,24 +910,51 @@ class VoxtralApp(rumps.App):
             rumps.alert(
                 title=APP_NAME,
                 message=(
-                    f"Le texte copié est long : seuls ses {synthese.MAX_CHARS} "
-                    f"premiers caractères seront lus."
+                    f"Le texte copié est très long : seuls ses "
+                    f"{synthese.MAX_CHARS} premiers caractères seront lus."
                 ),
             )
+        phrases = synthese.decouper_en_phrases(text)
 
-        self._speech_busy = True
-        self.read_item.set_callback(None)
-        self.read_item.title = READ_BUSY_LABEL
+        # Moteur et voix sont figés ici, pour toute la lecture : changer de
+        # voix dans les Préférences au milieu d'un texte ne doit pas donner
+        # un texte lu à deux voix.
+        synth = self._get_synthetiseur()
+        voice = self.config.synthesis.voice
+
+        self._lecture = lecture.Lecture(
+            phrases=phrases,
+            synthesize=lambda phrase: synth.lire(phrase, voice),
+            submit=lambda task: self.inference.submit(
+                task, priority=PRIORITY_FILE, label="speech"
+            ),
+            start_playback=lambda audio: synthese.demarrer(audio, synth.sample_rate),
+            wait_playback=synthese.attendre,
+            stop_playback=synthese.arreter,
+            callbacks=lecture.LectureCallbacks(
+                on_progress=self._on_speech_progress,
+                on_done=self._on_speech_done,
+            ),
+        )
+        self.read_item.title = READ_STOP_LABEL
+        self.read_item.set_callback(self.stop_reading)
         if needs_download:
             self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
             self._set_status_title(STATUS_SPEECH_DOWNLOAD)
         else:
             self._start_animation(SYMBOL_SPEECH_FRAMES, 0.5)
-        self.inference.submit(
-            lambda: self._synthesize_and_play(text),
-            priority=PRIORITY_FILE,
-            label="speech",
-        )
+        self._lecture.start()
+
+    def stop_reading(self, _sender: "rumps.MenuItem | None" = None) -> None:
+        """Callback du menu « Arrêter la lecture »."""
+        self._stop_reading()
+
+    def _stop_reading(self) -> None:
+        """Arrête la lecture en cours, s'il y en a une. Depuis n'importe quel
+        thread ; le menu est remis au repos par `_on_speech_done`."""
+        current = self._lecture
+        if current is not None:
+            current.cancel()
 
     def _get_synthetiseur(self) -> "synthese.Synthetiseur":
         """Moteur de synthèse, créé au premier usage (même logique que
@@ -919,47 +965,34 @@ class VoxtralApp(rumps.App):
             self._synthetiseur = synthese.Synthetiseur(repo)
         return self._synthetiseur
 
-    def _synthesize_and_play(self, text: str) -> None:
-        """Synthèse. Tourne sur l'inference-worker.
-
-        Seule la synthèse occupe le worker : la lecture du son part sur un
-        thread à part, pour rendre le worker à la dictée tout de suite —
-        sinon une dictée attendrait la fin d'une lecture de trente secondes.
-        """
-        try:
-            synth = self._get_synthetiseur()
-            audio = synth.lire(text, self.config.synthesis.voice)
-        except Exception as exc:  # noqa: BLE001
-            traceback.print_exc()
-            self._show_error("Lecture impossible", str(exc)[:400])
-            self._on_speech_done()
+    def _on_speech_progress(self, numero: int, total: int) -> None:
+        """Une phrase commence à jouer. Appelé depuis le thread `speech-play`."""
+        if threading.current_thread() is not threading.main_thread():
+            AppHelper.callAfter(self._on_speech_progress, numero, total)
             return
+        if self._lecture is None or self._lecture.cancelled:
+            return
+        if numero == 1 and self.status_item.title == STATUS_SPEECH_DOWNLOAD:
+            # Le modèle est là et il parle : fin du téléchargement.
+            self._set_status_title("État : prêt")
+            self._start_animation(SYMBOL_SPEECH_FRAMES, 0.5)
+        suffix = f" ({numero}/{total})" if total > 1 else ""
+        self.read_item.title = f"{READ_STOP_LABEL}{suffix}"
 
-        self._set_menu_title(self.read_item, READ_PLAYING_LABEL)
-        threading.Thread(
-            target=self._play_and_finish,
-            args=(audio, synth.sample_rate),
-            name="speech-play",
-            daemon=True,
-        ).start()
-
-    def _play_and_finish(self, audio, sample_rate: int) -> None:  # noqa: ANN001
-        try:
-            synthese.jouer(audio, sample_rate)
-        except Exception as exc:  # noqa: BLE001
-            traceback.print_exc()
-            self._show_error("Lecture impossible", str(exc)[:400])
-        finally:
-            self._on_speech_done()
-
-    def _on_speech_done(self) -> None:
+    def _on_speech_done(self, error: str | None = None) -> None:
         """Remet le menu et l'icône au repos. Depuis n'importe quel thread."""
         if threading.current_thread() is not threading.main_thread():
-            AppHelper.callAfter(self._on_speech_done)
+            AppHelper.callAfter(self._on_speech_done, error)
             return
-        self._speech_busy = False
+        self._lecture = None
         self.read_item.title = READ_MENU_LABEL
         self.read_item.set_callback(self.read_clipboard_aloud)
+        if error:
+            self._show_error("Lecture impossible", error[:400])
+        if self._dictation_owns_icon():
+            # C'est une dictée qui a fait taire la lecture : l'icône (rond
+            # rouge, sablier) et le titre d'état sont à elle, on n'y touche pas.
+            return
         self._stop_animation()
         # On ne rend le titre d'état que si c'est nous qui l'avions pris : une
         # dictée a pu démarrer entre-temps et y afficher le sien.
@@ -968,6 +1001,14 @@ class VoxtralApp(rumps.App):
         # Ne pas écraser le flash rouge d'une erreur qu'on vient d'afficher.
         if self._error_flash_timer is None:
             self._set_status_icon(SYMBOL_IDLE)
+
+    def _dictation_owns_icon(self) -> bool:
+        """True tant qu'une dictée est en cours (micro ouvert ou transcription)."""
+        return self.dictation.state in (
+            DictationState.ARMING,
+            DictationState.RECORDING,
+            DictationState.PENDING,
+        )
 
     # ------------------------------------------------------------------
     # Erreurs visibles (cause 5)
@@ -1334,6 +1375,7 @@ class VoxtralApp(rumps.App):
         self.file_job.cancel()
         self.dictation.shutdown(wait=False)
         self.inference.shutdown(wait=False)
+        self._stop_reading()
         synthese.arreter()
 
         threading.Thread(

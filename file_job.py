@@ -25,15 +25,17 @@ main thread.
 from __future__ import annotations
 
 import enum
+import dataclasses
 import os
 import threading
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 import audio_convert
 import file_transcriber
+import lexique
 from file_transcriber import FileTranscript
 from transcriber import Transcriber
 
@@ -120,6 +122,7 @@ class FileJob:
         task: str = "transcribe",
         include_timestamps: bool = True,
         diarization: bool = False,
+        corrections: Mapping[str, str] | None = None,
     ) -> bool:
         """Démarre un job. Retourne False si un autre est déjà en cours."""
         with self._lock:
@@ -134,6 +137,7 @@ class FileJob:
             args=(
                 source, transcriber, model_name, output_dir, block_duration_s,
                 max_duration_s, language, task, include_timestamps, diarization,
+                dict(corrections or {}),
             ),
             daemon=True,
             name="file-job",
@@ -159,6 +163,7 @@ class FileJob:
         task: str,
         include_timestamps: bool,
         diarization: bool,
+        corrections: Mapping[str, str] | None = None,
     ) -> None:
         temp_audio: Path | None = None
         try:
@@ -198,6 +203,17 @@ class FileJob:
 
             if diarization and not self._cancel.is_set():
                 transcript = self._apply_diarization(transcript, audio_path)
+
+            if corrections:
+                # Lexique personnel (cf. lexique.py), passage par passage :
+                # une correction à cheval sur deux passages est manquée, ce
+                # qui vaut mieux que de toucher aux horodatages.
+                transcript.segments = [
+                    dataclasses.replace(
+                        seg, text=lexique.corriger(seg.text, corrections)
+                    )
+                    for seg in transcript.segments
+                ]
 
             output_path = self._write_transcript(
                 transcript=transcript,

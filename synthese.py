@@ -24,6 +24,7 @@ la dictée et obligerait tous les utilisateurs à réinstaller.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import threading
@@ -39,9 +40,17 @@ DEFAULT_MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
 # Fréquence d'échantillonnage de sortie du modèle (fixe, cf. son config.json).
 SAMPLE_RATE = 24_000
 # Garde-fou pour « Lire le texte copié » : au-delà, on lit le début seulement.
-# Un presse-papier peut contenir un article entier, et le modèle plafonne de
-# toute façon à 4 096 jetons audio (quelques minutes).
-MAX_CHARS = 2_000
+# Depuis que la lecture se fait phrase par phrase (cf. lecture.py), la limite
+# ne vient plus du modèle mais du bon sens : 20 000 caractères font une
+# vingtaine de minutes d'écoute. Un presse-papier peut contenir un livre.
+MAX_CHARS = 20_000
+# Taille d'un morceau lu d'un seul tenant. Assez long pour que la voix garde
+# son élan, assez court pour que le premier son arrive vite et que le budget
+# de génération (cf. `budget_tokens` : 600 caractères tiennent en ~128 s sur
+# les 160 du plafond) ne soit jamais approché.
+PHRASE_MAX_CHARS = 300
+# En dessous, un morceau est collé au suivant.
+PHRASE_MIN_CHARS = 25
 # Budget de génération. Le modèle produit 12,5 trames audio par seconde et
 # s'arrête normalement tout seul ; mais il lui arrive, au hasard de
 # l'échantillonnage, de ne jamais émettre sa fin et de dérouler jusqu'au
@@ -261,6 +270,83 @@ def lire(texte: str, voix: str, repo: str = DEFAULT_MODEL) -> np.ndarray:
     return synthetiseur(repo).lire(texte, voix)
 
 
+# Une phrase : du premier caractère jusqu'à une ponctuation forte (avec son
+# guillemet ou sa parenthèse fermante) suivie d'une espace, ou jusqu'à la fin
+# de la ligne. « 12.5 » ou « kixit.fr » ne coupent donc pas.
+# Le guillemet français fermant est précédé d'une espace (« non. ») : elle
+# ne doit pas couper la phrase en laissant le guillemet orphelin.
+_PHRASE = re.compile(r"\S.*?(?:[.!?…]+(?:\s?»|[\"')\]])*(?=\s|$)|$)")
+# Où recouper une phrase trop longue, du meilleur endroit au pire.
+_COUPURES = (re.compile(r"(?<=[;:])\s+"), re.compile(r"(?<=,)\s+"), re.compile(r"\s+"))
+
+
+def decouper_en_phrases(
+    texte: str,
+    max_chars: int = PHRASE_MAX_CHARS,
+    min_chars: int = PHRASE_MIN_CHARS,
+) -> list[str]:
+    """Découpe un texte en morceaux à lire l'un après l'autre.
+
+    C'est ce qui permet à la lecture de démarrer dès la première phrase, et
+    à une phrase ratée de ne pas emporter tout le texte (cf. lecture.py).
+
+    - On coupe aux fins de phrase et aux retours à la ligne.
+    - Un morceau trop court est collé au suivant : « M. » ou « Oui. » lus
+      seuls sonnent faux, et le modèle déraille sur les textes minuscules.
+    - Un morceau trop long est recoupé, de préférence à un point-virgule,
+      sinon à une virgule, sinon entre deux mots : le budget de génération
+      du modèle est borné (cf. `budget_tokens`).
+    """
+    bruts: list[str] = []
+    for ligne in texte.splitlines():
+        ligne = " ".join(ligne.split())
+        if ligne:
+            bruts.extend(_PHRASE.findall(ligne))
+
+    phrases: list[str] = []
+    attente = ""
+    for brut in bruts:
+        candidat = f"{attente} {brut}" if attente else brut
+        if len(candidat) < min_chars:
+            attente = candidat
+            continue
+        attente = ""
+        phrases.extend(_recouper(candidat, max_chars))
+    if attente:
+        # Un reste trop court en fin de texte : on le rattache à ce qui
+        # précède si ça tient, sinon il est lu seul.
+        if phrases and len(phrases[-1]) + 1 + len(attente) <= max_chars:
+            phrases[-1] = f"{phrases[-1]} {attente}"
+        else:
+            phrases.append(attente)
+    return phrases
+
+
+def _recouper(phrase: str, max_chars: int) -> list[str]:
+    """Coupe une phrase plus longue que `max_chars` en morceaux qui tiennent."""
+    morceaux: list[str] = []
+    reste = phrase
+    while len(reste) > max_chars:
+        coupe = -1
+        for motif in _COUPURES:
+            candidats = [
+                m.start() for m in motif.finditer(reste, 0, max_chars + 1)
+                # Pas de miette en tête : on ne coupe pas dans le premier tiers.
+                if m.start() >= max_chars // 3
+            ]
+            if candidats:
+                coupe = candidats[-1]
+                break
+        if coupe < 0:
+            # Un « mot » plus long que la limite (une URL) : coupe franche.
+            coupe = max_chars
+        morceaux.append(reste[:coupe].rstrip())
+        reste = reste[coupe:].lstrip()
+    if reste:
+        morceaux.append(reste)
+    return morceaux
+
+
 def tronquer(texte: str, max_chars: int = MAX_CHARS) -> tuple[str, bool]:
     """Coupe un texte trop long pour une lecture, sur une fin de mot.
 
@@ -374,12 +460,24 @@ def vers_mp3(
 # ----------------------------------------------------------------------
 
 
-def jouer(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> None:
-    """Joue le son sur la sortie par défaut et attend la fin."""
+def demarrer(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> None:
+    """Lance le son sur la sortie par défaut et rend la main tout de suite."""
     import sounddevice as sd
 
     sd.play(np.asarray(audio, dtype=np.float32), sample_rate)
+
+
+def attendre() -> None:
+    """Attend la fin du son lancé par `demarrer` (ou son arrêt par `arreter`)."""
+    import sounddevice as sd
+
     sd.wait()
+
+
+def jouer(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> None:
+    """Joue le son sur la sortie par défaut et attend la fin."""
+    demarrer(audio, sample_rate)
+    attendre()
 
 
 def arreter() -> None:

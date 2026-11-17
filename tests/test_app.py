@@ -27,9 +27,8 @@ from app import (
     ERROR_LABEL_NONE,
     ERROR_LABEL_PRESENT,
     FILE_MENU_LABEL,
-    READ_BUSY_LABEL,
     READ_MENU_LABEL,
-    READ_PLAYING_LABEL,
+    READ_STOP_LABEL,
     STATUS_SPEECH_DOWNLOAD,
     SYMBOL_SPEECH_FRAMES,
     SYMBOL_DOWNLOADING_FRAMES,
@@ -632,7 +631,8 @@ def test_transcribe_and_paste_passes_config_and_cleans_up(
     voxtral_app._transcribe_and_paste(wav)
 
     voxtral_app.transcriber.transcribe.assert_called_once_with(
-        wav, language="fr", task="transcribe", max_new_tokens=2048
+        wav, language="fr", task="transcribe", max_new_tokens=2048,
+        initial_prompt=None,
     )
     deps["paste_text"].assert_called_once_with(
         "bonjour", auto_paste=False, restore_delay_s=0.8
@@ -789,13 +789,77 @@ def test_quit_stops_workers_without_blocking(
     rumps.quit_application.assert_called_once()
 
 
+# ---- Lexique personnel (cf. lexique.py) ----
+
+
+def test_dictation_applies_personal_corrections(
+    voxtral_app: VoxtralApp, deps, user_config: Path, tmp_path: Path
+):
+    _reload(
+        voxtral_app, user_config,
+        lexicon={"corrections": {"KickSit": "Kixit", "la TV a": "la TVA"}},
+    )
+    wav = tmp_path / "d.wav"
+    wav.touch()
+    voxtral_app.transcriber.transcribe.return_value = "Kicksit déclare la TV a."
+
+    voxtral_app._transcribe_and_paste(wav)
+
+    assert deps["paste_text"].call_args.args[0] == "Kixit déclare la TVA."
+    # Les mots ne sont PAS soufflés tant que l'option n'est pas cochée.
+    assert voxtral_app.transcriber.transcribe.call_args.kwargs["initial_prompt"] is None
+
+
+def test_dictation_prompts_words_only_when_enabled(
+    voxtral_app: VoxtralApp, deps, user_config: Path, tmp_path: Path
+):
+    _reload(
+        voxtral_app, user_config,
+        lexicon={"words": ["Kixit", "TVA"], "prompt_words": True},
+    )
+    wav = tmp_path / "d.wav"
+    wav.touch()
+    voxtral_app.transcriber.transcribe.return_value = "bonjour Kixit"
+
+    voxtral_app._transcribe_and_paste(wav)
+
+    assert (
+        voxtral_app.transcriber.transcribe.call_args.kwargs["initial_prompt"]
+        == "Glossaire : Kixit, TVA."
+    )
+    assert deps["paste_text"].call_args.args[0] == "bonjour Kixit"
+
+
+def test_dictation_never_pastes_the_prompt_back(
+    voxtral_app: VoxtralApp, deps, user_config: Path, tmp_path: Path
+):
+    """Sur un audio presque vide, Whisper « transcrit » l'amorce : on ne
+    colle rien plutôt que « Glossaire : … » au milieu d'un courriel."""
+    _reload(
+        voxtral_app, user_config,
+        lexicon={"words": ["Kixit", "TVA"], "prompt_words": True},
+    )
+    wav = tmp_path / "d.wav"
+    wav.touch()
+    voxtral_app.transcriber.transcribe.return_value = "Glossaire: Kixit, TVA"
+
+    voxtral_app._transcribe_and_paste(wav)
+
+    assert deps["paste_text"].call_args.args[0] == ""
+
+
 # ---- Lecture du presse-papier à voix haute ----
 
 
 @pytest.fixture
 def speech(voxtral_app: VoxtralApp, deps: dict, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Presse-papier et moteur de synthèse simulés."""
-    state = {"clipboard": "Le segment AB mesure 6 cm.", "threads": []}
+    """Presse-papier, moteur de synthèse et lecture simulés.
+
+    La vraie `Lecture` (threads, file d'attente) a ses propres tests dans
+    test_lecture.py ; ici on vérifie ce que l'app lui confie et comment elle
+    réagit à ses signaux.
+    """
+    state: dict = {"clipboard": "Le segment AB mesure 6 cm.", "lectures": []}
     monkeypatch.setattr(
         app_module, "read_clipboard_text", lambda: state["clipboard"]
     )
@@ -808,25 +872,26 @@ def speech(voxtral_app: VoxtralApp, deps: dict, monkeypatch: pytest.MonkeyPatch)
 
         def lire(self, texte: str, voix: str):
             self.calls.append((texte, voix))
-            if state.get("fail"):
-                raise app_module.synthese.SynthesisError("voix inconnue")
             return "audio"
 
-    monkeypatch.setattr(app_module.synthese, "Synthetiseur", FakeSynth)
-    monkeypatch.setattr(app_module.synthese, "jouer", MagicMock(name="jouer"))
-    monkeypatch.setattr(app_module.synthese, "arreter", MagicMock(name="arreter"))
-
-    class InlineThread:
-        """Le thread de lecture tourne en direct : les tests sont synchrones."""
-
-        def __init__(self, target, args=(), **kwargs):  # noqa: ANN001
-            state["threads"].append(kwargs.get("name"))
-            self._target, self._args = target, args
+    class FakeLecture:
+        def __init__(self, **kwargs) -> None:  # noqa: ANN003
+            self.__dict__.update(kwargs)
+            self.started = False
+            self.cancelled = False
+            state["lectures"].append(self)
 
         def start(self) -> None:
-            self._target(*self._args)
+            self.started = True
 
-    monkeypatch.setattr(app_module.threading, "Thread", InlineThread)
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    monkeypatch.setattr(app_module.synthese, "Synthetiseur", FakeSynth)
+    monkeypatch.setattr(app_module.synthese, "demarrer", MagicMock(name="demarrer"))
+    monkeypatch.setattr(app_module.synthese, "attendre", MagicMock(name="attendre"))
+    monkeypatch.setattr(app_module.synthese, "arreter", MagicMock(name="arreter"))
+    monkeypatch.setattr(app_module.lecture, "Lecture", FakeLecture)
     voxtral_app.inference.submit.reset_mock()
     return state
 
@@ -844,24 +909,53 @@ def test_read_aloud_with_empty_clipboard_alerts_and_does_nothing(
     voxtral_app.read_clipboard_aloud(None)
     rumps.alert.assert_called_once()
     assert "presse-papier" in rumps.alert.call_args.kwargs["message"]
-    voxtral_app.inference.submit.assert_not_called()
+    assert speech["lectures"] == []
     assert voxtral_app.read_item.title == READ_MENU_LABEL
 
 
-def test_read_aloud_submits_synthesis_in_low_priority(
+def test_read_aloud_starts_a_reading_sentence_by_sentence(
     voxtral_app: VoxtralApp, speech: dict
 ):
-    """La synthèse passe par l'inference-worker (seul propriétaire des
-    modèles), derrière une dictée éventuelle ; l'item devient l'affichage
-    d'état et cesse d'être cliquable."""
+    """Le texte part découpé en phrases ; l'item du menu devient le bouton
+    d'arrêt, et l'icône s'anime."""
+    speech["clipboard"] = (
+        "Voici la première phrase du texte copié. Et voici la seconde, tout aussi longue."
+    )
     voxtral_app.read_clipboard_aloud(None)
     rumps.alert.assert_not_called()
-    call = voxtral_app.inference.submit.call_args
-    assert call.kwargs["priority"] == PRIORITY_FILE
-    assert call.kwargs["label"] == "speech"
-    assert voxtral_app.read_item.title == READ_BUSY_LABEL
-    assert voxtral_app.read_item.callback is None
+    (lect,) = speech["lectures"]
+    assert lect.started
+    assert lect.phrases == [
+        "Voici la première phrase du texte copié.",
+        "Et voici la seconde, tout aussi longue.",
+    ]
+    assert voxtral_app.read_item.title == READ_STOP_LABEL
+    assert voxtral_app.read_item.callback == voxtral_app.stop_reading
     assert voxtral_app._anim_frames == SYMBOL_SPEECH_FRAMES
+
+
+def test_reading_synthesizes_on_the_worker_in_low_priority(
+    voxtral_app: VoxtralApp, speech: dict, user_config: Path
+):
+    """Chaque phrase est une tâche de l'inference-worker (seul propriétaire
+    des modèles), derrière une dictée éventuelle ; la voix est celle de la
+    config, le son est joué à la fréquence du modèle."""
+    _reload(voxtral_app, user_config, synthesis={"voice": "fr_male"})
+    voxtral_app.read_clipboard_aloud(None)
+    (lect,) = speech["lectures"]
+
+    lect.submit("tâche")
+    call = voxtral_app.inference.submit.call_args
+    assert call.args == ("tâche",)
+    assert call.kwargs == {"priority": PRIORITY_FILE, "label": "speech"}
+
+    assert lect.synthesize("Une phrase.") == "audio"
+    assert voxtral_app._synthetiseur.calls == [("Une phrase.", "fr_male")]
+
+    lect.start_playback("audio")
+    app_module.synthese.demarrer.assert_called_once_with("audio", 24_000)
+    assert lect.wait_playback is app_module.synthese.attendre
+    assert lect.stop_playback is app_module.synthese.arreter
 
 
 def test_read_aloud_asks_before_downloading_the_model(
@@ -871,74 +965,97 @@ def test_read_aloud_asks_before_downloading_the_model(
     rumps.alert.return_value = 0  # Annuler
     voxtral_app.read_clipboard_aloud(None)
     assert rumps.alert.call_args.kwargs["ok"] == "Télécharger"
-    voxtral_app.inference.submit.assert_not_called()
+    assert speech["lectures"] == []
 
     rumps.alert.return_value = 1  # Télécharger
     voxtral_app.read_clipboard_aloud(None)
-    voxtral_app.inference.submit.assert_called_once()
+    assert len(speech["lectures"]) == 1
     assert voxtral_app._anim_frames == SYMBOL_DOWNLOADING_FRAMES
     assert voxtral_app.status_item.title == STATUS_SPEECH_DOWNLOAD
 
+    # La première phrase joue : le téléchargement est fini.
+    voxtral_app._on_speech_progress(1, 1)
+    assert voxtral_app.status_item.title == "État : prêt"
+    assert voxtral_app._anim_frames == SYMBOL_SPEECH_FRAMES
+
 
 def test_read_aloud_warns_when_text_is_truncated(voxtral_app: VoxtralApp, speech: dict):
-    speech["clipboard"] = "mot " * 1500
+    speech["clipboard"] = "mot " * 8000
     voxtral_app.read_clipboard_aloud(None)
     assert "premiers caractères" in rumps.alert.call_args.kwargs["message"]
-    submitted = voxtral_app.inference.submit.call_args.args[0]
-    submitted()
-    texte, _ = voxtral_app._synthetiseur.calls[0]
-    assert len(texte) <= app_module.synthese.MAX_CHARS
+    (lect,) = speech["lectures"]
+    assert sum(len(p) for p in lect.phrases) <= app_module.synthese.MAX_CHARS
 
 
-def test_read_aloud_refuses_a_second_reading_while_busy(
-    voxtral_app: VoxtralApp, speech: dict
-):
+def test_a_long_article_is_read_without_truncation(voxtral_app: VoxtralApp, speech: dict):
+    """L'ancien plafond de 2 000 caractères n'existe plus."""
+    speech["clipboard"] = "Une phrase de taille tout à fait ordinaire. " * 100
     voxtral_app.read_clipboard_aloud(None)
+    rumps.alert.assert_not_called()
+    assert len(speech["lectures"][0].phrases) == 100
+
+
+def test_menu_item_stops_the_reading(voxtral_app: VoxtralApp, speech: dict):
     voxtral_app.read_clipboard_aloud(None)
-    assert voxtral_app.inference.submit.call_count == 1
-    assert "déjà en cours" in rumps.alert.call_args.kwargs["message"]
-
-
-def test_synthesis_uses_configured_voice_then_plays_on_another_thread(
-    voxtral_app: VoxtralApp, speech: dict, user_config: Path
-):
-    _reload(voxtral_app, user_config, synthesis={"voice": "fr_male"})
+    (lect,) = speech["lectures"]
+    voxtral_app.stop_reading(None)
+    assert lect.cancelled
+    # Un second clic arrivé avant la fin n'ouvre pas une deuxième lecture.
     voxtral_app.read_clipboard_aloud(None)
-    voxtral_app.inference.submit.call_args.args[0]()  # ce que ferait le worker
+    assert len(speech["lectures"]) == 1
 
-    assert voxtral_app._synthetiseur.calls == [("Le segment AB mesure 6 cm.", "fr_male")]
-    assert "speech-play" in speech["threads"]
-    app_module.synthese.jouer.assert_called_once_with("audio", 24_000)
-    # Fin de lecture : item et icône au repos, nouvelle lecture possible.
+
+def test_progress_is_shown_in_the_menu_item(voxtral_app: VoxtralApp, speech: dict):
+    voxtral_app.read_clipboard_aloud(None)
+    voxtral_app._on_speech_progress(2, 5)
+    assert voxtral_app.read_item.title == f"{READ_STOP_LABEL} (2/5)"
+    # Une seule phrase : pas de compteur.
+    voxtral_app._on_speech_progress(1, 1)
+    assert voxtral_app.read_item.title == READ_STOP_LABEL
+
+
+def test_end_of_reading_restores_menu_and_icon(voxtral_app: VoxtralApp, speech: dict):
+    voxtral_app.read_clipboard_aloud(None)
+    voxtral_app._on_speech_done(None)
     assert voxtral_app.read_item.title == READ_MENU_LABEL
     assert voxtral_app.read_item.callback == voxtral_app.read_clipboard_aloud
-    assert voxtral_app._speech_busy is False
+    assert voxtral_app._lecture is None
     assert voxtral_app._anim_timer is None
+    assert voxtral_app._last_error is None
+    # Et une nouvelle lecture est possible.
+    voxtral_app.read_clipboard_aloud(None)
+    assert len(speech["lectures"]) == 2
 
 
-def test_synthesis_failure_shows_error_and_restores_menu(
+def test_reading_failure_shows_error_and_restores_menu(
     voxtral_app: VoxtralApp, speech: dict
 ):
-    speech["fail"] = True
     voxtral_app.read_clipboard_aloud(None)
-    voxtral_app.inference.submit.call_args.args[0]()
+    voxtral_app._on_speech_done("voix inconnue")
     assert voxtral_app.error_item.title == ERROR_LABEL_PRESENT
-    assert voxtral_app._last_error[0] == "Lecture impossible"
-    app_module.synthese.jouer.assert_not_called()
+    assert voxtral_app._last_error == ("Lecture impossible", "voix inconnue")
     assert voxtral_app.read_item.title == READ_MENU_LABEL
-    assert voxtral_app._speech_busy is False
+    assert voxtral_app._lecture is None
 
 
-def test_playing_label_is_shown_between_synthesis_and_playback(
-    voxtral_app: VoxtralApp, speech: dict
+def test_starting_a_dictation_silences_the_reading(
+    voxtral_app: VoxtralApp, speech: dict, monkeypatch: pytest.MonkeyPatch
 ):
-    seen: list[str] = []
-    app_module.synthese.jouer.side_effect = lambda *a: seen.append(
-        voxtral_app.read_item.title
-    )
+    """Sinon le micro entend la voix de synthèse. Et la fin de la lecture ne
+    doit pas effacer le rond rouge de la dictée qui vient de commencer."""
     voxtral_app.read_clipboard_aloud(None)
-    voxtral_app.inference.submit.call_args.args[0]()
-    assert seen == [READ_PLAYING_LABEL]
+    (lect,) = speech["lectures"]
+
+    voxtral_app.dictation.state = DictationState.RECORDING
+    voxtral_app._on_dictation_state(DictationState.RECORDING, "État : écoute en cours…")
+    assert lect.cancelled
+
+    icon = MagicMock(name="_set_status_icon")
+    monkeypatch.setattr(voxtral_app, "_set_status_icon", icon)
+    voxtral_app._on_speech_done(None)
+    assert voxtral_app.read_item.title == READ_MENU_LABEL
+    assert voxtral_app._lecture is None
+    icon.assert_not_called()
 
 
 def test_synthesizer_is_rebuilt_only_when_its_model_changes(
@@ -953,11 +1070,12 @@ def test_synthesizer_is_rebuilt_only_when_its_model_changes(
     assert second is not first and second.repo == "org/autre-tts"
 
 
-def test_quit_stops_any_playback(voxtral_app: VoxtralApp, monkeypatch: pytest.MonkeyPatch):
-    arreter = MagicMock(name="arreter")
-    monkeypatch.setattr(app_module.synthese, "arreter", arreter)
+def test_quit_stops_any_playback(
+    voxtral_app: VoxtralApp, speech: dict, monkeypatch: pytest.MonkeyPatch
+):
+    voxtral_app.read_clipboard_aloud(None)
     monkeypatch.setattr(app_module.threading, "Thread", MagicMock())
     monkeypatch.setattr(app_module.threading, "Timer", MagicMock())
     voxtral_app.quit_app(None)
-    arreter.assert_called_once()
-
+    assert speech["lectures"][0].cancelled
+    app_module.synthese.arreter.assert_called_once()
