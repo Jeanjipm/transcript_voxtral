@@ -501,6 +501,11 @@ def _num(value, fmt: str = "{:.1f}", empty: str = "—") -> str:
     return fmt.format(value).replace(".", ",").replace("-", "−")
 
 
+def _pct(value) -> str:
+    """Pourcentage, ou un simple tiret quand il n'y a rien à montrer."""
+    return "—" if value is None else f"{_num(value)} %"
+
+
 def _mean(values: list[float]) -> float | None:
     values = [v for v in values if v is not None]
     return sum(values) / len(values) if values else None
@@ -545,7 +550,7 @@ def report_tts() -> list[str]:
             f"| {name} | {_num(e.get('load_s'))} s | {_num(e.get('cold_s'))} s | "
             f"{_num(_mean([i.get('first_audio_s') for i in items]), '{:.2f}')} s | "
             f"{_num(audio / total if total else None)}× | {mem_txt} | "
-            f"{_num(100 * errs / words if words else None)} % |"
+            f"{_pct(100 * errs / words if words else None)} |"
         )
     lines += ["", "Détail par texte (délai avant le 1er son / temps total / durée du son, en secondes) :", ""]
     lines += ["| Texte | " + " | ".join(e.get("engine", "?") for e in engines) + " |",
@@ -622,15 +627,15 @@ def report_stt() -> list[str]:
     lines += [
         "| Modèle | Mots faux, phrases synthé | Mots faux, réel | Vitesse (× temps réel) |",
         "|---|---|---|---|",
-        f"| **Kyutai STT 1B en/fr** | {_num(group_wer(synth, kyutai))} % | "
-        f"{_num(group_wer(real, kyutai))} % | {_num(audio / proc if proc else None)}× |",
+        f"| **Kyutai STT 1B en/fr** | {_pct(group_wer(synth, kyutai))} | "
+        f"{_pct(group_wer(real, kyutai))} | {_num(audio / proc if proc else None)}× |",
     ]
     for model in STT_REFERENCES:
         spec = bench_models.MODELS.get(model)
         lines.append(
             f"| {spec.label if spec else model} (banc de novembre, mêmes fichiers) | "
-            f"{_num(group_wer(synth, reference(model)))} % | "
-            f"{_num(group_wer(real, reference(model)))} % | — |"
+            f"{_pct(group_wer(synth, reference(model)))} | "
+            f"{_pct(group_wer(real, reference(model)))} | — |"
         )
     lags = [i["lag_median_s"] for i in rows.values() if "lag_median_s" in i]
     lag_max = [i["lag_max_s"] for i in rows.values() if "lag_max_s" in i]
@@ -683,7 +688,7 @@ def report_vad() -> list[str]:
         proc = sum(v["proc_s"] for v in silero.values())
         lines += [
             f"Bonnes réponses : **Silero {ok_s}/{len(silero)}**, filtre de volume "
-            f"actuel (seuil {_num(APP_SILENCE_DBFS, "{:.0f}")} dBFS) {ok_f}/{len(silero)}. "
+            f"actuel (seuil {_num(APP_SILENCE_DBFS, '{:.0f}')} dBFS) {ok_f}/{len(silero)}. "
             f"Silero traite {_num(audio / proc if proc else None, '{:.0f}')}× le temps réel "
             f"(chargement {_num(data.get('silero_load_s'), '{:.2f}')} s).",
             "",
