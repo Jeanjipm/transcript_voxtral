@@ -47,3 +47,8 @@ config.local.yaml
 # restent sur le Mac. Les mesures chiffrées, elles, sont dans summary.md.
 tools/bench_samples/reel_*.txt
 tools/bench_results/*reel_*.json
+
+# Banc d'essai « voix » (tools/bench_voix.py) : les résultats bruts contiennent
+# la transcription des enregistrements réels. Seul summary.md (chiffres, et
+# textes des phrases synthétiques uniquement) a vocation à être partagé.
+tools/bench_voix_results/*.json
