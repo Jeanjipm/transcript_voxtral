@@ -498,7 +498,7 @@ def run_vad() -> None:
 def _num(value, fmt: str = "{:.1f}", empty: str = "—") -> str:
     if value is None or (isinstance(value, float) and not math.isfinite(value)):
         return empty
-    return fmt.format(value).replace(".", ",")
+    return fmt.format(value).replace(".", ",").replace("-", "−")
 
 
 def _mean(values: list[float]) -> float | None:
@@ -683,7 +683,7 @@ def report_vad() -> list[str]:
         proc = sum(v["proc_s"] for v in silero.values())
         lines += [
             f"Bonnes réponses : **Silero {ok_s}/{len(silero)}**, filtre de volume "
-            f"actuel (seuil {APP_SILENCE_DBFS:.0f} dBFS) {ok_f}/{len(silero)}. "
+            f"actuel (seuil {_num(APP_SILENCE_DBFS, "{:.0f}")} dBFS) {ok_f}/{len(silero)}. "
             f"Silero traite {_num(audio / proc if proc else None, '{:.0f}')}× le temps réel "
             f"(chargement {_num(data.get('silero_load_s'), '{:.2f}')} s).",
             "",
