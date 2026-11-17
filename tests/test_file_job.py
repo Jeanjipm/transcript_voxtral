@@ -94,6 +94,32 @@ def test_successful_job_writes_txt(job, cb, stub_pipeline, tmp_path: Path):
     assert "Bonjour à tous." in result.output_path.read_text(encoding="utf-8")
 
 
+def test_personal_corrections_are_applied_to_the_txt(
+    job, cb, stub_pipeline, tmp_path: Path
+):
+    """Lexique personnel (cf. lexique.py) : mêmes corrections qu'en dictée."""
+    stub_pipeline["transcript"] = FileTranscript(
+        segments=[
+            Segment(start=0.0, end=5.0, text="Bonjour de KickSit."),
+            Segment(start=5.0, end=9.0, text="La TV a été envoyée.", speaker=1),
+        ],
+        language="fr",
+        duration_s=120.0,
+    )
+    _submit_and_wait(
+        job, cb, _source(tmp_path), tmp_path,
+        corrections={"kicksit": "Kixit", "la TV a": "la TVA a"},
+    )
+    result = cb.on_done.call_args[0][0]
+    texte = result.output_path.read_text(encoding="utf-8")
+    assert "Bonjour de Kixit." in texte
+    assert "la TVA a été envoyée." in texte
+    # Horodatages et locuteurs intacts.
+    assert [(s.start, s.end, s.speaker) for s in result.transcript.segments] == [
+        (0.0, 5.0, None), (5.0, 9.0, 1),
+    ]
+
+
 def test_txt_includes_header_and_timestamps(job, cb, stub_pipeline, tmp_path: Path):
     _submit_and_wait(job, cb, _source(tmp_path), tmp_path)
     content = cb.on_done.call_args[0][0].output_path.read_text(encoding="utf-8")

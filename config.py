@@ -169,6 +169,20 @@ class SynthesisConfig:
 
 
 @dataclass
+class LexiconConfig:
+    # Lexique personnel (cf. lexique.py). Rempli depuis Préférences → Mes mots.
+    # « Ce que le modèle écrit » → « ce que je veux », appliqué après chaque
+    # transcription, dictée ou fichier, quel que soit le modèle.
+    corrections: dict[str, str] = field(default_factory=dict)
+    # Noms propres et sigles soufflés à Whisper avant la dictée. Sans effet
+    # tant que `prompt_words` est faux, et sans effet avec Voxtral.
+    words: list[str] = field(default_factory=list)
+    # Expérimental, d'où le défaut à faux : une amorce peut faire sauter du
+    # texte à Whisper (mesuré sur les fichiers, cf. file_transcriber.py).
+    prompt_words: bool = False
+
+
+@dataclass
 class OfflineConfig:
     # Quand le modèle est déjà téléchargé, coupe tout accès réseau au
     # chargement. Sans ça, charger un modèle pourtant présent sur le disque
@@ -203,6 +217,7 @@ class Config:
     offline: OfflineConfig = field(default_factory=OfflineConfig)
     maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
     synthesis: SynthesisConfig = field(default_factory=SynthesisConfig)
+    lexicon: LexiconConfig = field(default_factory=LexiconConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -223,6 +238,30 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def _build_lexicon(data: Any) -> LexiconConfig:
+    """Section `lexicon`, tolérante : c'est la seule que l'utilisateur
+    remplit de texte libre, et un YAML retouché à la main ne doit pas
+    empêcher l'app de démarrer. Tout est ramené à des chaînes (YAML lit
+    « 3M » comme un texte mais « 2026 » comme un nombre)."""
+    if not isinstance(data, dict):
+        return LexiconConfig()
+    corrections = data.get("corrections")
+    words = data.get("words")
+    return LexiconConfig(
+        corrections={
+            str(k): "" if v is None else str(v)
+            for k, v in corrections.items()
+            if str(k).strip()
+        }
+        if isinstance(corrections, dict)
+        else {},
+        words=[str(w) for w in words if str(w).strip()]
+        if isinstance(words, list)
+        else [],
+        prompt_words=bool(data.get("prompt_words", False)),
+    )
+
+
 def _dict_to_config(data: dict[str, Any]) -> Config:
     """Convertit un dict YAML en `Config` typé. Tolère les clés manquantes
     ET les clés obsolètes (cf. `_build`)."""
@@ -240,6 +279,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         offline=_build(OfflineConfig, data.get("offline", {})),
         maintenance=_build(MaintenanceConfig, data.get("maintenance", {})),
         synthesis=_build(SynthesisConfig, data.get("synthesis", {})),
+        lexicon=_build_lexicon(data.get("lexicon", {})),
     )
 
 

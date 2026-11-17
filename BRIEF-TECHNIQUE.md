@@ -1,6 +1,6 @@
 # Brief technique — Voxtral Dictée
 
-**Version :** 0.3 | **Date :** 4 novembre 2026
+**Version :** 0.4 | **Date :** 17 novembre 2026
 
 Ce document décrit le logiciel **tel qu'il est** après les sprints 6a, 6b et
 6c (cf. `ANALYSE-2026-10-26.md` pour le diagnostic qui les a motivés). Les
@@ -165,6 +165,35 @@ place au-delà de `maintenance.log_max_mb` (10 Mo, on garde le dernier Mo), et
 les `dictee-*.wav` de `~/.voxtral/recordings/` plus vieux que
 `maintenance.recordings_max_age_days` (30) sont supprimés.
 
+### F10 — Lecture à voix haute
+
+Menu « Lire le texte copié » : le presse-papier est lu au haut-parleur par
+Voxtral 4B TTS (`synthese.py`, via `mlx-audio`), 2,5 Go téléchargés au premier
+usage après confirmation. Voix dans Préférences → Lecture.
+
+La lecture se fait **phrase par phrase** (`lecture.py`) : le texte est découpé
+(`synthese.decouper_en_phrases`, morceaux de 25 à 300 caractères), chaque
+phrase est une tâche de l'inference-worker en priorité basse, et un thread
+`speech-play` joue les phrases dans l'ordre à mesure qu'elles arrivent, avec
+trois phrases d'avance au plus. Conséquences : le son démarre après une
+phrase, une dictée passe entre deux phrases, le plafond passe de 2 000 à
+20 000 caractères, une phrase illisible est sautée (sauf la première, qui
+arrête tout avec la vraie cause). L'item du menu devient « Arrêter la
+lecture (n/total) » ; démarrer une dictée arrête aussi la lecture.
+
+### F11 — Lexique personnel
+
+Préférences → Mes mots, section `lexicon` de la config (`lexique.py`) :
+
+- **Corrections automatiques** (`corrections`) : « écrit » → « voulu »,
+  appliquées après la transcription, en dictée et dans les fichiers, avec tous
+  les modèles. Mot entier, insensible à la casse, une seule passe.
+- **Mots soufflés** (`words`, actifs si `prompt_words`) : passés à Whisper en
+  `initial_prompt`. **Expérimental, désactivé par défaut** : une amorce peut
+  faire perdre du texte à Whisper (mesuré sur les fichiers, cf.
+  `file_transcriber.py`). Jamais en traduction, sans effet avec Voxtral ; si
+  le modèle recrache l'amorce, rien n'est collé.
+
 ## Architecture
 
 ```
@@ -187,6 +216,9 @@ transcript_voxtral/
 ├── file_transcriber.py      # Boucle par blocs + mise en forme du .txt
 ├── diarizer.py              # Identification des locuteurs (Sortformer v2.1)
 ├── clipboard.py             # Presse-papier + Cmd+V simulé + restauration
+├── synthese.py              # Texte → son (Voxtral TTS), découpage en phrases, MP3
+├── lecture.py               # Une lecture à voix haute : synthèse et son, phrase par phrase
+├── lexique.py               # Lexique personnel : corrections et mots soufflés à Whisper
 ├── config.py                # Dataclasses, fusion défauts + overrides, chemins de ~/.voxtral
 ├── housekeeping.py          # Journal borné, purge des vieilles dictées
 ├── updater.py               # Vérification et application des mises à jour (GitHub)
@@ -199,7 +231,7 @@ transcript_voxtral/
 ├── requirements.lock        # Versions figées, installées par install.sh
 ├── ruff.toml                # Lint (règles « bugs » uniquement)
 ├── .github/workflows/tests.yml  # CI : ruff + pytest sur Python 3.12 et 3.13
-├── tests/                   # 539 tests pytest, natif macOS remplacé par des stubs (cf. tests/README.md)
+├── tests/                   # 689 tests pytest, natif macOS remplacé par des stubs (cf. tests/README.md)
 ├── README.md                # Doc utilisateur
 ├── BRIEF-TECHNIQUE.md       # Ce document
 └── ANALYSE-2026-10-26.md    # Revue complète du 26 octobre 2026 et plan des sprints 6a-6c
@@ -269,6 +301,15 @@ offline:
 maintenance:
   log_max_mb: 10                 # journal tronqué au-delà (0 = jamais)
   recordings_max_age_days: 30    # dictées conservées purgées après (0 = jamais)
+
+synthesis:
+  model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+  voice: "fr_female"
+
+lexicon:
+  corrections: {}                # "KickSit": "Kixit" — appliqué après transcription
+  words: []                      # mots soufflés à Whisper
+  prompt_words: false            # expérimental : active l'envoi de `words`
 ```
 
 ## Dépendances
@@ -280,7 +321,7 @@ Voir `requirements.txt` (commenté) ; versions exactes dans `requirements.lock`.
 | mlx | Framework ML Apple Silicon |
 | mlx-voxtral | Inférence Voxtral (dictée) |
 | mlx-whisper | Whisper : fichiers audio, traduction, modèle alternatif |
-| mlx-audio | Identification des locuteurs (Sortformer) |
+| mlx-audio | Identification des locuteurs (Sortformer) et synthèse vocale (Voxtral TTS) |
 | rumps | App menu bar native macOS |
 | sounddevice, numpy, soundfile | Capture micro, buffers, lecture/écriture WAV |
 | pynput | Raccourci clavier global + Cmd+V simulé |
@@ -363,3 +404,4 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 | 0.1 | 14 avril 2026 | Brief initial (cahier des charges) |
 | 0.2 | 16 avril 2026 | Sons, UI de paramétrage, choix du modèle Voxtral Mini 3B et du raccourci Cmd+Shift+H |
 | 0.3 | 4 novembre 2026 | Réécriture pour décrire le logiciel réel après les sprints 6a–6c : raccourci ⌥ droite capturé au clavier, transcription de fichiers avec horodatages et locuteurs, hors-ligne réel, suivi du micro, filtre anti-silence, mises à jour in-app, entretien, 539 tests et CI |
+| 0.4 | 17 novembre 2026 | Lecture à voix haute phrase par phrase (démarrage immédiat, arrêt, 20 000 caractères) et lexique personnel (corrections automatiques, mots soufflés à Whisper en option expérimentale) |

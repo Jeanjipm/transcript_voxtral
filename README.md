@@ -112,11 +112,17 @@ Le chemin inverse de la dictée. Copie un texte (Cmd+C), puis clique l'icône
 le modèle de synthèse vocale [Voxtral 4B TTS](https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit)
 (2,5 Go). Il se télécharge à la première lecture, après confirmation — rien
 ne part en silence. La voix se choisit dans **Préférences → Lecture** ; deux
-voix françaises (femme, homme) sont en tête de liste. Un texte très long
-n'est lu que sur ses 2 000 premiers caractères, et l'app le dit.
+voix françaises (femme, homme) sont en tête de liste.
+
+Le texte est lu **phrase par phrase** : le son démarre dès que la première
+phrase est prête, pendant que les suivantes se fabriquent. Un article entier
+se lit donc d'une traite (jusqu'à 20 000 caractères, une vingtaine de
+minutes ; au-delà l'app le dit et lit le début). Une phrase que le modèle
+n'arrive pas à dire est sautée, et signalée dans le menu à la fin.
 
 Pendant la lecture, l'icône devient un haut-parleur et l'item du menu
-affiche l'avancement ; une dictée lancée au même moment passe devant.
+devient **Arrêter la lecture (3/12)** : un clic coupe le son. Lancer une
+dictée arrête aussi la lecture, pour que le micro n'entende pas la voix.
 
 Le même moteur sert à `vocaliser_cahier.py`, qui enregistre en MP3 toutes
 les phrases du cahier de révisions CE1 et les publie (cf. CLI utiles).
@@ -147,6 +153,17 @@ Onglets :
 - **Lecture** : la voix qui lit le texte copié (les 20 voix du modèle, avec
   leur langue), et l'état du modèle de lecture avec un bouton pour le
   télécharger tout de suite.
+- **Mes mots** : ton lexique personnel, pour les noms propres et les sigles
+  que les modèles écorchent.
+  - *Corrections automatiques* : une par ligne, `ce que l'app écrit = ce que
+    tu veux` (`KickSit = Kixit`, `la TV a = la TVA`). Appliquées après chaque
+    dictée et dans les fichiers transcrits, avec tous les modèles, mot entier
+    et sans tenir compte des majuscules. Sans risque : c'est un
+    rechercher-remplacer.
+  - *Mots à souffler au modèle* (expérimental, décoché par défaut) : une
+    liste de noms que Whisper reçoit avant de transcrire, pour les écrire
+    juste du premier coup. Ne fonctionne qu'avec les modèles Whisper. Si tes
+    dictées se mettent à perdre des phrases, décoche la case.
 - **À propos** : aide-mémoire et lien vers le code source.
 
 Les changements sont appliqués automatiquement en quelques secondes

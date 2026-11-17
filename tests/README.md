@@ -57,20 +57,22 @@ ne se fusionne pas.
 |---|---:|---|
 | `hotkey_manager.py` | 68 | parse, validate, state machine push-to-talk, pause/reprise, resynchronisation limitée aux touches du raccourci |
 | `dictation_controller.py` | 49 | machine à états, coupe-circuit de durée, dictée pendant une transcription, arrêt infaillible du worker, filtre anti-silence, changement de micro (immédiat ou différé) |
-| `app.py` | 61 | construction et réglages transmis, entretien au démarrage, version = commit installé, hot-reload de la config (raccourci, modèle, langue, sons, YAML invalide), transcriber des fichiers (réutilisation, cache, turbo → large-v3, aucune bascule du mode hors-ligne), fin et lancement d'un job fichier, erreurs visibles et flash, états de la dictée dans la menu bar, transcription + collage (délai presse-papier) + nettoyage, suivi du micro, mises à jour, quitter, lecture du presse-papier (vide, long, modèle à télécharger, voix de la config, lecture sur un thread à part, erreur) |
+| `app.py` | 67 | construction et réglages transmis, entretien au démarrage, version = commit installé, hot-reload de la config (raccourci, modèle, langue, sons, YAML invalide), transcriber des fichiers (réutilisation, cache, turbo → large-v3, aucune bascule du mode hors-ligne), fin et lancement d'un job fichier, erreurs visibles et flash, états de la dictée dans la menu bar, transcription + collage (délai presse-papier) + nettoyage, suivi du micro, mises à jour, quitter, lecture du presse-papier (vide, très long, modèle à télécharger, découpage en phrases confié à `lecture.py`, synthèse en priorité basse, arrêt par le menu, avancement, dictée qui fait taire la lecture sans perdre son icône, erreur), lexique personnel en dictée (corrections, amorce seulement si activée, écho de l'amorce jamais collé) |
 | `file_transcriber.py` | 36 | boucle long-form, garde-fous d'avance, mise en forme du .txt |
 | `audio_capture.py` | 35 | cycle stream long-lived, prewarm, reprise après échec, verrous, `reset_device` |
 | `model_manager.py` | 39 | catalogue, usages dictée/fichiers/synthèse, scan et purge du cache, modèles requis par la traduction, réglage à rétablir quand un téléchargement est refusé |
 | `vocaliser_cahier.py` | 50 | adaptation de l'écrit à l'oral, identifiant = SHA-1 tronqué du site, génération incrémentale (conservation, changement de voix, orphelins à la corbeille, reprise après interruption, phrase illisible notée sans arrêter le lot), essai des voix, commande |
-| `synthese.py` | 21 | voix lues dans le cache et repérage des françaises, concaténation des morceaux, voix inconnue refusée, commande ffmpeg exacte (mono, 64 kb/s, atempo, loudnorm), écriture atomique du MP3, ffmpeg absent, budget de trames selon le texte et relance d'une lecture partie en boucle |
+| `synthese.py` | 29 | voix lues dans le cache et repérage des françaises, concaténation des morceaux, voix inconnue refusée, commande ffmpeg exacte (mono, 64 kb/s, atempo, loudnorm), écriture atomique du MP3, ffmpeg absent, budget de trames selon le texte et relance d'une lecture partie en boucle, découpage en phrases (fins de phrase, nombres et domaines intacts, guillemets français, miettes recollées, phrases longues recoupées aux virgules) |
 | `hotkey_capture.py` | 33 | enregistrement d'un raccourci au clavier, machine à états pure, file d'événements |
 | `diarizer.py` | 27 | tours de parole depuis les probabilités, lissage, renumérotation, fusion locuteurs × segments |
 | `updater.py` | 26 | check + apply via API GitHub sur la branche installée, fichiers risqués (install.sh, requirements.txt, requirements.lock), comportement offline |
-| `transcriber.py` | 26 | factory, délégation translate, garde-fou turbo, réseau ouvert si le modèle manque, budget de jetons proportionnel à la durée |
-| `config.py` | 27 | I/O, fusion defaults+user, dataclasses, roundtrip, clés obsolètes ignorées (`model.path`), sections `ui`, `maintenance` et `synthesis` |
+| `transcriber.py` | 29 | factory, délégation translate, garde-fou turbo, réseau ouvert si le modèle manque, budget de jetons proportionnel à la durée, amorce du lexique transmise à Whisper (jamais en traduction) |
+| `config.py` | 31 | I/O, fusion defaults+user, dataclasses, roundtrip, clés obsolètes ignorées (`model.path`), sections `ui`, `maintenance`, `synthesis` et `lexicon` (YAML retouché à la main toléré) |
+| `lexique.py` | 21 | lecture du champ des Préférences, corrections mot entier insensibles à la casse (une seule passe, entrée la plus longue, apostrophes, suppression), amorce bornée sans demi-mot, détection de l'écho de l'amorce |
+| `lecture.py` | 11 | phrases jouées dans l'ordre, avance de synthèse bornée, une tâche par phrase, arrêt (y compris entre deux phrases), phrase illisible sautée, échec de la première phrase, worker qui refuse |
 | `audio_level.py` | 20 | RMS de la fenêtre la plus forte (dBFS), normalisation int16/float/stéréo, salve brève dans un long silence, lecture d'un WAV, décision avec filtre coupé |
 | `hf_offline.py` | 27 | détection du cache et de sa COMPLÉTUDE (blob `.incomplete`, morceaux de l'index, poids absents), bascule hors-ligne, résolution locale, `network_if_missing` |
-| `file_job.py` | 18 | cycle de vie, chemin de sortie, annulation, erreurs |
+| `file_job.py` | 19 | cycle de vie, chemin de sortie, annulation, erreurs, corrections du lexique dans le .txt |
 | `audio_convert.py` | 17 | afconvert, formats refusés par libsndfile, lecture par blocs |
 | `clipboard.py` | 18 | paste_text, préservation clipboard, délai de restauration configurable, règle de thread |
 | `inference_worker.py` | 13 | priorité, exclusion mutuelle, robustesse |
@@ -78,7 +80,7 @@ ne se fusionne pas.
 | `audio_device.py` | 9 | détection d'un changement de micro par défaut : premier sondage muet, lecture échouée ignorée, exceptions avalées |
 | `transcribe.py` (CLI) | 3 | conversion par `ensure_16k_mono`, temporaire nettoyé, fichier illisible → code 1 sans charger le modèle |
 
-**Total : 635 tests** (certains sont paramétrés, d'où un total supérieur à la
+**Total : 689 tests** (certains sont paramétrés, d'où un total supérieur à la
 somme des fonctions de test).
 
 Beaucoup de ces tests verrouillent une régression précise, avec la mesure qui

@@ -21,6 +21,7 @@ from synthese import (
     MAX_CHARS,
     SynthesisError,
     Synthetiseur,
+    decouper_en_phrases,
     libelle_voix,
     tronquer,
     vers_mp3,
@@ -183,12 +184,80 @@ def test_tronquer_keeps_short_text():
 
 
 def test_tronquer_cuts_long_text_on_a_word_boundary():
-    texte = " ".join(["mot"] * 1000)
+    texte = " ".join(["mot"] * 8000)
     coupe, tronque = tronquer(texte)
     assert tronque is True
     assert len(coupe) <= MAX_CHARS
     assert not coupe.endswith("mo")
     assert coupe.endswith("mot")
+
+
+# ---- Découpage en phrases ----
+
+
+def test_decouper_splits_on_sentence_ends_and_newlines():
+    texte = (
+        "Voici la première phrase du texte. Est-ce que la deuxième suit bien ?\n"
+        "Un paragraphe plus loin, la troisième !"
+    )
+    assert decouper_en_phrases(texte) == [
+        "Voici la première phrase du texte.",
+        "Est-ce que la deuxième suit bien ?",
+        "Un paragraphe plus loin, la troisième !",
+    ]
+
+
+def test_decouper_does_not_split_numbers_or_domains():
+    texte = "Le devis de 12.5 euros est sur kixit.fr depuis hier."
+    assert decouper_en_phrases(texte) == [texte]
+
+
+def test_decouper_keeps_the_closing_french_quote_with_its_sentence():
+    texte = "Il a répondu « non, pas du tout. » Puis il est reparti chez lui."
+    assert decouper_en_phrases(texte) == [
+        "Il a répondu « non, pas du tout. »",
+        "Puis il est reparti chez lui.",
+    ]
+
+
+def test_decouper_glues_tiny_pieces_to_what_follows():
+    """« M. » ou « Oui. » lus seuls sonnent faux, et le modèle déraille sur
+    les textes minuscules."""
+    assert decouper_en_phrases("Bonjour M. Dupont. Comment allez-vous aujourd'hui ?") == [
+        "Bonjour M. Dupont. Comment allez-vous aujourd'hui ?",
+    ]
+    assert decouper_en_phrases("Une phrase de bonne longueur, vraiment. Oui.") == [
+        "Une phrase de bonne longueur, vraiment. Oui.",
+    ]
+    assert decouper_en_phrases("Oui.") == ["Oui."]
+
+
+def test_decouper_recuts_long_sentences_at_commas():
+    phrase = ", ".join(["un membre de phrase assez long"] * 30) + "."
+    morceaux = decouper_en_phrases(phrase)
+    assert len(morceaux) > 1
+    assert all(len(m) <= synthese.PHRASE_MAX_CHARS for m in morceaux)
+    assert all(m.endswith(",") for m in morceaux[:-1])
+    # Rien n'est perdu ni dupliqué.
+    assert " ".join(morceaux) == phrase
+
+
+def test_decouper_hard_cuts_an_unbreakable_run():
+    morceaux = decouper_en_phrases("x" * 700)
+    assert [len(m) for m in morceaux] == [300, 300, 100]
+
+
+def test_decouper_empty_text_gives_nothing():
+    assert decouper_en_phrases("") == []
+    assert decouper_en_phrases("  \n \n") == []
+
+
+def test_every_piece_fits_the_generation_budget():
+    """Aucun morceau ne doit approcher le plafond de génération : c'est ce
+    plafond qui signale un modèle « parti en boucle »."""
+    texte = "Une phrase ordinaire, ni courte ni longue, comme on en lit partout. " * 200
+    for morceau in decouper_en_phrases(texte):
+        assert synthese.budget_tokens(morceau) < synthese.MAX_TOKENS_PLAFOND
 
 
 # ---- vers_mp3 ----

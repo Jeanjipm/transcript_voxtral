@@ -355,6 +355,7 @@ def whisper_call(monkeypatch: pytest.MonkeyPatch, tmp_path):
     def fake_transcribe(audio, **kwargs):
         seen["offline"] = hf_offline.is_offline()
         seen["repo"] = kwargs.get("path_or_hf_repo")
+        seen["initial_prompt"] = kwargs.get("initial_prompt")
         return {"text": " traduit ", "segments": []}
 
     monkeypatch.setattr(sys.modules["mlx_whisper"], "transcribe", fake_transcribe)
@@ -390,3 +391,30 @@ def test_whisper_transcribe_uses_its_own_repo(whisper_call):
         wav, language="fr", task="transcribe"
     )
     assert seen["repo"] == "mlx-community/whisper-large-v3-turbo"
+
+
+# ---- Amorce du lexique personnel (cf. lexique.py) ----
+
+
+def test_whisper_dictation_passes_the_prompt(whisper_call):
+    wav, seen = whisper_call
+    WhisperTranscriber("mlx-community/whisper-large-v3-mlx").transcribe(
+        wav, language="fr", initial_prompt="Glossaire : Kixit, TVA."
+    )
+    assert seen["initial_prompt"] == "Glossaire : Kixit, TVA."
+
+
+def test_whisper_dictation_has_no_prompt_by_default(whisper_call):
+    wav, seen = whisper_call
+    WhisperTranscriber("mlx-community/whisper-large-v3-mlx").transcribe(wav)
+    assert seen["initial_prompt"] is None
+
+
+def test_whisper_translation_ignores_the_prompt(whisper_call):
+    """L'amorce est dans la langue parlée : elle tirerait vers elle un texte
+    qu'on veut en anglais."""
+    wav, seen = whisper_call
+    WhisperTranscriber("mlx-community/whisper-large-v3-mlx").transcribe(
+        wav, task="translate", initial_prompt="Glossaire : Kixit, TVA."
+    )
+    assert seen["initial_prompt"] is None

@@ -17,6 +17,7 @@ plusieurs endroits : régler sa dictée demandait de visiter trois onglets.
     Modèles  — quel modèle pour quoi, et la place qu'ils prennent
     Avancé   — réglages fins dont personne n'a besoin au quotidien
     Lecture  — la voix qui lit le texte copié, et son modèle
+    Mes mots — corrections automatiques et mots soufflés au modèle
     À propos
 
 ## Deux règles suivies partout
@@ -38,6 +39,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
+import lexique
 from config import Config, load_config, save_config
 from hotkey_capture import HotkeyCapture, Outcome
 from hotkey_manager import display_combo, generic_combo, validate_combo
@@ -251,6 +253,9 @@ class SettingsWindow:
         self._build_models_tab()
         self._build_advanced_tab()
         self._build_speech_tab()
+        # Après Lecture et pas avant : `_save` désigne les onglets par leur
+        # rang (0 = Dictée, 3 = Avancé) pour y ramener en cas d'erreur.
+        self._build_lexicon_tab()
         self._build_about_tab()
 
         btn_frame = ttk.Frame(self.root)
@@ -1029,6 +1034,68 @@ class SettingsWindow:
         self._render_storage()
 
     # ------------------------------------------------------------------
+    # Onglet Mes mots — le lexique personnel (cf. lexique.py)
+    # ------------------------------------------------------------------
+
+    def _build_lexicon_tab(self) -> None:
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text="Mes mots")
+        frame.columnconfigure(0, weight=1)
+        lex = self.config.lexicon
+
+        ttk.Label(frame, text="Corrections automatiques", font=("", 12, "bold")).grid(
+            row=0, column=0, sticky="w", pady=(0, 4)
+        )
+        ttk.Label(
+            frame,
+            text="Un nom ou un sigle revient toujours mal écrit ? Note-le ici, une\n"
+                 "correction par ligne :  ce que l'app écrit = ce que tu veux.\n"
+                 "Appliqué à chaque dictée et aux fichiers, avec tous les modèles.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=1, column=0, sticky="w", pady=(0, 6))
+        self.corrections_text = tk.Text(frame, height=6, width=60, wrap="none")
+        self.corrections_text.grid(row=2, column=0, sticky="ew")
+        self.corrections_text.insert("1.0", lexique.formater_corrections(lex.corrections))
+        ttk.Label(
+            frame,
+            text="Exemples :   KickSit = Kixit        la TV a = la TVA",
+            foreground="gray",
+        ).grid(row=3, column=0, sticky="w", pady=(4, 14))
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
+            row=4, column=0, sticky="ew", pady=(0, 12)
+        )
+        ttk.Label(frame, text="Mots à souffler au modèle", font=("", 12, "bold")).grid(
+            row=5, column=0, sticky="w", pady=(0, 4)
+        )
+        ttk.Label(
+            frame,
+            text="Noms de clients, sigles, noms de lieux, séparés par des virgules.\n"
+                 "Le modèle les reçoit avant de transcrire et les écrit plus souvent juste.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=6, column=0, sticky="w", pady=(0, 6))
+        self.words_text = tk.Text(frame, height=3, width=60, wrap="word")
+        self.words_text.grid(row=7, column=0, sticky="ew")
+        self.words_text.insert("1.0", ", ".join(lex.words))
+
+        self.prompt_words_var = tk.BooleanVar(value=lex.prompt_words)
+        ttk.Checkbutton(
+            frame,
+            text="Souffler ces mots pendant la dictée (expérimental)",
+            variable=self.prompt_words_var,
+        ).grid(row=8, column=0, sticky="w", pady=(10, 2))
+        ttk.Label(
+            frame,
+            text="Ne fonctionne qu'avec les modèles Whisper. À l'essai : si tes dictées\n"
+                 "perdent des phrases ou se mettent à résumer, décoche cette case.\n"
+                 "Les corrections du haut, elles, sont sans risque.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=9, column=0, sticky="w")
+
+    # ------------------------------------------------------------------
     # Onglet À propos
     # ------------------------------------------------------------------
 
@@ -1143,6 +1210,11 @@ class SettingsWindow:
             float(self.file_max_hours_var.get()) * 3600
         )
         cfg.synthesis.voice = self.voice.get_code()
+        cfg.lexicon.corrections = lexique.analyser_corrections(
+            self.corrections_text.get("1.0", tk.END)
+        )
+        cfg.lexicon.words = lexique.analyser_mots(self.words_text.get("1.0", tk.END))
+        cfg.lexicon.prompt_words = bool(self.prompt_words_var.get())
         return cfg
 
     def _ensure_downloaded(self, repo_id: str) -> bool:
