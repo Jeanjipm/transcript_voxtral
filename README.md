@@ -111,8 +111,22 @@ Le chemin inverse de la dictée. Copie un texte (Cmd+C), puis clique l'icône
 🎤 → **Lire le texte copié** : il est lu au haut-parleur, sur ton Mac, avec
 le modèle de synthèse vocale [Voxtral 4B TTS](https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit)
 (2,5 Go). Il se télécharge à la première lecture, après confirmation — rien
-ne part en silence. La voix se choisit dans **Préférences → Lecture** ; deux
-voix françaises (femme, homme) sont en tête de liste.
+ne part en silence. La voix se choisit dans **Préférences → Lecture**.
+
+Deux moteurs de voix, dans la même liste :
+
+- **Pocket** (voix française « Estelle », de [Kyutai](https://github.com/kyutai-labs/pocket-tts)),
+  en tête de liste : le son part presque aussitôt, parce qu'il est produit
+  pendant qu'il est joué. Deux tailles : la *voix naturelle* (0,7 Go,
+  recommandée) et la *version légère* (0,2 Go, pour un Mac plus ancien).
+  Téléchargée à la première lecture, après confirmation.
+- **Voxtral** (20 voix, dont deux françaises) : le moteur d'origine, qui
+  reste celui par défaut tant que tu n'as pas choisi une voix Pocket.
+
+La voix Pocket demande un composant ajouté le 18 novembre 2026. Sur une
+installation plus ancienne, Préférences → Lecture indique « composant
+absent » : après la mise à jour du code, une seule commande l'installe —
+`~/.voxtral/venv/bin/pip install -r ~/.voxtral/app/requirements.lock`.
 
 Le texte est lu **phrase par phrase** : le son démarre dès que la première
 phrase est prête, pendant que les suivantes se fabriquent. Un article entier
@@ -296,3 +310,6 @@ Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
   traduction vers l'anglais.
 - **Modèle Voxtral 4B TTS** (lecture à voix haute) : CC BY-NC 4.0 (usage
   **non commercial** uniquement).
+- **Pocket TTS** (lecture à voix haute, Kyutai) : code MIT, poids CC BY 4.0
+  (usage commercial permis, avec attribution). C'est la voix à choisir pour
+  un usage professionnel.

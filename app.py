@@ -87,6 +87,7 @@ import lexique
 import oral
 import speech_detector
 import synthese
+import synthese_pocket
 from transcriber import Transcriber, make_transcriber, repo_for_task
 import updater
 
@@ -400,6 +401,8 @@ class VoxtralApp(rumps.App):
         # Moteur de synthèse vocale, lui aussi construit à la demande : 2,5 Go
         # de poids qu'on ne charge que si l'utilisateur lit un texte.
         self._synthetiseur: "synthese.Synthetiseur | None" = None
+        # Seconde voix de lecture (Pocket TTS), elle aussi à la demande.
+        self._pocket: "synthese_pocket.PocketSynthetiseur | None" = None
 
         # 4) Raccourci global. on_start/on_stop tournent DANS le callback de
         # l'event tap macOS : ils ne font qu'une mise en file (cf. la docstring
@@ -953,11 +956,31 @@ class VoxtralApp(rumps.App):
             )
             return
 
-        repo = self.config.synthesis.model
-        needs_download = not hf_offline.is_model_cached(repo)
-        if needs_download:
+        pocket = self.config.synthesis.engine == synthese_pocket.ENGINE
+        if pocket and not synthese_pocket.bibliotheque_presente():
+            # Installation d'avant ce moteur : on dit quoi faire, plutôt que
+            # d'échouer plus loin sur un import introuvable.
+            rumps.alert(
+                title="Voix Pocket à installer",
+                message=(
+                    "La voix choisie (Pocket) demande un composant qui n'est "
+                    "pas encore sur ton Mac.\n\n"
+                    "Relance l'installation de Voxtral Dictée pour l'obtenir, "
+                    "ou choisis une autre voix dans Préférences → Lecture."
+                ),
+            )
+            return
+
+        if pocket:
+            langue = self.config.synthesis.pocket_language
+            needs_download = not synthese_pocket.est_en_cache(langue)
+            size = f"{synthese_pocket.taille_go(langue):.1f} Go"
+        else:
+            repo = self.config.synthesis.model
+            needs_download = not hf_offline.is_model_cached(repo)
             info = find_model(repo)
             size = f"{info.size_gb:.1f} Go" if info is not None else "quelques Go"
+        if needs_download:
             answer = rumps.alert(
                 title="Télécharger le modèle de lecture ?",
                 message=(
@@ -989,26 +1012,29 @@ class VoxtralApp(rumps.App):
             )
         phrases = synthese.decouper_en_phrases(text)
 
+        callbacks = lecture.LectureCallbacks(
+            on_progress=self._on_speech_progress,
+            on_done=self._on_speech_done,
+        )
         # Moteur et voix sont figés ici, pour toute la lecture : changer de
         # voix dans les Préférences au milieu d'un texte ne doit pas donner
         # un texte lu à deux voix.
-        synth = self._get_synthetiseur()
-        voice = self.config.synthesis.voice
-
-        self._lecture = lecture.Lecture(
-            phrases=phrases,
-            synthesize=lambda phrase: synth.lire(phrase, voice),
-            submit=lambda task: self.inference.submit(
-                task, priority=PRIORITY_FILE, label="speech"
-            ),
-            start_playback=lambda audio: synthese.demarrer(audio, synth.sample_rate),
-            wait_playback=synthese.attendre,
-            stop_playback=synthese.arreter,
-            callbacks=lecture.LectureCallbacks(
-                on_progress=self._on_speech_progress,
-                on_done=self._on_speech_done,
-            ),
-        )
+        if pocket:
+            self._lecture = self._pocket_reading(phrases, callbacks)
+        else:
+            synth = self._get_synthetiseur()
+            voice = self.config.synthesis.voice
+            self._lecture = lecture.Lecture(
+                phrases=phrases,
+                synthesize=lambda phrase: synth.lire(phrase, voice),
+                submit=lambda task: self.inference.submit(
+                    task, priority=PRIORITY_FILE, label="speech"
+                ),
+                start_playback=lambda audio: synthese.demarrer(audio, synth.sample_rate),
+                wait_playback=synthese.attendre,
+                stop_playback=synthese.arreter,
+                callbacks=callbacks,
+            )
         self.read_item.title = READ_STOP_LABEL
         self.read_item.set_callback(self.stop_reading)
         if needs_download:
@@ -1017,6 +1043,48 @@ class VoxtralApp(rumps.App):
         else:
             self._start_animation(SYMBOL_SPEECH_FRAMES, 0.5)
         self._lecture.start()
+
+    def _pocket_reading(
+        self, phrases: list[str], callbacks: "lecture.LectureCallbacks"
+    ) -> "lecture.Lecture":
+        """Une lecture par la voix Pocket (cf. synthese_pocket.py).
+
+        Deux différences avec Voxtral. Pocket tourne sur le processeur : il ne
+        passe pas par l'inference-worker, réservé aux modèles MLX. Et il rend
+        le son au fil de la génération : « synthétiser » une phrase se borne
+        ici à s'assurer que le modèle est chargé (c'est là qu'a lieu le
+        téléchargement, la première fois) ; le son est produit pendant qu'il
+        est joué, par `synthese.SortieFlux`.
+        """
+        moteur = self._get_pocket()
+        sortie = synthese.SortieFlux()
+
+        def preparer(phrase: str) -> str:
+            moteur.preload()
+            return phrase
+
+        return lecture.Lecture(
+            phrases=phrases,
+            synthesize=preparer,
+            # Un fil à part, pour ne jamais faire attendre le main thread
+            # pendant le chargement du modèle.
+            submit=lambda task: threading.Thread(
+                target=task, name="speech-synth", daemon=True
+            ).start(),
+            start_playback=lambda phrase: sortie.demarrer(
+                moteur.flux(phrase, sortie.arret), moteur.sample_rate
+            ),
+            wait_playback=sortie.attendre,
+            stop_playback=sortie.arreter,
+            callbacks=callbacks,
+        )
+
+    def _get_pocket(self) -> "synthese_pocket.PocketSynthetiseur":
+        """Moteur Pocket, créé au premier usage, refait si la taille change."""
+        langue = self.config.synthesis.pocket_language
+        if self._pocket is None or self._pocket.langue != langue:
+            self._pocket = synthese_pocket.PocketSynthetiseur(langue)
+        return self._pocket
 
     def stop_reading(self, _sender: "rumps.MenuItem | None" = None) -> None:
         """Callback du menu « Arrêter la lecture »."""

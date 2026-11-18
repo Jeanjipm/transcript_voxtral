@@ -260,6 +260,98 @@ def test_every_piece_fits_the_generation_budget():
         assert synthese.budget_tokens(morceau) < synthese.MAX_TOKENS_PLAFOND
 
 
+# ---- SortieFlux : jouer un son qui arrive par morceaux ----
+
+
+@pytest.fixture
+def sortie_audio(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Une fausse sortie audio qui note ce qu'on lui écrit."""
+    import sys
+
+    seen: dict = {"ecrits": [], "ouvert": None, "abort": 0}
+
+    class FakeStream:
+        def __init__(self, **kwargs) -> None:  # noqa: ANN003
+            seen["ouvert"] = kwargs
+
+        def __enter__(self) -> "FakeStream":
+            return self
+
+        def __exit__(self, *exc) -> None:  # noqa: ANN002
+            seen["ferme"] = True
+
+        def write(self, audio) -> None:  # noqa: ANN001
+            seen["ecrits"].append(audio.copy())
+            if seen.get("boom"):
+                raise OSError("sortie audio débranchée")
+
+        def abort(self) -> None:
+            seen["abort"] += 1
+
+    monkeypatch.setattr(
+        sys.modules["sounddevice"], "OutputStream", FakeStream, raising=False
+    )
+    return seen
+
+
+def test_stream_output_plays_chunks_as_they_come(sortie_audio: dict):
+    sortie = synthese.SortieFlux()
+    morceaux = [np.full(1920, i, dtype=np.float32) for i in range(3)]
+    sortie.demarrer(iter(morceaux), 24_000)
+    sortie.attendre()
+    assert sortie_audio["ouvert"] == {"samplerate": 24_000, "channels": 1, "dtype": "float32"}
+    assert [a.shape for a in sortie_audio["ecrits"]] == [(1920, 1)] * 3
+    assert sortie_audio["abort"] == 0 and sortie_audio["ferme"]
+
+
+def test_stream_output_stops_between_two_chunks(sortie_audio: dict):
+    """L'arrêt lève un drapeau, lu entre deux morceaux : le son est coupé net
+    (abort) et le reste n'est ni généré ni joué."""
+    sortie = synthese.SortieFlux()
+    produits: list[int] = []
+
+    def flux():
+        for i in range(100):
+            produits.append(i)
+            if i == 2:
+                sortie.arreter()
+            yield np.zeros(1920, dtype=np.float32)
+
+    sortie.demarrer(flux(), 24_000)
+    sortie.attendre()  # un arrêt voulu n'est pas une erreur
+    assert len(produits) == 3
+    assert sortie_audio["abort"] == 1
+
+
+def test_stream_output_reports_engine_errors_to_the_waiter(sortie_audio: dict):
+    """Une erreur du moteur (modèle absent, pas de réseau) survient sur le fil
+    de lecture : elle doit remonter à qui attend, pour être affichée."""
+    sortie = synthese.SortieFlux()
+
+    def flux():
+        yield np.zeros(1920, dtype=np.float32)
+        raise RuntimeError("modèle introuvable")
+
+    sortie.demarrer(flux(), 24_000)
+    with pytest.raises(RuntimeError, match="modèle introuvable"):
+        sortie.attendre()
+
+
+def test_stream_output_reports_audio_errors(sortie_audio: dict):
+    sortie_audio["boom"] = True
+    sortie = synthese.SortieFlux()
+    sortie.demarrer(iter([np.zeros(1920, dtype=np.float32)]), 24_000)
+    with pytest.raises(OSError, match="débranchée"):
+        sortie.attendre()
+
+
+def test_stream_output_skips_empty_chunks(sortie_audio: dict):
+    sortie = synthese.SortieFlux()
+    sortie.demarrer(iter([np.zeros(0, dtype=np.float32), np.ones(4, dtype=np.float32)]), 24_000)
+    sortie.attendre()
+    assert len(sortie_audio["ecrits"]) == 1
+
+
 # ---- vers_mp3 ----
 
 

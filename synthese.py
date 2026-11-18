@@ -480,6 +480,68 @@ def jouer(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> None:
     attendre()
 
 
+class SortieFlux:
+    """Joue un son qui arrive par morceaux, à mesure qu'il est produit.
+
+    Pour un moteur qui génère en continu (Pocket TTS, cf. synthese_pocket.py) :
+    le premier morceau part au haut-parleur dès qu'il existe, sans attendre la
+    fin de la phrase. Même contrat que `demarrer` / `attendre` / `arreter`,
+    pour que `lecture.Lecture` s'en serve sans rien savoir du moteur.
+
+    Tout ce qui touche à la sortie audio se passe sur un seul fil (le nôtre) :
+    `arreter()` ne fait que lever un drapeau, lu entre deux morceaux de 80 ms.
+    Fermer un flux PortAudio depuis un autre fil que celui qui y écrit est une
+    source connue de blocages.
+    """
+
+    def __init__(self) -> None:
+        # Posé par `arreter()`. Public : le moteur le reçoit aussi, pour
+        # cesser de générer et pas seulement de jouer.
+        self.arret = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._erreur: BaseException | None = None
+
+    def demarrer(self, morceaux: Iterable[np.ndarray], sample_rate: int) -> None:
+        """Commence à jouer `morceaux` et rend la main tout de suite."""
+        self._erreur = None
+        self._thread = threading.Thread(
+            target=self._jouer, args=(morceaux, sample_rate),
+            name="speech-stream", daemon=True,
+        )
+        self._thread.start()
+
+    def _jouer(self, morceaux: Iterable[np.ndarray], sample_rate: int) -> None:
+        try:
+            import sounddevice as sd
+
+            with sd.OutputStream(
+                samplerate=sample_rate, channels=1, dtype="float32"
+            ) as stream:
+                for morceau in morceaux:
+                    if self.arret.is_set():
+                        break
+                    audio = np.asarray(morceau, dtype=np.float32).reshape(-1, 1)
+                    if audio.size:
+                        stream.write(audio)
+                if self.arret.is_set():
+                    # Couper net : sans ça la fermeture du flux attendrait la
+                    # fin de ce qui est déjà dans le tampon.
+                    stream.abort()
+        except BaseException as exc:  # noqa: BLE001 — rendue à `attendre()`
+            self._erreur = exc
+
+    def attendre(self) -> None:
+        """Attend la fin du son (ou son arrêt). Relève l'erreur du moteur ou
+        de la sortie audio, s'il y en a eu une."""
+        if self._thread is not None:
+            self._thread.join()
+        if self._erreur is not None and not self.arret.is_set():
+            raise self._erreur
+
+    def arreter(self) -> None:
+        self.arret.set()
+
+
 def arreter() -> None:
     """Interrompt une lecture en cours (sans erreur s'il n'y en a pas)."""
     try:

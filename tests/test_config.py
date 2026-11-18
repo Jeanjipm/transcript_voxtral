@@ -491,3 +491,19 @@ def test_hand_edited_pronunciations_never_block_startup(tmp_path: Path):
 
     user.write_text("synthesis:\n  pronunciations: nimporte\n", encoding="utf-8")
     assert load_config(user_path=user).synthesis.pronunciations == {}
+
+
+def test_reading_engine_defaults_and_roundtrip(tmp_path: Path):
+    """Voxtral reste le moteur par défaut ; choisir Pocket survit à un
+    enregistrement sans effacer la voix Voxtral mémorisée."""
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    assert cfg.synthesis.engine == "voxtral"
+    assert cfg.synthesis.pocket_language == "french_24l"
+
+    cfg.synthesis.engine = "pocket"
+    cfg.synthesis.pocket_language = "french"
+    cfg.synthesis.voice = "fr_male"
+    save_config(cfg, user_path=tmp_path / "saved.yaml")
+    cfg2 = load_config(user_path=tmp_path / "saved.yaml")
+    assert (cfg2.synthesis.engine, cfg2.synthesis.pocket_language) == ("pocket", "french")
+    assert cfg2.synthesis.voice == "fr_male"

@@ -1177,6 +1177,128 @@ def test_user_pronunciations_are_applied_before_reading(
     ]
 
 
+# ---- Voix Pocket (cf. synthese_pocket.py) ----
+
+
+@pytest.fixture
+def pocket(voxtral_app: VoxtralApp, speech: dict, user_config: Path,
+           monkeypatch: pytest.MonkeyPatch) -> dict:
+    """La voix Pocket choisie, son paquet présent, ses poids en cache."""
+    state: dict = {"present": True, "cached": True, "moteurs": [], "sorties": []}
+    sp = app_module.synthese_pocket
+    monkeypatch.setattr(sp, "bibliotheque_presente", lambda: state["present"])
+    monkeypatch.setattr(sp, "est_en_cache", lambda langue, voix="estelle": state["cached"])
+
+    class FakeMoteur:
+        sample_rate = 24_000
+
+        def __init__(self, langue: str) -> None:
+            self.langue = langue
+            self.preloads = 0
+            state["moteurs"].append(self)
+
+        def preload(self) -> None:
+            self.preloads += 1
+
+        def flux(self, phrase: str, arret):  # noqa: ANN001
+            return ("flux", phrase, arret)
+
+    class FakeSortie:
+        def __init__(self) -> None:
+            self.arret = object()
+            self.demarrer = MagicMock(name="demarrer")
+            self.attendre = MagicMock(name="attendre")
+            self.arreter = MagicMock(name="arreter")
+            state["sorties"].append(self)
+
+    monkeypatch.setattr(sp, "PocketSynthetiseur", FakeMoteur)
+    monkeypatch.setattr(app_module.synthese, "SortieFlux", FakeSortie)
+    _reload(voxtral_app, user_config, synthesis={"engine": "pocket"})
+    return state
+
+
+def test_pocket_voice_streams_without_the_inference_worker(
+    voxtral_app: VoxtralApp, speech: dict, pocket: dict, monkeypatch: pytest.MonkeyPatch
+):
+    """Pocket tourne sur le processeur : rien ne passe par l'inference-worker
+    (réservé à MLX). « Synthétiser » se borne à charger le modèle ; le son est
+    produit pendant qu'il est joué."""
+    voxtral_app.read_clipboard_aloud(None)
+    rumps.alert.assert_not_called()
+    (lect,) = speech["lectures"]
+    (moteur,) = pocket["moteurs"]
+    (sortie,) = pocket["sorties"]
+    assert moteur.langue == "french_24l"
+
+    assert lect.synthesize("Une phrase.") == "Une phrase."
+    assert moteur.preloads == 1
+
+    lect.start_playback("Une phrase.")
+    sortie.demarrer.assert_called_once_with(("flux", "Une phrase.", sortie.arret), 24_000)
+    assert lect.wait_playback is sortie.attendre
+    assert lect.stop_playback is sortie.arreter
+
+    threads: list[str] = []
+
+    class RecordingThread:
+        def __init__(self, target=None, name=None, **kwargs):  # noqa: ANN001
+            threads.append(name)
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module.threading, "Thread", RecordingThread)
+    lect.submit(lambda: None)
+    assert threads == ["speech-synth"]
+    voxtral_app.inference.submit.assert_not_called()
+
+
+def test_pocket_download_is_offered_with_its_own_size(
+    voxtral_app: VoxtralApp, speech: dict, pocket: dict
+):
+    pocket["cached"] = False
+    rumps.alert.return_value = 0  # Annuler
+    voxtral_app.read_clipboard_aloud(None)
+    assert "0.7 Go" in rumps.alert.call_args.kwargs["message"]
+    assert speech["lectures"] == []
+
+    rumps.alert.return_value = 1
+    voxtral_app.read_clipboard_aloud(None)
+    assert len(speech["lectures"]) == 1
+    assert voxtral_app.status_item.title == STATUS_SPEECH_DOWNLOAD
+
+
+def test_pocket_without_its_library_explains_what_to_do(
+    voxtral_app: VoxtralApp, speech: dict, pocket: dict
+):
+    """Installation d'avant ce moteur : un message, pas une erreur d'import."""
+    pocket["present"] = False
+    voxtral_app.read_clipboard_aloud(None)
+    assert rumps.alert.call_args.kwargs["title"] == "Voix Pocket à installer"
+    assert "Relance l'installation" in rumps.alert.call_args.kwargs["message"]
+    assert speech["lectures"] == []
+    assert voxtral_app.read_item.title == READ_MENU_LABEL
+
+
+def test_pocket_engine_is_rebuilt_only_when_its_size_changes(
+    voxtral_app: VoxtralApp, speech: dict, pocket: dict, user_config: Path
+):
+    first = voxtral_app._get_pocket()
+    assert voxtral_app._get_pocket() is first
+    _reload(voxtral_app, user_config,
+            synthesis={"engine": "pocket", "pocket_language": "french"})
+    second = voxtral_app._get_pocket()
+    assert second is not first and second.langue == "french"
+
+
+def test_voxtral_stays_the_default_engine(voxtral_app: VoxtralApp, speech: dict):
+    """Personne ne change de voix (ni ne télécharge 0,7 Go) sans l'avoir choisi."""
+    assert voxtral_app.config.synthesis.engine == "voxtral"
+    voxtral_app.read_clipboard_aloud(None)
+    speech["lectures"][0].submit("tâche")
+    voxtral_app.inference.submit.assert_called_once()
+
+
 def test_menu_item_stops_the_reading(voxtral_app: VoxtralApp, speech: dict):
     voxtral_app.read_clipboard_aloud(None)
     (lect,) = speech["lectures"]

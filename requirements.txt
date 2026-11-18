@@ -34,3 +34,4 @@ huggingface_hub>=0.24.0       # Téléchargement des modèles depuis HF
 
 # --- UI Préférences ---
 # tkinter : inclus dans la stdlib Python (pas besoin de l'installer)
+pocket-tts>=4.0.1             # Seconde voix de lecture (Pocket TTS de Kyutai, synthese_pocket.py) : tourne sur le processeur avec torch, déjà tiré par mlx-audio. Le code se désactive proprement si le paquet manque

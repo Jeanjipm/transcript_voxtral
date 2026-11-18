@@ -271,6 +271,7 @@ def models_in_use(
     diarization: bool = False,
     synthesis_repo: str | None = None,
     speech_detection: bool = False,
+    pocket_voice: bool = False,
 ) -> set[str]:
     """Les modèles qu'il ne faut pas proposer à la suppression.
 
@@ -296,6 +297,11 @@ def models_in_use(
         from speech_detector import REPO as SPEECH_DETECTION_REPO
 
         in_use.add(SPEECH_DETECTION_REPO)
+    if pocket_voice:
+        # La voix Pocket non plus n'est dans aucune liste de modèles.
+        from synthese_pocket import REPOS as POCKET_REPOS
+
+        in_use.update(POCKET_REPOS)
     return in_use
 
 

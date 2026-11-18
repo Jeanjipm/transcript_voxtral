@@ -41,6 +41,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import lexique
 import speech_detector
+import synthese_pocket
 from config import Config, load_config, save_config
 from hotkey_capture import HotkeyCapture, Outcome
 from hotkey_manager import display_combo, generic_combo, validate_combo
@@ -784,6 +785,7 @@ class SettingsWindow:
             diarization=bool(self.diarization_var.get()),
             synthesis_repo=self.config.synthesis.model,
             speech_detection=self.config.recording.speech_detection,
+            pocket_voice=self.config.synthesis.engine == synthese_pocket.ENGINE,
         )
         total = sum(c.size_bytes for c in cached)
 
@@ -1002,12 +1004,13 @@ class SettingsWindow:
 
         ttk.Label(frame, text="Voix :").grid(row=2, column=0, sticky="w")
         self.voice = LabelledChoice(
-            frame, self._voice_options(), self.config.synthesis.voice, width=32
+            frame, self._voice_options(), self._current_voice_code(), width=40
         ).grid(row=2, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="Les deux voix françaises sont en tête de liste. Les autres\n"
-                 "lisent le français avec l'accent de leur langue.",
+            text="En tête, la voix Pocket : le son part presque aussitôt. Puis les\n"
+                 "voix Voxtral, françaises d'abord ; les autres lisent le français\n"
+                 "avec l'accent de leur langue.",
             foreground="gray",
             justify=tk.LEFT,
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 10))
@@ -1047,7 +1050,7 @@ class SettingsWindow:
         ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
             row=9, column=0, columnspan=2, sticky="ew", pady=(0, 12)
         )
-        ttk.Label(frame, text="Modèle de lecture", font=("", 12, "bold")).grid(
+        ttk.Label(frame, text="Modèles de lecture", font=("", 12, "bold")).grid(
             row=10, column=0, columnspan=2, sticky="w", pady=(0, 4)
         )
         self._speech_status = ttk.Label(frame, justify=tk.LEFT)
@@ -1056,7 +1059,12 @@ class SettingsWindow:
             frame, text="Télécharger maintenant…", command=self._download_speech_model
         )
         self._speech_download_btn.grid(row=12, column=0, sticky="w", pady=(8, 0))
+        self._pocket_status = ttk.Label(frame, justify=tk.LEFT)
+        self._pocket_status.grid(
+            row=13, column=0, columnspan=2, sticky="w", pady=(12, 0)
+        )
         self._render_speech_model()
+        self._render_pocket_status()
 
     def _voice_options(self) -> list[tuple[str, str]]:
         """Les voix à proposer : nos libellés, restreints aux voix que le
@@ -1065,7 +1073,16 @@ class SettingsWindow:
         connues = voix_disponibles(self.config.synthesis.model)
         options = [(code, label) for code, label in LIBELLES_VOIX if code in connues]
         options += [(v, libelle_voix(v)) for v in connues if v not in dict(options)]
-        return options or list(LIBELLES_VOIX)
+        # Les voix Pocket (autre moteur, cf. synthese_pocket.py) en tête : leur
+        # code porte le préfixe « pocket: », c'est ce qui les distingue.
+        return synthese_pocket.libelles() + (options or list(LIBELLES_VOIX))
+
+    def _current_voice_code(self) -> str:
+        """Le code de la voix en service : voix Voxtral, ou voix Pocket."""
+        syn = self.config.synthesis
+        if syn.engine == synthese_pocket.ENGINE:
+            return synthese_pocket.code_voix(syn.pocket_language)
+        return syn.voice
 
     def _render_speech_model(self) -> None:
         repo = self.config.synthesis.model
@@ -1083,6 +1100,24 @@ class SettingsWindow:
                      f"Sans lui, la première lecture proposera de le télécharger."
             )
             self._speech_download_btn.state(["!disabled"])
+
+    def _render_pocket_status(self) -> None:
+        """Où en est la voix Pocket : composant installé ? voix téléchargée ?"""
+        if not synthese_pocket.bibliotheque_presente():
+            text = ("Voix Pocket   —   composant absent de ce Mac.\n"
+                    "Relance l'installation de Voxtral Dictée pour l'obtenir.")
+        else:
+            lignes = []
+            for langue, (label, taille) in synthese_pocket.LANGUES.items():
+                nom = label.split("—", 1)[-1].strip()
+                if synthese_pocket.est_en_cache(langue):
+                    lignes.append(f"{nom}   —   ✓ sur ton Mac ({taille:.1f} Go)")
+                else:
+                    lignes.append(
+                        f"{nom}   —   ⤓ {taille:.1f} Go, proposé à la première lecture"
+                    )
+            text = "\n".join(lignes)
+        self._pocket_status.configure(text=text)
 
     def _download_speech_model(self) -> None:
         model = find_model(self.config.synthesis.model)
@@ -1273,7 +1308,16 @@ class SettingsWindow:
         cfg.file_transcription.max_duration_s = int(
             float(self.file_max_hours_var.get()) * 3600
         )
-        cfg.synthesis.voice = self.voice.get_code()
+        # Une seule liste pour deux moteurs : une voix Pocket fixe le moteur
+        # et sa taille, sans toucher à la voix Voxtral mémorisée.
+        voix = self.voice.get_code()
+        langue = synthese_pocket.langue_du_code(voix)
+        if langue is not None:
+            cfg.synthesis.engine = synthese_pocket.ENGINE
+            cfg.synthesis.pocket_language = langue
+        else:
+            cfg.synthesis.engine = "voxtral"
+            cfg.synthesis.voice = voix
         cfg.synthesis.spell_numbers = bool(self.spell_numbers_var.get())
         cfg.synthesis.pronunciations = lexique.analyser_corrections(
             self.pronunciations_text.get("1.0", tk.END)

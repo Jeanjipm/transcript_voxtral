@@ -148,6 +148,13 @@ def test_models_in_use_protects_the_speech_detector_when_enabled():
     assert REPO not in models_in_use("a/b", "c/d")
 
 
+def test_models_in_use_protects_the_pocket_voice_when_chosen():
+    from synthese_pocket import REPOS
+
+    assert set(REPOS) <= models_in_use("a/b", "c/d", pocket_voice=True)
+    assert not set(REPOS) & models_in_use("a/b", "c/d")
+
+
 # ---- scan_cached_models ----
 
 

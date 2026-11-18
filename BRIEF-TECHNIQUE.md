@@ -1,6 +1,6 @@
 # Brief technique — Voxtral Dictée
 
-**Version :** 0.5 | **Date :** 18 novembre 2026
+**Version :** 0.6 | **Date :** 18 novembre 2026
 
 Ce document décrit le logiciel **tel qu'il est** après les sprints 6a, 6b et
 6c (cf. `ANALYSE-2026-10-26.md` pour le diagnostic qui les a motivés). Les
@@ -198,6 +198,23 @@ qu'il soit bien dit »), puis nombres en toutes lettres
 pourcentages, ordinaux. Les voix lisent mal les chiffres : mesuré, la même
 phrase sort en charabia de Pocket TTS en chiffres et parfaite en lettres.
 
+**Seconde voix : Pocket TTS** (`synthese_pocket.py`, `synthesis.engine:
+"pocket"`). Choisie dans la même liste que les voix Voxtral (code préfixé
+`pocket:`), jamais par défaut. Trois différences avec Voxtral :
+
+- elle tourne sur le processeur (torch), pas sur MLX : elle ne passe pas par
+  l'inference-worker ;
+- elle rend le son au fil de la génération, par tranches de 80 ms, que
+  `synthese.SortieFlux` joue à mesure. « Synthétiser » une phrase se borne à
+  charger le modèle ; le son est produit pendant qu'il est joué. Mesuré au
+  banc : premier son en 0,08 s (grand modèle) contre 2 s pour Voxtral ;
+- ses poids sont sous CC-BY (usage commercial permis).
+
+Une seule voix française, « estelle », en deux tailles : `french_24l`
+(0,7 Go, recommandée) et `french` (0,2 Go). Le paquet `pocket-tts` est une
+dépendance ajoutée le 18 novembre 2026 : s'il manque (installation
+antérieure), les Préférences et le menu le disent au lieu d'échouer.
+
 ### F11 — Lexique personnel
 
 Préférences → Mes mots, section `lexicon` de la config (`lexique.py`) :
@@ -236,6 +253,7 @@ transcript_voxtral/
 ├── synthese.py              # Texte → son (Voxtral TTS), découpage en phrases, MP3
 ├── lecture.py               # Une lecture à voix haute : synthèse et son, phrase par phrase
 ├── lexique.py               # Lexique personnel : corrections et mots soufflés à Whisper
+├── synthese_pocket.py       # Seconde voix de lecture : Pocket TTS, son rendu au fil de la génération
 ├── oral.py                  # De l'écrit à l'oral : nombres en lettres, prononciations
 ├── speech_detector.py       # Y a-t-il de la parole ? (Silero VAD, avant de transcrire)
 ├── config.py                # Dataclasses, fusion défauts + overrides, chemins de ~/.voxtral
@@ -250,7 +268,7 @@ transcript_voxtral/
 ├── requirements.lock        # Versions figées, installées par install.sh
 ├── ruff.toml                # Lint (règles « bugs » uniquement)
 ├── .github/workflows/tests.yml  # CI : ruff + pytest sur Python 3.12 et 3.13
-├── tests/                   # 806 tests pytest, natif macOS remplacé par des stubs (cf. tests/README.md)
+├── tests/                   # 832 tests pytest, natif macOS remplacé par des stubs (cf. tests/README.md)
 ├── README.md                # Doc utilisateur
 ├── BRIEF-TECHNIQUE.md       # Ce document
 └── ANALYSE-2026-10-26.md    # Revue complète du 26 octobre 2026 et plan des sprints 6a-6c
@@ -326,6 +344,8 @@ maintenance:
 synthesis:
   model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
   voice: "fr_female"
+  engine: "voxtral"              # ou "pocket" (Pocket TTS, choisi avec la voix)
+  pocket_language: "french_24l"  # ou "french" (plus léger)
   spell_numbers: true            # nombres dits en toutes lettres
   pronunciations: {}             # "Kixit": "Kiksit" — avant la lecture
 
@@ -344,7 +364,8 @@ Voir `requirements.txt` (commenté) ; versions exactes dans `requirements.lock`.
 | mlx | Framework ML Apple Silicon |
 | mlx-voxtral | Inférence Voxtral (dictée) |
 | mlx-whisper | Whisper : fichiers audio, traduction, modèle alternatif |
-| mlx-audio | Identification des locuteurs (Sortformer) et synthèse vocale (Voxtral TTS) |
+| mlx-audio | Identification des locuteurs (Sortformer), synthèse vocale (Voxtral TTS), détection de la parole (Silero VAD) |
+| pocket-tts | Seconde voix de lecture (Pocket TTS, sur le processeur avec torch) |
 | rumps | App menu bar native macOS |
 | sounddevice, numpy, soundfile | Capture micro, buffers, lecture/écriture WAV |
 | pynput | Raccourci clavier global + Cmd+V simulé |
@@ -418,6 +439,8 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 - Code : MIT.
 - Voxtral Mini 3B : CC BY-NC 4.0, usage **non commercial**. Pour un usage
   commercial, basculer sur Whisper Large V3 (MIT) dans Préférences → Modèles.
+- Pocket TTS : code MIT, poids CC BY 4.0 (usage commercial permis, avec
+  attribution à Kyutai).
 - Whisper : MIT (OpenAI). Sortformer : voir la carte du modèle sur HuggingFace.
 
 ## Changelog
@@ -429,3 +452,4 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 | 0.3 | 4 novembre 2026 | Réécriture pour décrire le logiciel réel après les sprints 6a–6c : raccourci ⌥ droite capturé au clavier, transcription de fichiers avec horodatages et locuteurs, hors-ligne réel, suivi du micro, filtre anti-silence, mises à jour in-app, entretien, 539 tests et CI |
 | 0.4 | 17 novembre 2026 | Lecture à voix haute phrase par phrase (démarrage immédiat, arrêt, 20 000 caractères) et lexique personnel (corrections automatiques, mots soufflés à Whisper en option expérimentale) |
 | 0.5 | 18 novembre 2026 | Détection de la parole par Silero VAD avant de transcrire (le seuil de volume reste en secours), nombres en toutes lettres et prononciations avant la lecture à voix haute ; suites du banc `BENCH-VOIX-2026-11.md` |
+| 0.6 | 18 novembre 2026 | Seconde voix de lecture, Pocket TTS : son rendu au fil de la génération, hors inference-worker, poids CC-BY ; dépendance `pocket-tts` ajoutée |
