@@ -12,12 +12,18 @@ réglage. L'ancienne version avait huit onglets (Modèle, Langue, Raccourci,
 Sons, Fichiers, Stockage, Avancé, À propos) qui éclataient une même tâche à
 plusieurs endroits : régler sa dictée demandait de visiter trois onglets.
 
-    Dictée   — tout le trajet raccourci → parole → texte collé
-    Fichiers — transcrire un enregistrement existant
-    Modèles  — quel modèle pour quoi, et la place qu'ils prennent
-    Avancé   — réglages fins dont personne n'a besoin au quotidien
-    Lecture  — la voix qui lit le texte copié, et son modèle
-    Mes mots — corrections automatiques et mots soufflés au modèle
+Les trois premiers onglets sont les trois modes de l'app, dans l'ordre, et
+chacun est COMPLET : son modèle s'y choisit, avec ses réglages. Il y a eu un
+onglet « Modèles » qui regroupait les choix de modèles de la dictée et des
+fichiers — mais pas celui de la lecture, logé ailleurs — et séparait les trois
+modes : on ne savait plus où régler quoi.
+
+    Dictée        — raccourci → parole → texte collé, et son modèle
+    Fichiers      — transcrire un enregistrement existant, et son modèle
+    Lecture       — la voix qui lit le texte copié (elle détermine le modèle)
+    Mes mots      — le vocabulaire : ce que l'app écrit, ce qu'elle dit
+    Stockage      — la place prise par les modèles ; aucun choix ici
+    Réglages fins — ce dont personne n'a besoin au quotidien
     À propos
 
 ## Deux règles suivies partout
@@ -41,6 +47,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import lexique
 import speech_detector
+import synthese_pocket
 from config import Config, load_config, save_config
 from hotkey_capture import HotkeyCapture, Outcome
 from hotkey_manager import display_combo, generic_combo, validate_combo
@@ -57,7 +64,6 @@ from model_manager import (
     format_size,
     is_downloaded,
     list_available_models,
-    models_in_use,
     required_repos,
     scan_cached_models,
     selection_requiring,
@@ -102,6 +108,14 @@ CAPTURE_POLL_MS = 40
 
 
 REPO_URL = "https://github.com/Jeanjipm/transcript_voxtral"
+
+# Noms lisibles des modèles qui ne sont dans aucune liste de choix : sans ça
+# l'onglet Stockage affiche leur identifiant technique.
+EXTRA_MODEL_LABELS: dict[str, str] = {
+    speech_detector.REPO: "Détecteur de parole (Silero)",
+    **{repo: "Voix Pocket (Estelle)" for repo in synthese_pocket.REPOS},
+    "mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16": "Identification des locuteurs",
+}
 
 
 LANGUAGE_OPTIONS: list[tuple[str, str]] = [
@@ -239,8 +253,7 @@ class SettingsWindow:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Voxtral — Préférences")
-        # Plus grand qu'avant : l'onglet Modèles liste plusieurs modèles avec
-        # leur description, et l'ancienne taille les tronquait.
+        # Dimensionnée pour l'onglet le plus rempli (Réglages fins).
         self.root.geometry("640x760")
         self.root.minsize(600, 660)
 
@@ -249,15 +262,17 @@ class SettingsWindow:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
+        # Les trois modes d'abord, dans l'ordre ; puis ce qui leur est commun.
+        # Chaque onglet est noté par son nom : `_save` y ramène en cas d'erreur.
+        self._tabs: dict[str, tk.Widget] = {}
         self._build_dictation_tab()
         self._build_files_tab()
-        self._build_models_tab()
-        self._build_advanced_tab()
         self._build_speech_tab()
-        # Après Lecture et pas avant : `_save` désigne les onglets par leur
-        # rang (0 = Dictée, 3 = Avancé) pour y ramener en cas d'erreur.
         self._build_lexicon_tab()
+        self._build_storage_tab()
+        self._build_advanced_tab()
         self._build_about_tab()
+        self._render_storage()
 
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
@@ -277,6 +292,15 @@ class SettingsWindow:
         # le process sans passer par WM_DELETE_WINDOW — donc sans enregistrer,
         # malgré le libellé. La définir la fait rejoindre le chemin commun.
         self.root.createcommand("tk::mac::Quit", self._close)
+
+    def _add_tab(self, key: str, title: str) -> ttk.Frame:
+        frame = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(frame, text=title)
+        self._tabs[key] = frame
+        return frame
+
+    def _show_tab(self, key: str) -> None:
+        self.notebook.select(self._tabs[key])
 
     def _close(self) -> None:
         """Fermer la fenêtre enregistre. Il n'y a rien d'autre à faire.
@@ -299,8 +323,7 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _build_dictation_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Dictée")
+        frame = self._add_tab("dictee", "Dictée")
 
         # --- Raccourci ---
         ttk.Label(frame, text="Raccourci", font=("", 12, "bold")).grid(
@@ -377,34 +400,42 @@ class SettingsWindow:
             value="translate",
         ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
+        # --- Modèle ---
+        self.model_var = tk.StringVar(value=self.config.model.name)
+        self._model_choice(
+            frame, row=10, title="Modèle",
+            variable=self.model_var,
+            models=list_available_models(USAGE_DICTATION),
+        )
+
         # --- Résultat ---
         ttk.Label(frame, text="Résultat", font=("", 12, "bold")).grid(
-            row=10, column=0, columnspan=2, sticky="w"
+            row=13, column=0, columnspan=2, sticky="w"
         )
         self.autopaste_var = tk.BooleanVar(value=self.config.ui.auto_paste)
         ttk.Checkbutton(
             frame,
             text="Coller directement à la position du curseur",
             variable=self.autopaste_var,
-        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=14, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(
             frame,
             text="Décoché, le texte est seulement copié dans le presse-papier.",
             foreground="gray",
-        ).grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ).grid(row=15, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
         # --- Sons ---
         ttk.Label(frame, text="Sons", font=("", 12, "bold")).grid(
-            row=13, column=0, columnspan=2, sticky="w"
+            row=16, column=0, columnspan=2, sticky="w"
         )
         self.sounds_enabled_var = tk.BooleanVar(value=self.config.sounds.enabled)
         ttk.Checkbutton(
             frame, text="Signal sonore au début et à la fin",
             variable=self.sounds_enabled_var,
-        ).grid(row=14, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=17, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         volume_row = ttk.Frame(frame)
-        volume_row.grid(row=15, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        volume_row.grid(row=18, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(volume_row, text="Volume").pack(side=tk.LEFT)
         self.volume_var = tk.DoubleVar(value=self.config.sounds.volume * 100)
         ttk.Scale(
@@ -591,8 +622,7 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _build_files_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Fichiers")
+        frame = self._add_tab("fichiers", "Fichiers")
         cfg = self.config.file_transcription
 
         ttk.Label(
@@ -601,50 +631,60 @@ class SettingsWindow:
             foreground="gray",
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
+        self.file_model_var = tk.StringVar(
+            value=self.config.file_transcription.model
+        )
+        self._model_choice(
+            frame, row=1, title="Modèle",
+            variable=self.file_model_var,
+            models=list_available_models(USAGE_FILES),
+            note="Seuls ces modèles indiquent à quel moment chaque phrase est dite.",
+        )
+
         ttk.Label(frame, text="Dossier des transcriptions", font=("", 12, "bold")).grid(
-            row=1, column=0, columnspan=2, sticky="w"
+            row=4, column=0, columnspan=2, sticky="w"
         )
         self.output_dir_var = tk.StringVar(value=cfg.output_dir)
         ttk.Entry(frame, textvariable=self.output_dir_var, width=38).grid(
-            row=2, column=0, sticky="w", pady=(4, 0)
+            row=5, column=0, sticky="w", pady=(4, 0)
         )
         ttk.Button(frame, text="Choisir…", command=self._pick_output_dir).grid(
-            row=2, column=1, sticky="w", padx=(8, 0), pady=(4, 0)
+            row=5, column=1, sticky="w", padx=(8, 0), pady=(4, 0)
         )
         ttk.Button(frame, text="Ouvrir", command=self._open_output_dir).grid(
-            row=3, column=1, sticky="w", padx=(8, 0), pady=(4, 14)
+            row=6, column=1, sticky="w", padx=(8, 0), pady=(4, 14)
         )
 
         self.timestamps_var = tk.BooleanVar(value=cfg.include_timestamps)
         ttk.Checkbutton(
             frame, text="Indiquer l'heure de chaque paragraphe — [00:12:34]",
             variable=self.timestamps_var,
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
         ttk.Label(
             frame,
             text="Pratique pour retrouver un passage dans un long enregistrement.",
             foreground="gray",
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
         self.diarization_var = tk.BooleanVar(value=cfg.diarization)
         ttk.Checkbutton(
             frame,
             text="Identifier qui parle — « Locuteur 1 : … »",
             variable=self.diarization_var,
-            command=self._update_diarization_note,
-        ).grid(row=6, column=0, columnspan=2, sticky="w")
+            command=lambda: (self._update_diarization_note(), self._render_storage()),
+        ).grid(row=9, column=0, columnspan=2, sticky="w")
         self.diarization_note = ttk.Label(frame, foreground="gray", justify=tk.LEFT)
         self.diarization_note.grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(0, 14)
+            row=10, column=0, columnspan=2, sticky="w", pady=(0, 14)
         )
         self._update_diarization_note()
 
         ttk.Label(frame, text="Refuser les fichiers de plus de").grid(
-            row=8, column=0, sticky="w"
+            row=11, column=0, sticky="w"
         )
         self.file_max_hours_var = tk.DoubleVar(value=cfg.max_duration_s / 3600.0)
         limit_row = ttk.Frame(frame)
-        limit_row.grid(row=9, column=0, sticky="w", pady=(4, 0))
+        limit_row.grid(row=12, column=0, sticky="w", pady=(4, 0))
         ttk.Spinbox(
             limit_row, from_=0.5, to=12.0, increment=0.5,
             textvariable=self.file_max_hours_var, width=6,
@@ -654,7 +694,7 @@ class SettingsWindow:
             frame,
             text="Garde-fou : évite de lancer un long traitement par erreur.",
             foreground="gray",
-        ).grid(row=10, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
     def _update_diarization_note(self) -> None:
         """Dit ce que coûte l'option, et ce qui manque le cas échéant.
@@ -702,38 +742,10 @@ class SettingsWindow:
         subprocess.Popen(["open", str(target)])
 
     # ------------------------------------------------------------------
-    # Onglet Modèles — choix + place occupée, au même endroit
+    # Choix d'un modèle — le même composant pour la dictée et les fichiers
     # ------------------------------------------------------------------
 
-    def _build_models_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Modèles")
-
-        self.model_var = tk.StringVar(value=self.config.model.name)
-        self.file_model_var = tk.StringVar(
-            value=self.config.file_transcription.model
-        )
-
-        row = self._build_model_section(
-            frame, row=0, title="Pour la dictée",
-            variable=self.model_var,
-            models=list_available_models(USAGE_DICTATION),
-        )
-        row = self._build_model_section(
-            frame, row=row, title="Pour les fichiers audio",
-            variable=self.file_model_var,
-            models=list_available_models(USAGE_FILES),
-            note="Seuls ces modèles indiquent à quel moment chaque phrase est dite.",
-        )
-
-        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
-            row=row, column=0, sticky="ew", pady=12
-        )
-        self._storage_frame = ttk.Frame(frame)
-        self._storage_frame.grid(row=row + 1, column=0, sticky="w")
-        self._render_storage()
-
-    def _build_model_section(
+    def _model_choice(
         self,
         parent: tk.Widget,
         row: int,
@@ -741,50 +753,115 @@ class SettingsWindow:
         variable: tk.StringVar,
         models: list[ModelInfo],
         note: str | None = None,
-    ) -> int:
+    ) -> None:
+        """Une liste déroulante de modèles, et sous elle ce qu'il faut savoir
+        du modèle choisi : est-il sur le Mac, combien pèse-t-il, à quoi sert-il.
+
+        Occupe trois rangées de `parent` à partir de `row`. Il y a eu ici une
+        colonne de boutons, un par modèle avec sa description : elle prenait
+        tout un onglet et coupait les descriptions à droite.
+
+        `variable` reste la référence (identifiant du modèle) : la liste la
+        suit et l'alimente, si bien que la remettre à sa valeur d'origine
+        (téléchargement refusé, cf. `_revert_selection`) se voit aussitôt.
+        """
         ttk.Label(parent, text=title, font=("", 12, "bold")).grid(
-            row=row, column=0, sticky="w", pady=(0, 4)
+            row=row, column=0, columnspan=2, sticky="w"
         )
-        row += 1
+        choice = LabelledChoice(
+            parent, [(m.repo_id, m.label) for m in models], variable.get(), width=28
+        ).grid(row=row + 1, column=0, sticky="w", pady=(4, 2))
+        detail = ttk.Label(
+            parent, foreground="gray", justify=tk.LEFT, wraplength=560
+        )
+        detail.grid(row=row + 2, column=0, columnspan=2, sticky="w", pady=(0, 14))
 
-        for m in models:
-            downloaded = is_downloaded(m.repo_id)
-            mark = "✓ sur ton Mac" if downloaded else f"⤓ {m.size_gb:.1f} Go à télécharger"
-            ttk.Radiobutton(
-                parent,
-                text=f"{m.label}   —   {mark}\n     {m.description}",
-                variable=variable,
-                value=m.repo_id,
-                command=self._render_storage,
-            ).grid(row=row, column=0, sticky="w", pady=2)
-            row += 1
+        def describe(*_args: object) -> None:
+            choice.set_code(variable.get())
+            model = find_model(variable.get())
+            if model is None:
+                text = ""
+            else:
+                state = (
+                    f"✓ Sur ton Mac ({model.size_gb:.1f} Go)."
+                    if is_downloaded(model.repo_id)
+                    else f"⤓ {model.size_gb:.1f} Go à télécharger."
+                )
+                text = f"{state} {model.description}"
+            if note:
+                text = f"{text}\n{note}" if text else note
+            detail.configure(text=text)
+            self._render_storage()
 
-        if note:
-            ttk.Label(parent, text=note, foreground="gray").grid(
-                row=row, column=0, sticky="w", pady=(0, 12)
-            )
-            row += 1
-        return row
+        choice.widget.bind(
+            "<<ComboboxSelected>>", lambda _e: variable.set(choice.get_code())
+        )
+        variable.trace_add("write", describe)
+        describe()
+
+    # ------------------------------------------------------------------
+    # Onglet Stockage — la place prise par les modèles. Aucun choix ici :
+    # chaque mode choisit son modèle dans son propre onglet.
+    # ------------------------------------------------------------------
+
+    def _build_storage_tab(self) -> None:
+        frame = self._add_tab("stockage", "Stockage")
+        ttk.Label(
+            frame,
+            text="Les modèles téléchargés sur ton Mac, et ce à quoi chacun sert.\n"
+                 "Ils se choisissent dans les onglets Dictée, Fichiers et Lecture.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
+        self._storage_frame = ttk.Frame(frame)
+        self._storage_frame.grid(row=1, column=0, sticky="w")
+
+    def _model_roles(self) -> dict[str, str]:
+        """Ce à quoi sert chaque modèle en service, d'après l'état ACTUEL de
+        la fenêtre (pas la config enregistrée) : un modèle qu'on vient de
+        désélectionner devient supprimable sans fermer ni rouvrir."""
+        from transcriber import WHISPER_TRANSLATE_REPO
+
+        roles: dict[str, list[str]] = {}
+
+        def add(repo: str, role: str) -> None:
+            if role not in roles.setdefault(repo, []):
+                roles[repo].append(role)
+
+        add(self.model_var.get(), "dictée")
+        add(self.file_model_var.get(), "fichiers")
+        add(WHISPER_TRANSLATE_REPO, "traduction")
+        if synthese_pocket.langue_du_code(self.voice.get_code()) is not None:
+            for repo in synthese_pocket.REPOS:
+                add(repo, "lecture")
+        else:
+            add(self.config.synthesis.model, "lecture")
+        if self.speech_detection_var.get():
+            add(speech_detector.REPO, "détection de la parole")
+        if self.diarization_var.get():
+            from diarizer import DEFAULT_MODEL as DIARIZATION_REPO
+
+            add(DIARIZATION_REPO, "identification des locuteurs")
+        return {repo: ", ".join(r) for repo, r in roles.items()}
 
     def _render_storage(self) -> None:
-        """(Re)dessine le bloc « place occupée ».
+        """(Re)dessine la liste des modèles sur le disque.
 
-        Rappelé à chaque changement de sélection : un modèle qu'on vient de
-        désélectionner devient supprimable immédiatement, sans avoir à fermer
-        et rouvrir la fenêtre.
+        Rappelé à chaque changement de modèle, de voix ou d'option : la
+        colonne « sert à » et les boutons Supprimer suivent tout de suite.
         """
-        frame = self._storage_frame
+        frame = getattr(self, "_storage_frame", None)
+        # Pendant la construction de la fenêtre, les premiers onglets changent
+        # déjà des réglages alors que les suivants n'existent pas encore.
+        if frame is None or not hasattr(self, "speech_detection_var"):
+            return
         for child in frame.winfo_children():
             child.destroy()
 
         cached = scan_cached_models()
-        in_use = models_in_use(
-            self.model_var.get(),
-            self.file_model_var.get(),
-            diarization=bool(self.diarization_var.get()),
-            synthesis_repo=self.config.synthesis.model,
-            speech_detection=self.config.recording.speech_detection,
-        )
+        roles = self._model_roles()
+        # En service d'abord : ce qu'on peut supprimer se lit en bas.
+        cached.sort(key=lambda c: (c.repo_id not in roles, -c.size_bytes))
         total = sum(c.size_bytes for c in cached)
 
         ttk.Label(
@@ -800,32 +877,32 @@ class SettingsWindow:
             return
 
         for i, entry in enumerate(cached, start=1):
-            used = entry.repo_id in in_use
+            role = roles.get(entry.repo_id)
             ttk.Label(frame, text=entry.size_str, width=9).grid(
                 row=i, column=0, sticky="e", padx=(0, 10), pady=1
             )
-            ttk.Label(
-                frame, text=entry.label + ("   (en service)" if used else "")
-            ).grid(row=i, column=1, sticky="w", pady=1)
+            label = EXTRA_MODEL_LABELS.get(entry.repo_id, entry.label)
+            ttk.Label(frame, text=label).grid(row=i, column=1, sticky="w", pady=1)
 
-            if used:
-                ttk.Label(frame, text="", width=10).grid(row=i, column=2)
+            if role:
+                ttk.Label(frame, text=f"sert à : {role}", foreground="gray").grid(
+                    row=i, column=2, sticky="w", padx=(15, 0)
+                )
             else:
                 ttk.Button(
                     frame, text="Supprimer", width=10,
                     command=lambda e=entry: self._delete_model(e),
-                ).grid(row=i, column=2, padx=(15, 0))
+                ).grid(row=i, column=2, sticky="w", padx=(15, 0))
 
         ttk.Label(
             frame,
             text=(
-                "Un modèle « en service » sert à la dictée, aux fichiers, à la\n"
-                "traduction ou à la lecture. Supprimer les autres est sans\n"
-                "risque : ils se re-téléchargent si tu les resélectionnes."
+                "Un modèle qui ne sert à rien peut être supprimé sans risque : il\n"
+                "se re-télécharge si tu le choisis de nouveau."
             ),
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=len(cached) + 1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ).grid(row=len(cached) + 1, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     def _delete_model(self, entry) -> None:  # noqa: ANN001
         if not messagebox.askyesno(
@@ -843,12 +920,11 @@ class SettingsWindow:
         self._render_storage()
 
     # ------------------------------------------------------------------
-    # Onglet Avancé
+    # Onglet Réglages fins — ce dont personne n'a besoin au quotidien
     # ------------------------------------------------------------------
 
     def _build_advanced_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Avancé")
+        frame = self._add_tab("fins", "Réglages fins")
 
         ttk.Label(
             frame,
@@ -856,55 +932,58 @@ class SettingsWindow:
                  "des cas. À ne toucher qu'en cas de souci précis.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
+        ttk.Label(frame, text="Dictée", font=("", 12, "bold")).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
         ttk.Label(frame, text="Fin de phrase conservée (millisecondes) :").grid(
-            row=1, column=0, sticky="w"
+            row=2, column=0, sticky="w"
         )
         self.tail_var = tk.IntVar(value=self.config.recording.tail_padding_ms)
         ttk.Spinbox(
             frame, from_=0, to=1500, increment=50,
             textvariable=self.tail_var, width=8,
-        ).grid(row=1, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=2, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
             text="On continue d'enregistrer ce délai après que tu as relâché la\n"
                  "touche. Augmente si tes fins de phrase sont encore coupées.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         ttk.Label(frame, text="Durée maximale d'une dictée (secondes) :").grid(
-            row=3, column=0, sticky="w"
+            row=4, column=0, sticky="w"
         )
         self.max_rec_var = tk.IntVar(value=self.config.recording.max_duration_s)
         ttk.Spinbox(
             frame, from_=30, to=1800, increment=30,
             textvariable=self.max_rec_var, width=8,
-        ).grid(row=3, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=4, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
             text="Coupe-circuit si le relâchement de touche n'est jamais reçu.\n"
                  "L'audio est conservé dans ~/.voxtral/recordings/.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         ttk.Label(frame, text="Longueur minimale garantie du texte (jetons) :").grid(
-            row=5, column=0, sticky="w"
+            row=6, column=0, sticky="w"
         )
         self.tokens_var = tk.IntVar(value=self.config.transcription.max_new_tokens)
         ttk.Spinbox(
             frame, from_=128, to=4096, increment=128,
             textvariable=self.tokens_var, width=8,
-        ).grid(row=5, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=6, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
             text="1024 ≈ 5 minutes de texte. Au-delà, la limite est relevée\n"
                  "automatiquement selon la durée de l'audio.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         self.speech_detection_var = tk.BooleanVar(
             value=self.config.recording.speech_detection
@@ -913,22 +992,23 @@ class SettingsWindow:
             frame,
             text="Détecter la parole avant de transcrire (recommandé)",
             variable=self.speech_detection_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w")
+            command=self._render_storage,
+        ).grid(row=8, column=0, columnspan=2, sticky="w")
         ttk.Label(
             frame,
             text="Un petit modèle vérifie qu'il y a bien une voix : un bruit n'est\n"
                  "plus pris pour une dictée, une phrase chuchotée n'est plus jetée.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 2))
+        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(2, 0))
         self._detector_status = ttk.Label(frame, foreground="gray", justify=tk.LEFT)
         self._detector_status.grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(0, 14)
+            row=10, column=0, columnspan=2, sticky="w", pady=(0, 14)
         )
         self._render_detector_status()
 
         ttk.Label(frame, text="Seuil de silence (dBFS) :").grid(
-            row=10, column=0, sticky="w"
+            row=11, column=0, sticky="w"
         )
         self.silence_var = tk.IntVar(
             value=int(round(self.config.recording.silence_threshold_dbfs))
@@ -936,18 +1016,17 @@ class SettingsWindow:
         ttk.Spinbox(
             frame, from_=-120, to=0, increment=5,
             textvariable=self.silence_var, width=8,
-        ).grid(row=10, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=11, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="Sert quand la détection de parole est décochée ou pas encore\n"
-                 "téléchargée : une dictée qui reste sous ce niveau est jetée\n"
-                 "(le modèle inventerait « Merci. »). -120 désactive le filtre.",
+            text="Secours quand la détection de parole est décochée ou pas encore\n"
+                 "là : une dictée sous ce niveau est jetée. -120 désactive le filtre.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=12, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         ttk.Label(frame, text="Délai avant de rendre le presse-papier (ms) :").grid(
-            row=12, column=0, sticky="w"
+            row=13, column=0, sticky="w"
         )
         self.clipboard_delay_var = tk.IntVar(
             value=self.config.ui.clipboard_restore_delay_ms
@@ -955,30 +1034,31 @@ class SettingsWindow:
         ttk.Spinbox(
             frame, from_=0, to=2000, increment=100,
             textvariable=self.clipboard_delay_var, width=8,
-        ).grid(row=12, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=13, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="Après le collage, ce que tu avais copié avant est remis dans\n"
-                 "le presse-papier. Monte à 800-1000 si une application lente\n"
-                 "(bureau distant, Electron) colle l'ancien contenu.",
+            text="Ce que tu avais copié avant est remis dans le presse-papier après\n"
+                 "le collage. Monte à 800-1000 si une app lente colle l'ancien contenu.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=14, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
+        ttk.Label(frame, text="Général", font=("", 12, "bold")).grid(
+            row=15, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
         self.autocheck_var = tk.BooleanVar(value=self.config.updates.auto_check)
         ttk.Checkbutton(
             frame, text="Vérifier les mises à jour au démarrage",
             variable=self.autocheck_var,
-        ).grid(row=14, column=0, columnspan=2, sticky="w")
+        ).grid(row=16, column=0, columnspan=2, sticky="w")
 
     def _render_detector_status(self) -> None:
         """Où en est le modèle de détection (2 Mo, téléchargé tout seul)."""
         if is_downloaded(speech_detector.REPO):
             text = "Modèle de détection : ✓ sur ton Mac."
         else:
-            text = ("Modèle de détection : il se télécharge tout seul (2 Mo) au "
-                    "prochain lancement\nde l'app. D'ici là, le seuil ci-dessous "
-                    "fait le travail.")
+            text = ("Modèle de détection : téléchargé tout seul (2 Mo) au prochain "
+                    "lancement.")
         self._detector_status.configure(text=text)
 
     # ------------------------------------------------------------------
@@ -986,32 +1066,48 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _build_speech_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Lecture")
+        frame = self._add_tab("lecture", "Lecture")
 
-        ttk.Label(frame, text="Lire le texte copié", font=("", 12, "bold")).grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 4)
-        )
         ttk.Label(
             frame,
             text="Copie un texte (Cmd+C), puis menu 🎤 → « Lire le texte copié » :\n"
                  "il est lu au haut-parleur, sur ton Mac, avec la voix choisie ici.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
-        ttk.Label(frame, text="Voix :").grid(row=2, column=0, sticky="w")
+        # La voix EST le choix du modèle de lecture : chaque voix appartient à
+        # un moteur (Pocket ou Voxtral). On le dit sous la liste, plutôt que
+        # de demander de choisir un modèle puis une voix.
+        ttk.Label(frame, text="Voix", font=("", 12, "bold")).grid(
+            row=1, column=0, columnspan=2, sticky="w"
+        )
         self.voice = LabelledChoice(
-            frame, self._voice_options(), self.config.synthesis.voice, width=32
-        ).grid(row=2, column=1, sticky="w", padx=(10, 0))
+            frame, self._voice_options(), self._current_voice_code(), width=40
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 2))
+        self.voice.widget.bind(
+            "<<ComboboxSelected>>", lambda _e: self._on_voice_changed()
+        )
+        self._voice_status = ttk.Label(
+            frame, foreground="gray", justify=tk.LEFT, wraplength=560
+        )
+        self._voice_status.grid(row=3, column=0, columnspan=2, sticky="w")
+        self._speech_download_btn = ttk.Button(
+            frame, text="Télécharger maintenant…", command=self._download_speech_model
+        )
+        self._speech_download_btn.grid(row=4, column=0, sticky="w", pady=(6, 0))
         ttk.Label(
             frame,
-            text="Les deux voix françaises sont en tête de liste. Les autres\n"
-                 "lisent le français avec l'accent de leur langue.",
+            text="En tête de liste, la voix Pocket : le son part presque aussitôt.\n"
+                 "Puis les voix Voxtral, françaises d'abord ; les autres lisent le\n"
+                 "français avec l'accent de leur langue.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 10))
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 14))
 
+        ttk.Label(frame, text="Diction", font=("", 12, "bold")).grid(
+            row=6, column=0, columnspan=2, sticky="w"
+        )
         self.spell_numbers_var = tk.BooleanVar(
             value=self.config.synthesis.spell_numbers
         )
@@ -1019,44 +1115,50 @@ class SettingsWindow:
             frame,
             text="Lire les nombres en toutes lettres (recommandé)",
             variable=self.spell_numbers_var,
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(
             frame,
             text="Les voix butent sur les chiffres : « 14h30 » est dit « quatorze\n"
-                 "heures trente », « 3500 € » « trois mille cinq cents euros ».",
+                 "heures trente », « 3500 € » « trois mille cinq cents euros ».\n"
+                 "Pour un mot mal prononcé, vois l'onglet Mes mots.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 10))
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        ttk.Label(frame, text="Prononciations").grid(
-            row=6, column=0, columnspan=2, sticky="w"
-        )
-        self.pronunciations_text = tk.Text(frame, height=4, width=60, wrap="none")
-        self.pronunciations_text.grid(row=7, column=0, columnspan=2, sticky="ew")
-        self.pronunciations_text.insert(
-            "1.0", lexique.formater_corrections(self.config.synthesis.pronunciations)
-        )
-        ttk.Label(
-            frame,
-            text="Un mot mal dit ? Une ligne par mot :  le mot = comment l'écrire\n"
-                 "pour qu'il sonne juste.   Exemple :   Kixit = Kiksit",
-            foreground="gray",
-            justify=tk.LEFT,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 12))
+        self._render_voice_status()
 
-        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
-            row=9, column=0, columnspan=2, sticky="ew", pady=(0, 12)
-        )
-        ttk.Label(frame, text="Modèle de lecture", font=("", 12, "bold")).grid(
-            row=10, column=0, columnspan=2, sticky="w", pady=(0, 4)
-        )
-        self._speech_status = ttk.Label(frame, justify=tk.LEFT)
-        self._speech_status.grid(row=11, column=0, columnspan=2, sticky="w")
-        self._speech_download_btn = ttk.Button(
-            frame, text="Télécharger maintenant…", command=self._download_speech_model
-        )
-        self._speech_download_btn.grid(row=12, column=0, sticky="w", pady=(8, 0))
-        self._render_speech_model()
+    def _on_voice_changed(self) -> None:
+        self._render_voice_status()
+        self._render_storage()
+
+    def _render_voice_status(self) -> None:
+        """Ce qu'il faut savoir de la voix CHOISIE : son moteur, s'il est sur
+        le Mac, combien il pèse. Suit la liste, pas la config enregistrée."""
+        langue = synthese_pocket.langue_du_code(self.voice.get_code())
+        can_download = False
+        if langue is not None:
+            taille = synthese_pocket.taille_go(langue)
+            if not synthese_pocket.bibliotheque_presente():
+                text = ("Voix Pocket — composant absent de ce Mac. Relance "
+                        "l'installation de Voxtral Dictée pour l'obtenir.")
+            elif synthese_pocket.est_en_cache(langue):
+                text = f"Voix Pocket — ✓ sur ton Mac ({taille:.1f} Go)."
+            else:
+                text = (f"Voix Pocket — ⤓ {taille:.1f} Go, proposés au "
+                        f"téléchargement à la première lecture.")
+        else:
+            repo = self.config.synthesis.model
+            model = find_model(repo)
+            label = model.label if model is not None else repo
+            size = f"{model.size_gb:.1f} Go" if model is not None else "?"
+            if is_downloaded(repo):
+                text = f"Voix du modèle {label} — ✓ sur ton Mac ({size})."
+            else:
+                text = (f"Voix du modèle {label} — ⤓ {size} à télécharger, "
+                        f"maintenant ou à la première lecture.")
+                can_download = model is not None
+        self._voice_status.configure(text=text)
+        self._speech_download_btn.state(["!disabled" if can_download else "disabled"])
 
     def _voice_options(self) -> list[tuple[str, str]]:
         """Les voix à proposer : nos libellés, restreints aux voix que le
@@ -1065,24 +1167,16 @@ class SettingsWindow:
         connues = voix_disponibles(self.config.synthesis.model)
         options = [(code, label) for code, label in LIBELLES_VOIX if code in connues]
         options += [(v, libelle_voix(v)) for v in connues if v not in dict(options)]
-        return options or list(LIBELLES_VOIX)
+        # Les voix Pocket (autre moteur, cf. synthese_pocket.py) en tête : leur
+        # code porte le préfixe « pocket: », c'est ce qui les distingue.
+        return synthese_pocket.libelles() + (options or list(LIBELLES_VOIX))
 
-    def _render_speech_model(self) -> None:
-        repo = self.config.synthesis.model
-        model = find_model(repo)
-        label = model.label if model is not None else repo
-        size = f"{model.size_gb:.1f} Go" if model is not None else "?"
-        if is_downloaded(repo):
-            self._speech_status.configure(
-                text=f"{label}   —   ✓ sur ton Mac ({size})"
-            )
-            self._speech_download_btn.state(["disabled"])
-        else:
-            self._speech_status.configure(
-                text=f"{label}   —   ⤓ {size} à télécharger\n"
-                     f"Sans lui, la première lecture proposera de le télécharger."
-            )
-            self._speech_download_btn.state(["!disabled"])
+    def _current_voice_code(self) -> str:
+        """Le code de la voix en service : voix Voxtral, ou voix Pocket."""
+        syn = self.config.synthesis
+        if syn.engine == synthese_pocket.ENGINE:
+            return synthese_pocket.code_voix(syn.pocket_language)
+        return syn.voice
 
     def _download_speech_model(self) -> None:
         model = find_model(self.config.synthesis.model)
@@ -1094,7 +1188,7 @@ class SettingsWindow:
                 "Téléchargement échoué",
                 f"{dialog.error}\n\nVérifie ta connexion internet.",
             )
-        self._render_speech_model()
+        self._render_voice_status()
         self._render_storage()
 
     # ------------------------------------------------------------------
@@ -1102,45 +1196,40 @@ class SettingsWindow:
     # ------------------------------------------------------------------
 
     def _build_lexicon_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="Mes mots")
+        frame = self._add_tab("mots", "Mes mots")
         frame.columnconfigure(0, weight=1)
         lex = self.config.lexicon
 
-        ttk.Label(frame, text="Corrections automatiques", font=("", 12, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 4)
-        )
+        ttk.Label(
+            frame, text="Ce que l'app écrit — corrections", font=("", 12, "bold")
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
         ttk.Label(
             frame,
-            text="Un nom ou un sigle revient toujours mal écrit ? Note-le ici, une\n"
-                 "correction par ligne :  ce que l'app écrit = ce que tu veux.\n"
-                 "Appliqué à chaque dictée et aux fichiers, avec tous les modèles.",
+            text="Un nom ou un sigle revient mal écrit ? Une correction par ligne :\n"
+                 "ce que l'app écrit = ce que tu veux.  Dictée et fichiers, tous modèles.",
             foreground="gray",
             justify=tk.LEFT,
         ).grid(row=1, column=0, sticky="w", pady=(0, 6))
-        self.corrections_text = tk.Text(frame, height=6, width=60, wrap="none")
+        self.corrections_text = tk.Text(frame, height=5, width=60, wrap="none")
         self.corrections_text.grid(row=2, column=0, sticky="ew")
         self.corrections_text.insert("1.0", lexique.formater_corrections(lex.corrections))
         ttk.Label(
             frame,
             text="Exemples :   KickSit = Kixit        la TV a = la TVA",
             foreground="gray",
-        ).grid(row=3, column=0, sticky="w", pady=(4, 14))
+        ).grid(row=3, column=0, sticky="w", pady=(4, 12))
 
-        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
-            row=4, column=0, sticky="ew", pady=(0, 12)
-        )
-        ttk.Label(frame, text="Mots à souffler au modèle", font=("", 12, "bold")).grid(
-            row=5, column=0, sticky="w", pady=(0, 4)
-        )
+        ttk.Label(
+            frame, text="Ce que l'app écrit — mots à souffler", font=("", 12, "bold")
+        ).grid(row=5, column=0, sticky="w", pady=(0, 4))
         ttk.Label(
             frame,
-            text="Noms de clients, sigles, noms de lieux, séparés par des virgules.\n"
-                 "Le modèle les reçoit avant de transcrire et les écrit plus souvent juste.",
+            text="Noms de clients, sigles, lieux, séparés par des virgules : le modèle\n"
+                 "les reçoit avant de transcrire et les écrit plus souvent juste.",
             foreground="gray",
             justify=tk.LEFT,
         ).grid(row=6, column=0, sticky="w", pady=(0, 6))
-        self.words_text = tk.Text(frame, height=3, width=60, wrap="word")
+        self.words_text = tk.Text(frame, height=2, width=60, wrap="word")
         self.words_text.grid(row=7, column=0, sticky="ew")
         self.words_text.insert("1.0", ", ".join(lex.words))
 
@@ -1149,23 +1238,37 @@ class SettingsWindow:
             frame,
             text="Souffler ces mots pendant la dictée (expérimental)",
             variable=self.prompt_words_var,
-        ).grid(row=8, column=0, sticky="w", pady=(10, 2))
+        ).grid(row=8, column=0, sticky="w", pady=(8, 2))
         ttk.Label(
             frame,
-            text="Ne fonctionne qu'avec les modèles Whisper. À l'essai : si tes dictées\n"
-                 "perdent des phrases ou se mettent à résumer, décoche cette case.\n"
-                 "Les corrections du haut, elles, sont sans risque.",
+            text="Modèles Whisper seulement. À l'essai : si tes dictées perdent des\n"
+                 "phrases, décoche. Les corrections du haut, elles, sont sans risque.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=9, column=0, sticky="w")
+        ).grid(row=9, column=0, sticky="w", pady=(0, 12))
+
+        ttk.Label(
+            frame, text="Ce que l'app dit — prononciations", font=("", 12, "bold")
+        ).grid(row=10, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(
+            frame,
+            text="Un mot mal dit à la lecture ? Une ligne par mot :\n"
+                 "le mot = comment l'écrire pour qu'il sonne juste.   Exemple :  Kixit = Kiksit",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=11, column=0, sticky="w", pady=(0, 6))
+        self.pronunciations_text = tk.Text(frame, height=4, width=60, wrap="none")
+        self.pronunciations_text.grid(row=12, column=0, sticky="ew")
+        self.pronunciations_text.insert(
+            "1.0", lexique.formater_corrections(self.config.synthesis.pronunciations)
+        )
 
     # ------------------------------------------------------------------
     # Onglet À propos
     # ------------------------------------------------------------------
 
     def _build_about_tab(self) -> None:
-        frame = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(frame, text="À propos")
+        frame = self._add_tab("apropos", "À propos")
 
         ttk.Label(frame, text="Voxtral Dictée", font=("", 16, "bold")).pack(
             anchor="w"
@@ -1215,7 +1318,7 @@ class SettingsWindow:
                 f"{error}\n\nExemples valides : alt+space, cmd+shift+h, f13, "
                 f"ou une seule touche tenue.",
             )
-            self.notebook.select(0)
+            self._show_tab("dictee")
             return
 
         # Proposer le téléchargement AVANT d'enregistrer : découvrir au premier
@@ -1237,9 +1340,9 @@ class SettingsWindow:
             messagebox.showerror(
                 "Réglage invalide",
                 "Un champ numérique est vide ou mal rempli (onglets Fichiers "
-                "ou Avancé). Corrige-le, ou remets la valeur d'origine.",
+                "ou Réglages fins). Corrige-le, ou remets la valeur d'origine.",
             )
-            self.notebook.select(3)
+            self._show_tab("fins")
             return
         save_config(cfg)
         self.config = cfg
@@ -1273,7 +1376,16 @@ class SettingsWindow:
         cfg.file_transcription.max_duration_s = int(
             float(self.file_max_hours_var.get()) * 3600
         )
-        cfg.synthesis.voice = self.voice.get_code()
+        # Une seule liste pour deux moteurs : une voix Pocket fixe le moteur
+        # et sa taille, sans toucher à la voix Voxtral mémorisée.
+        voix = self.voice.get_code()
+        langue = synthese_pocket.langue_du_code(voix)
+        if langue is not None:
+            cfg.synthesis.engine = synthese_pocket.ENGINE
+            cfg.synthesis.pocket_language = langue
+        else:
+            cfg.synthesis.engine = "voxtral"
+            cfg.synthesis.voice = voix
         cfg.synthesis.spell_numbers = bool(self.spell_numbers_var.get())
         cfg.synthesis.pronunciations = lexique.analyser_corrections(
             self.pronunciations_text.get("1.0", tk.END)
@@ -1341,15 +1453,15 @@ class SettingsWindow:
         )
         if which == SELECTION_MODEL:
             self.model_var.set(self.config.model.name)
-            tab = 2  # Modèles
+            tab = "dictee"
         elif which == SELECTION_FILE_MODEL:
             self.file_model_var.set(self.config.file_transcription.model)
-            tab = 2
+            tab = "fichiers"
         else:
             self.task_var.set(self.config.transcription.task)
-            tab = 0  # Dictée, où vit le choix transcription / traduction
+            tab = "dictee"  # où vit le choix transcription / traduction
         self._render_storage()
-        self.notebook.select(tab)
+        self._show_tab(tab)
 
 
 def main() -> None:

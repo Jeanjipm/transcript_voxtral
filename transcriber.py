@@ -95,7 +95,7 @@ class TranscriptionResult:
 #   1. fallback quand mlx-voxtral est introuvable (paquet MLX absent)
 #   2. délégation de traduction depuis Voxtral (mlx-voxtral 0.0.4 ne
 #      supporte pas task="translate")
-#   3. choix explicite utilisateur dans Préférences → Modèle
+#   3. choix explicite utilisateur dans Préférences → Dictée
 # On prend le large-v3 non-distillé (≠ turbo) car turbo est distillé pour
 # la transcription uniquement et retourne la langue source au lieu
 # d'anglais pour task="translate".

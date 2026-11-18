@@ -46,7 +46,7 @@ ui:
   # quand l'application a fini de lire le presse-papier : on ne peut
   # qu'attendre. Si une app lente (bureau distant, Electron, machine
   # virtuelle) colle l'ANCIEN contenu au lieu de ta dictée, monte à 800 ou
-  # 1000. Réglable aussi dans Préférences → Avancé.
+  # 1000. Réglable aussi dans Préférences → Réglages fins.
   clipboard_restore_delay_ms: 300
 
 updates:
@@ -162,6 +162,15 @@ synthesis:
   # Réglable dans Préférences → Lecture, où les 20 voix du modèle sont
   # listées avec leur langue.
   voice: "fr_female"
+  # Moteur de lecture. "voxtral" : le modèle et la voix ci-dessus. "pocket" :
+  # Pocket TTS (Kyutai), dont le son part presque aussitôt, et la voix
+  # française « Estelle ». Le plus simple est de choisir la voix dans
+  # Préférences → Lecture : les voix Pocket y sont en tête de liste.
+  engine: "voxtral"
+  # Taille de la voix Pocket : "french_24l" (naturelle, 0,7 Go, recommandée)
+  # ou "french" (légère et plus rapide, 0,2 Go). Téléchargée à la première
+  # lecture, après confirmation.
+  pocket_language: "french_24l"
   # Les voix lisent mal les chiffres : avant la lecture, les nombres sont
   # écrits en toutes lettres (« 14h30 » → « quatorze heures trente »,
   # « 3500 € » → « trois mille cinq cents euros »). Mets false pour lire le

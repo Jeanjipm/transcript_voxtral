@@ -111,8 +111,22 @@ Le chemin inverse de la dictée. Copie un texte (Cmd+C), puis clique l'icône
 🎤 → **Lire le texte copié** : il est lu au haut-parleur, sur ton Mac, avec
 le modèle de synthèse vocale [Voxtral 4B TTS](https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit)
 (2,5 Go). Il se télécharge à la première lecture, après confirmation — rien
-ne part en silence. La voix se choisit dans **Préférences → Lecture** ; deux
-voix françaises (femme, homme) sont en tête de liste.
+ne part en silence. La voix se choisit dans **Préférences → Lecture**.
+
+Deux moteurs de voix, dans la même liste :
+
+- **Pocket** (voix française « Estelle », de [Kyutai](https://github.com/kyutai-labs/pocket-tts)),
+  en tête de liste : le son part presque aussitôt, parce qu'il est produit
+  pendant qu'il est joué. Deux tailles : la *voix naturelle* (0,7 Go,
+  recommandée) et la *version légère* (0,2 Go, pour un Mac plus ancien).
+  Téléchargée à la première lecture, après confirmation.
+- **Voxtral** (20 voix, dont deux françaises) : le moteur d'origine, qui
+  reste celui par défaut tant que tu n'as pas choisi une voix Pocket.
+
+La voix Pocket demande un composant ajouté le 18 novembre 2026. Sur une
+installation plus ancienne, Préférences → Lecture indique « composant
+absent » : après la mise à jour du code, une seule commande l'installe —
+`~/.voxtral/venv/bin/pip install -r ~/.voxtral/app/requirements.lock`.
 
 Le texte est lu **phrase par phrase** : le son démarre dès que la première
 phrase est prête, pendant que les suivantes se fabriquent. Un article entier
@@ -131,25 +145,53 @@ les phrases du cahier de révisions CE1 et les publie (cf. CLI utiles).
 
 Clique l'icône 🎤 → **Préférences…**
 
-Onglets :
-- **Dictée** : le raccourci, la langue, ce qui se passe avec le texte
-  (collé au curseur ou seulement copié), et les sons — avec un bouton
-  « Écouter » pour régler le volume sans deviner.
+Les trois premiers onglets sont les trois modes de l'app, dans l'ordre ;
+chacun contient son modèle et ses réglages.
+
+- **Dictée** : le raccourci, la langue, **le modèle de dictée**, ce qui se
+  passe avec le texte (collé au curseur ou seulement copié), et les sons —
+  avec un bouton « Écouter » pour régler le volume sans deviner.
 
   Le raccourci ne se tape pas, il s'enregistre : clique **Modifier…**, puis
   appuie sur la touche (ou la combinaison) que tu veux, et relâche. Échap
   annule, « Par défaut » revient à ⌥ Option droite. La dictée est en pause
   tant que la fenêtre de préférences est ouverte — sinon appuyer sur une
   touche pour l'enregistrer déclencherait un enregistrement micro.
-- **Fichiers** : dossier de destination des `.txt`, horodatage des
-  paragraphes, durée maximale acceptée.
-- **Modèles** : quel modèle pour la dictée, lequel pour les fichiers, et la
-  place que chacun occupe sur le disque — avec un bouton pour supprimer
-  ceux qui ne servent plus. Choisir un modèle absent propose son
-  téléchargement immédiat, avec une barre de progression.
-- **Avancé** : réglages fins (fin de phrase conservée, durée maximale d'une
-  dictée, longueur du texte, détection de la parole, seuil de silence, délai
-  avant de rendre le presse-papier, vérification des mises à jour).
+
+  Le modèle se choisit dans une liste ; sous elle, une ligne dit s'il est
+  déjà sur ton Mac, ce qu'il pèse et à quoi il convient. Choisir un modèle
+  absent propose son téléchargement, avec une barre de progression.
+- **Fichiers** : **le modèle des fichiers**, le dossier de destination des
+  `.txt`, l'horodatage des paragraphes, l'identification des locuteurs, la
+  durée maximale acceptée.
+- **Lecture** : **la voix** qui lit le texte copié. C'est elle qui détermine
+  le modèle de lecture (Pocket ou Voxtral) ; sous la liste, une ligne dit si
+  la voix choisie est sur ton Mac et ce qu'elle pèse. Et une aide à la
+  diction, *Lire les nombres en toutes lettres* (coché par défaut) : les
+  voix butent sur les chiffres. « 14h30 » est dit « quatorze heures trente »,
+  « 3500 € » « trois mille cinq cents euros », « 18 % » « dix-huit pour
+  cent », « le 1er » « le premier ».
+- **Mes mots** : ton vocabulaire, pour les noms propres et les sigles.
+  - *Ce que l'app écrit — corrections* : une par ligne, `ce que l'app écrit
+    = ce que tu veux` (`KickSit = Kixit`, `la TV a = la TVA`). Appliquées
+    après chaque dictée et dans les fichiers transcrits, avec tous les
+    modèles, mot entier et sans tenir compte des majuscules. Sans risque :
+    c'est un rechercher-remplacer.
+  - *Ce que l'app écrit — mots à souffler* (expérimental, décoché par
+    défaut) : une liste de noms que Whisper reçoit avant de transcrire, pour
+    les écrire juste du premier coup. Modèles Whisper seulement. Si tes
+    dictées se mettent à perdre des phrases, décoche la case.
+  - *Ce que l'app dit — prononciations* : pour un mot que la voix de lecture
+    écorche, une ligne `le mot = comment l'écrire pour qu'il sonne juste`
+    (`Kixit = Kiksit`).
+- **Stockage** : la place prise par chaque modèle téléchargé et ce à quoi il
+  sert (dictée, fichiers, lecture, traduction, détection de la parole…). Un
+  modèle qui ne sert à rien se supprime d'un clic. Aucun choix ne se fait
+  ici : chaque mode choisit son modèle dans son onglet.
+- **Réglages fins** : ce dont personne n'a besoin au quotidien (fin de
+  phrase conservée, durée maximale d'une dictée, longueur du texte,
+  détection de la parole, seuil de silence, délai avant de rendre le
+  presse-papier, vérification des mises à jour).
 
   **Détecter la parole** (coché par défaut) : avant de transcrire, un petit
   modèle (Silero VAD, 2 Mo, téléchargé tout seul au premier lancement)
@@ -157,26 +199,6 @@ Onglets :
   pris pour une dictée (le modèle inventait alors « Merci. »), et une phrase
   dite bas n'est plus jetée. Tant que ce modèle n'est pas là, et si tu
   décoches la case, c'est le seuil de silence qui décide, comme avant.
-- **Lecture** : la voix qui lit le texte copié (les 20 voix du modèle, avec
-  leur langue), et l'état du modèle de lecture avec un bouton pour le
-  télécharger tout de suite. Deux aides à la diction :
-  - *Lire les nombres en toutes lettres* (coché par défaut) : les voix
-    butent sur les chiffres. « 14h30 » est dit « quatorze heures trente »,
-    « 3500 € » « trois mille cinq cents euros », « 18 % » « dix-huit pour
-    cent », « le 1er » « le premier ».
-  - *Prononciations* : pour un mot que la voix écorche, une ligne
-    `le mot = comment l'écrire pour qu'il sonne juste` (`Kixit = Kiksit`).
-- **Mes mots** : ton lexique personnel, pour les noms propres et les sigles
-  que les modèles écorchent.
-  - *Corrections automatiques* : une par ligne, `ce que l'app écrit = ce que
-    tu veux` (`KickSit = Kixit`, `la TV a = la TVA`). Appliquées après chaque
-    dictée et dans les fichiers transcrits, avec tous les modèles, mot entier
-    et sans tenir compte des majuscules. Sans risque : c'est un
-    rechercher-remplacer.
-  - *Mots à souffler au modèle* (expérimental, décoché par défaut) : une
-    liste de noms que Whisper reçoit avant de transcrire, pour les écrire
-    juste du premier coup. Ne fonctionne qu'avec les modèles Whisper. Si tes
-    dictées se mettent à perdre des phrases, décoche la case.
 - **À propos** : aide-mémoire et lien vers le code source.
 
 Les changements sont appliqués automatiquement en quelques secondes
@@ -221,7 +243,7 @@ voxtral
 | App lente la 1ʳᵉ fois | Modèle MLX se charge en RAM | Normal, quelques secondes à la 1ʳᵉ dictée seulement |
 | Caractères spéciaux (é, ñ) cassés en dictée | Conflit Right Option | Choisir un autre raccourci dans Préférences → Dictée (ex. F13) |
 | Le raccourci ne répond plus (souvent après une veille) | macOS a coupé la surveillance clavier | Menu 🎤 → **Réactiver le raccourci** |
-| Ce qui est collé est l'ANCIEN contenu du presse-papier | Application lente à lire le presse-papier (bureau distant, Electron) | Préférences → Avancé → monter le « délai avant de rendre le presse-papier » à 800–1000 ms |
+| Ce qui est collé est l'ANCIEN contenu du presse-papier | Application lente à lire le presse-papier (bureau distant, Electron) | Préférences → Réglages fins → monter le « délai avant de rendre le presse-papier » à 800–1000 ms |
 | Dictée coupée après 5 minutes, rien de collé | Relâchement du raccourci jamais reçu : coupe-circuit | L'audio est gardé dans `~/.voxtral/recordings/` (30 jours) ; menu 🎤 → Transcrire un fichier audio… |
 | Icône d'alerte, « Son perdu par le micro », rien de collé | Le micro n'a rendu qu'une partie du son (carte son USB qui décroche, hub capricieux) | Répéter la dictée ; si ça revient, vérifier le câble ou brancher le micro directement sur le Mac. L'enregistrement incomplet est gardé dans `~/.voxtral/recordings/` (30 jours) |
 
@@ -291,8 +313,11 @@ Architecture détaillée : [BRIEF-TECHNIQUE.md](BRIEF-TECHNIQUE.md).
 - **Code Voxtral Dictée** : MIT.
 - **Modèle Voxtral Mini 3B** : CC BY-NC 4.0 (usage **non commercial**
   uniquement). Pour un usage commercial, bascule sur Whisper Large V3
-  (MIT) dans Préférences → Modèles.
+  (MIT) dans Préférences → Dictée.
 - **Whisper Large V3** : MIT (OpenAI). Supporte transcription et
   traduction vers l'anglais.
 - **Modèle Voxtral 4B TTS** (lecture à voix haute) : CC BY-NC 4.0 (usage
   **non commercial** uniquement).
+- **Pocket TTS** (lecture à voix haute, Kyutai) : code MIT, poids CC BY 4.0
+  (usage commercial permis, avec attribution). C'est la voix à choisir pour
+  un usage professionnel.

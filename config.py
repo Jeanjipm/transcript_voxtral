@@ -176,6 +176,13 @@ class SynthesisConfig:
     # Nom exact d'une voix du modèle (cf. synthese.LIBELLES_VOIX). Deux voix
     # françaises : fr_female et fr_male.
     voice: str = "fr_female"
+    # Moteur de lecture : "voxtral" (Voxtral TTS, `model` et `voice` ci-dessus)
+    # ou "pocket" (Pocket TTS, cf. synthese_pocket.py). Se choisit avec la
+    # voix, dans Préférences → Lecture.
+    engine: str = "voxtral"
+    # Taille du modèle Pocket français : "french_24l" (voix naturelle, 0,7 Go)
+    # ou "french" (plus léger et plus rapide, 0,2 Go).
+    pocket_language: str = "french_24l"
     # Avant la lecture (cf. oral.py) : nombres écrits en toutes lettres — les
     # voix lisent mal les chiffres — et prononciations de l'utilisateur,
     # « mot écrit » → « façon de l'écrire pour qu'il soit bien dit ».
