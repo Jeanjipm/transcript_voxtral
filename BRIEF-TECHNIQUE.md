@@ -1,6 +1,6 @@
 # Brief technique — Voxtral Dictée
 
-**Version :** 0.6 | **Date :** 18 novembre 2026
+**Version :** 0.7 | **Date :** 18 novembre 2026
 
 Ce document décrit le logiciel **tel qu'il est** après les sprints 6a, 6b et
 6c (cf. `ANALYSE-2026-10-26.md` pour le diagnostic qui les a motivés). Les
@@ -123,19 +123,30 @@ run loop Cocoa de rumps ne cohabitent pas dans un même process). Elle écrit
 (hot-reload) et applique sans redémarrer. Le raccourci global est suspendu
 tant que la fenêtre vit.
 
-Onglets, organisés par tâche et sans code technique affiché :
+Les trois premiers onglets sont les trois modes, dans l'ordre, et chacun
+est complet : son modèle s'y choisit. Aucun code technique n'est affiché.
 
 - **Dictée** : raccourci (capture au clavier), langue, transcription ou
-  traduction, coller ou seulement copier, sons et volume.
-- **Fichiers** : dossier de sortie, horodatage, identification des locuteurs,
-  durée maximale acceptée.
-- **Modèles** : modèle de dictée, modèle fichiers, place occupée par chaque
-  modèle en cache, suppression. Choisir un modèle absent propose son
-  téléchargement avec progression ; refuser rétablit le réglage précédent.
-- **Avancé** : fin de phrase conservée, durée maximale d'une dictée,
-  longueur minimale du texte, seuil de silence, délai avant de rendre le
-  presse-papier, vérification des mises à jour.
+  traduction, modèle de dictée, coller ou seulement copier, sons et volume.
+- **Fichiers** : modèle des fichiers, dossier de sortie, horodatage,
+  identification des locuteurs, durée maximale acceptée.
+- **Lecture** : la voix (qui détermine le moteur, Pocket ou Voxtral), l'état
+  de la voix choisie, nombres en toutes lettres.
+- **Mes mots** : corrections et mots soufflés (ce que l'app écrit),
+  prononciations (ce qu'elle dit).
+- **Stockage** : place occupée par chaque modèle en cache, ce à quoi il sert,
+  suppression de ceux qui ne servent à rien. Aucun choix ici.
+- **Réglages fins** : fin de phrase conservée, durée maximale d'une dictée,
+  longueur minimale du texte, détection de la parole, seuil de silence,
+  délai avant de rendre le presse-papier, vérification des mises à jour.
 - **À propos**.
+
+Un modèle se choisit dans une liste déroulante, avec sous elle son état (sur
+le Mac ou à télécharger), sa taille et son usage. Choisir un modèle absent
+propose son téléchargement avec progression ; refuser rétablit le réglage
+précédent et ramène à l'onglet concerné. Il y a eu un onglet « Modèles » qui
+regroupait les choix de la dictée et des fichiers, mais pas celui de la
+lecture : il séparait les trois modes et a été remplacé par « Stockage ».
 
 Fermer la fenêtre (croix, Cmd+W, bouton « Fermer », **Cmd+Q**) enregistre.
 
@@ -403,7 +414,7 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 - **De l'app** : menu « Mises à jour » (cf. F8), ou à la main :
   `pkill -f voxtral && cd ~/.voxtral/app && git pull`, puis relancer. Si
   `install.sh` ou `requirements.*` ont changé, relancer l'installation.
-- **D'un modèle** : Préférences → Modèles (téléchargement avec progression),
+- **D'un modèle** : Préférences → Dictée, Fichiers ou Lecture (téléchargement avec progression),
   ou `~/.voxtral/venv/bin/python ~/.voxtral/app/download_model.py`.
 
 ## Permissions macOS requises
@@ -438,7 +449,7 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 
 - Code : MIT.
 - Voxtral Mini 3B : CC BY-NC 4.0, usage **non commercial**. Pour un usage
-  commercial, basculer sur Whisper Large V3 (MIT) dans Préférences → Modèles.
+  commercial, basculer sur Whisper Large V3 (MIT) dans Préférences → Dictée.
 - Pocket TTS : code MIT, poids CC BY 4.0 (usage commercial permis, avec
   attribution à Kyutai).
 - Whisper : MIT (OpenAI). Sortformer : voir la carte du modèle sur HuggingFace.
@@ -453,3 +464,4 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 | 0.4 | 17 novembre 2026 | Lecture à voix haute phrase par phrase (démarrage immédiat, arrêt, 20 000 caractères) et lexique personnel (corrections automatiques, mots soufflés à Whisper en option expérimentale) |
 | 0.5 | 18 novembre 2026 | Détection de la parole par Silero VAD avant de transcrire (le seuil de volume reste en secours), nombres en toutes lettres et prononciations avant la lecture à voix haute ; suites du banc `BENCH-VOIX-2026-11.md` |
 | 0.6 | 18 novembre 2026 | Seconde voix de lecture, Pocket TTS : son rendu au fil de la génération, hors inference-worker, poids CC-BY ; dépendance `pocket-tts` ajoutée |
+| 0.7 | 18 novembre 2026 | Préférences réorganisées par mode : Dictée, Fichiers et Lecture se suivent et contiennent chacun leur modèle ; l'onglet « Modèles » devient « Stockage » ; prononciations regroupées dans « Mes mots » ; « Avancé » devient « Réglages fins » |

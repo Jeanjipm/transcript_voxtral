@@ -46,7 +46,7 @@ ui:
   # quand l'application a fini de lire le presse-papier : on ne peut
   # qu'attendre. Si une app lente (bureau distant, Electron, machine
   # virtuelle) colle l'ANCIEN contenu au lieu de ta dictée, monte à 800 ou
-  # 1000. Réglable aussi dans Préférences → Avancé.
+  # 1000. Réglable aussi dans Préférences → Réglages fins.
   clipboard_restore_delay_ms: 300
 
 updates:
