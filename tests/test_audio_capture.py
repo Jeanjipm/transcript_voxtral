@@ -568,3 +568,38 @@ def test_padding_skipped_on_empty_recording(mock_inputstream):
 
     assert _sf.info(str(wav)).frames == 0
     wav.unlink()
+
+
+# ---- Signalements du pilote audio ----
+
+
+def test_driver_status_events_are_logged_at_stop(
+    rec: AudioRecorder, mock_inputstream, capsys
+):
+    """Le pilote signale des échantillons perdus : on le journalise à la fin
+    de la dictée (jamais depuis le thread temps-réel)."""
+    rec.start()
+    chunk = np.ones((10, 1), dtype="int16")
+    rec._on_audio(chunk, 10, None, "input overflow")
+    rec._on_audio(chunk, 10, None, None)
+    rec._on_audio(chunk, 10, None, "input overflow")
+    rec.stop().unlink()
+
+    err = capsys.readouterr().err
+    assert "2 signalement(s) du pilote audio" in err
+    assert "input overflow" in err
+
+
+def test_driver_status_count_resets_between_recordings(
+    rec: AudioRecorder, mock_inputstream, capsys
+):
+    rec.start()
+    rec._on_audio(np.ones((10, 1), dtype="int16"), 10, None, "input overflow")
+    rec.stop().unlink()
+    capsys.readouterr()
+
+    rec.start()
+    rec._on_audio(np.ones((10, 1), dtype="int16"), 10, None, None)
+    rec.stop().unlink()
+
+    assert "signalement" not in capsys.readouterr().err

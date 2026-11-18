@@ -85,6 +85,22 @@ from config import RECORDINGS_DIR
 # d'atteindre le modèle.
 MIN_DICTATION_DURATION_S = 0.5
 
+# Contrôle « dictée trouée » : il ne s'applique qu'aux enregistrements d'au
+# moins cette durée. En dessous, la mesure est trop imprécise (délai de
+# démarrage du flux, arrondis) et produirait de fausses alertes : dans le
+# journal, des dictées saines d'une seconde descendent à 80 %.
+GAP_CHECK_MIN_DURATION_S = 2.0
+
+# Part minimale du son attendu qui doit avoir été captée. Relevé sur plus de deux cents
+# dictées réelles : les saines sont toutes au-dessus de 80 %, les trouées
+# entre 27 et 36 %. 0 désactive le contrôle.
+DEFAULT_MIN_CAPTURE_RATIO = 0.7
+
+# Reconstruction du flux micro qui échoue (périphérique pas encore revenu
+# après un débranchement) : on réessaie après ce délai, ce nombre de fois.
+_DEVICE_RETRY_DELAY_S = 3.0
+_DEVICE_RETRY_MAX = 3
+
 # Réveil du worker quand la file est vide : donne la précision de la
 # surveillance de durée maximale (± cette valeur).
 _TICK_S = 0.5
@@ -169,6 +185,8 @@ class DictationController:
         recordings_dir: Path | None = None,
         tail_padding_ms: int = 350,
         silence_threshold_dbfs: float = audio_level.DEFAULT_SILENCE_THRESHOLD_DBFS,
+        silence_padding_ms: int = 0,
+        min_capture_ratio: float = DEFAULT_MIN_CAPTURE_RATIO,
     ) -> None:
         self._recorder = recorder
         self._feedback = feedback
@@ -176,6 +194,10 @@ class DictationController:
         self._max_duration_s = max_duration_s
         self._tail_padding_ms = tail_padding_ms
         self._silence_threshold_dbfs = silence_threshold_dbfs
+        # Silence que l'enregistreur ajoute de chaque côté du WAV : à
+        # retrancher pour connaître la durée réellement captée.
+        self._silence_padding_ms = silence_padding_ms
+        self._min_capture_ratio = min_capture_ratio
         self._recordings_dir = recordings_dir or RECORDINGS_DIR
 
         self._queue: queue.Queue[_Command] = queue.Queue(maxsize=_QUEUE_MAX)
@@ -199,6 +221,10 @@ class DictationController:
         # fin de celle-ci, pas perdu : sinon la dictée suivante partirait
         # encore sur l'ancien périphérique.
         self._device_refresh_pending = False
+        # Nouvelle tentative de reconstruction du flux micro, quand la
+        # précédente a échoué (cf. `_refresh_device`).
+        self._device_retry_at: float | None = None
+        self._device_retries_left = 0
         self._recording_started_at = 0.0
         # Transcriptions soumises et pas encore terminées. Il peut y en avoir
         # plusieurs : on accepte de redémarrer une dictée pendant qu'une
@@ -372,6 +398,9 @@ class DictationController:
 
         self._recording_started_at = time.monotonic()
         self._state = State.RECORDING
+        # Le micro vient de s'ouvrir : une nouvelle tentative de
+        # reconstruction en attente n'a plus d'objet.
+        self._device_retry_at = None
         self._trace(f"micro ouvert en {(time.monotonic() - t0) * 1000:.0f} ms")
         self._cb.on_state_change(State.RECORDING, "État : écoute en cours…")
 
@@ -400,11 +429,24 @@ class DictationController:
         if self._tail_padding_ms > 0:
             time.sleep(self._tail_padding_ms / 1000.0)
 
+        # Temps pendant lequel le micro était censé capter, mesuré AVANT
+        # l'arrêt (qui peut lui-même traîner si le périphérique a disparu).
+        expected = time.monotonic() - self._recording_started_at
         wav_path = self._recorder.stop()
         self._state = State.IDLE
 
         duration = self._safe_duration(wav_path)
         self._trace(f"relâchement, {duration:.1f} s enregistrées")
+
+        # Avant tout le reste : un enregistrement auquel il manque l'essentiel
+        # du son ne doit ni être jeté en silence (« trop court ») ni partir au
+        # modèle, qui en tirerait un texte amputé collé comme si de rien
+        # n'était.
+        captured = max(0.0, duration - 2 * self._silence_padding_ms / 1000.0)
+        if self._is_gapped(captured, expected):
+            self._handle_gapped_recording(wav_path, captured, expected)
+            return
+
         if duration < MIN_DICTATION_DURATION_S:
             self._trace("trop court, dictée jetée")
             self._unlink(wav_path)
@@ -437,6 +479,44 @@ class DictationController:
         # Après la soumission : reconstruire le flux micro peut prendre
         # plusieurs secondes, et la transcription n'a pas à les attendre.
         self._apply_pending_device_refresh()
+
+    def _is_gapped(self, captured: float, expected: float) -> bool:
+        """True si le micro a rendu nettement moins de son qu'il n'aurait dû."""
+        if self._min_capture_ratio <= 0 or expected < GAP_CHECK_MIN_DURATION_S:
+            return False
+        return captured < expected * self._min_capture_ratio
+
+    def _handle_gapped_recording(
+        self, wav_path: Path, captured: float, expected: float
+    ) -> None:
+        """Le micro a perdu une partie du son : on ne colle rien.
+
+        Constaté en usage réel avec une carte son USB qui décrochait : plusieurs
+        dictées de suite n'avaient capté que 30 % du son, le modèle les a
+        transcrites sans erreur, et rien ne signalait le problème. Seule la
+        reconstruction du flux, des minutes plus tard et par hasard, a réparé.
+
+        On conserve le fichier (c'est la seule façon d'entendre ce que le
+        micro a réellement rendu), on prévient, et on reconstruit le flux tout
+        de suite pour que la dictée suivante reparte sur une base propre.
+        """
+        self._trace(
+            f"son perdu : {captured:.1f} s captées sur {expected:.1f} s "
+            f"attendues, dictée non collée"
+        )
+        kept = self._keep_recording(wav_path, label="trouee")
+        self._settle()
+        self._cb.on_error(
+            "Son perdu par le micro",
+            f"Le micro n'a rendu que {captured:.1f} s de son sur "
+            f"{expected:.1f} s d'enregistrement : la dictée n'a pas été "
+            f"collée. Répète-la.\n\nSi ça se reproduit, vérifie le "
+            f"branchement du micro (câble, hub USB). L'enregistrement "
+            f"incomplet est conservé ici :\n{kept}",
+        )
+        if kept is not None:
+            self._cb.on_recording_kept(kept)
+        self._refresh_device()
 
     def notify_transcription_done(self) -> None:
         """À appeler quand l'inference-worker a fini (succès ou échec).
@@ -495,9 +575,48 @@ class DictationController:
         PortAudio ; `prewarm` paye tout de suite les ~4 s d'ouverture pour
         que la prochaine dictée soit instantanée."""
         self._device_refresh_pending = False
+        self._device_retries_left = _DEVICE_RETRY_MAX
         self._trace("micro changé, reconstruction du flux")
-        self._recorder.reset_device()
-        self._recorder.prewarm()
+        self._rebuild_stream()
+
+    def _rebuild_stream(self) -> None:
+        """Reconstruit le flux ; en cas d'échec, programme une nouvelle
+        tentative au lieu d'abandonner.
+
+        Constaté dans le journal : une carte son USB qui se reconnecte
+        disparaît un instant de la liste des périphériques, et la
+        reconstruction lancée à ce moment-là échoue (« Error querying
+        device -1 »). Sans nouvelle tentative, le flux restait à reconstruire
+        jusqu'au changement de micro suivant, et l'erreur s'affichait alors
+        qu'attendre trois secondes suffisait.
+        """
+        self._device_retry_at = None
+        try:
+            self._recorder.reset_device()
+            self._recorder.prewarm()
+        except Exception as exc:  # noqa: BLE001
+            if self._device_retries_left > 0:
+                self._device_retries_left -= 1
+                self._device_retry_at = time.monotonic() + _DEVICE_RETRY_DELAY_S
+                self._trace(
+                    f"reconstruction du flux échouée ({exc}), nouvelle "
+                    f"tentative dans {_DEVICE_RETRY_DELAY_S:.0f} s"
+                )
+            else:
+                # Pas d'erreur affichée : le prochain appui reconstruit le
+                # flux lui-même, et c'est lui qui dira « Micro indisponible »
+                # si le périphérique manque toujours.
+                self._trace(f"reconstruction du flux abandonnée ({exc})")
+
+    def _retry_device_rebuild_if_due(self) -> None:
+        if self._device_retry_at is None:
+            return
+        if self._state in (State.ARMING, State.RECORDING):
+            return
+        if time.monotonic() < self._device_retry_at:
+            return
+        self._trace("nouvelle tentative de reconstruction du flux")
+        self._rebuild_stream()
 
     def _handle_shutdown(self) -> None:
         if self._state is State.RECORDING:
@@ -521,6 +640,7 @@ class DictationController:
         locale, et `listener.running` reste True sur un tap mort. On détecte
         donc par le symptôme : un enregistrement anormalement long.
         """
+        self._retry_device_rebuild_if_due()
         if self._state is not State.RECORDING:
             return
         elapsed = time.monotonic() - self._recording_started_at
@@ -554,12 +674,17 @@ class DictationController:
         self._cb.on_rearm_needed()
         self._apply_pending_device_refresh()
 
-    def _keep_recording(self, wav_path: Path) -> Path | None:
-        """Déplace le WAV temporaire vers ~/.voxtral/recordings/."""
+    def _keep_recording(self, wav_path: Path, label: str = "") -> Path | None:
+        """Déplace le WAV temporaire vers ~/.voxtral/recordings/.
+
+        Le nom commence toujours par `dictee-` : c'est le motif que le ménage
+        automatique (housekeeping.py) sait supprimer après 30 jours.
+        """
         try:
             self._recordings_dir.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y%m%d-%H%M%S")
-            target = self._recordings_dir / f"dictee-{stamp}.wav"
+            prefix = f"dictee-{label}-" if label else "dictee-"
+            target = self._recordings_dir / f"{prefix}{stamp}.wav"
             wav_path.replace(target)
             return target
         except OSError:

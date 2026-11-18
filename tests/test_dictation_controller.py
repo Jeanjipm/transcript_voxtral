@@ -798,3 +798,154 @@ def test_shutdown_releases_the_microphone_when_recording(recorder, feedback, cb,
     assert thread.is_alive() is False
     recorder.stop.assert_called()
     recorder.shutdown.assert_called_once()
+
+
+# ---- Dictée trouée : le micro a perdu une partie du son ----
+
+
+def _gap_ctrl(recorder, feedback, cb, tmp_path: Path, **kwargs) -> DictationController:
+    return DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec", tail_padding_ms=0, **kwargs,
+    )
+
+
+def _record_for(ctrl: DictationController, seconds: float) -> None:
+    """Simule une touche tenue `seconds` secondes sans attendre pour de vrai."""
+    ctrl._handle_start()
+    ctrl._recording_started_at = time.monotonic() - seconds
+    ctrl._handle_stop()
+
+
+def test_gapped_recording_is_not_transcribed(recorder, feedback, cb, tmp_path):
+    """Régression : une carte son USB qui décrochait ne rendait que 30 % du
+    son. Le texte amputé était collé sans aucun signal."""
+    recorder.stop.return_value = _make_wav(tmp_path, 3.0)
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path)
+
+    _record_for(ctrl, 10.0)
+
+    cb.submit_transcription.assert_not_called()
+    feedback.play_stop.assert_not_called()
+    assert ctrl.state is State.IDLE
+    assert cb.on_error.call_args.args[0] == "Son perdu par le micro"
+    kept = cb.on_recording_kept.call_args.args[0]
+    assert kept.exists() and kept.name.startswith("dictee-trouee-")
+    # Le flux est reconstruit tout de suite pour la dictée suivante.
+    recorder.reset_device.assert_called_once()
+    recorder.prewarm.assert_called_once()
+
+
+def test_gapped_recording_is_logged(recorder, feedback, cb, tmp_path, capsys):
+    recorder.stop.return_value = _make_wav(tmp_path, 3.0)
+    _record_for(_gap_ctrl(recorder, feedback, cb, tmp_path), 10.0)
+    assert "son perdu : 3.0 s captées sur 10.0 s" in capsys.readouterr().err
+
+
+def test_total_loss_is_reported_not_silently_dropped(
+    recorder, feedback, cb, tmp_path
+):
+    """Aucun son du tout sur une longue dictée : avant, « trop court, dictée
+    jetée » sans rien dire à l'utilisateur."""
+    recorder.stop.return_value = _make_wav(tmp_path, 0.0)
+    _record_for(_gap_ctrl(recorder, feedback, cb, tmp_path), 8.0)
+    cb.on_error.assert_called_once()
+    cb.submit_transcription.assert_not_called()
+
+
+def test_complete_recording_is_transcribed(recorder, feedback, cb, tmp_path):
+    recorder.stop.return_value = _make_wav(tmp_path, 9.5)
+    _record_for(_gap_ctrl(recorder, feedback, cb, tmp_path), 10.0)
+    cb.submit_transcription.assert_called_once()
+    cb.on_error.assert_not_called()
+    recorder.reset_device.assert_not_called()
+
+
+def test_gap_check_subtracts_silence_padding(recorder, feedback, cb, tmp_path):
+    """Le WAV contient le silence ajouté de chaque côté : 7,4 s de fichier
+    avec 2 × 250 ms de rembourrage, c'est 6,9 s captées sur 10 → trouée."""
+    recorder.stop.return_value = _make_wav(tmp_path, 7.4)
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path, silence_padding_ms=250)
+    _record_for(ctrl, 10.0)
+    cb.submit_transcription.assert_not_called()
+
+
+def test_gap_check_skipped_for_short_recordings(recorder, feedback, cb, tmp_path):
+    """Sous 2 s la mesure est trop imprécise : pas de fausse alerte."""
+    recorder.stop.return_value = _make_wav(tmp_path, 0.8)
+    _record_for(_gap_ctrl(recorder, feedback, cb, tmp_path), 1.9)
+    cb.submit_transcription.assert_called_once()
+    cb.on_error.assert_not_called()
+
+
+def test_gap_check_can_be_disabled(recorder, feedback, cb, tmp_path):
+    recorder.stop.return_value = _make_wav(tmp_path, 3.0)
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path, min_capture_ratio=0)
+    _record_for(ctrl, 10.0)
+    cb.submit_transcription.assert_called_once()
+
+
+# ---- Reconstruction du flux : nouvelle tentative après un échec ----
+
+
+def test_failed_rebuild_is_retried_not_reported(recorder, feedback, cb, tmp_path):
+    """Régression : carte son en cours de reconnexion, « Error querying
+    device -1 ». L'erreur s'affichait et rien n'était retenté."""
+    recorder.prewarm.side_effect = RuntimeError("Error querying device -1")
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path)
+
+    ctrl._handle_device_changed()
+    cb.on_error.assert_not_called()
+    assert ctrl._device_retry_at is not None
+
+    # Pas encore l'heure : rien ne bouge.
+    ctrl._on_tick()
+    assert recorder.prewarm.call_count == 1
+
+    # L'heure est passée et le micro est revenu.
+    recorder.prewarm.side_effect = None
+    ctrl._device_retry_at = time.monotonic() - 0.1
+    ctrl._on_tick()
+    assert recorder.prewarm.call_count == 2
+    assert ctrl._device_retry_at is None
+
+
+def test_rebuild_retries_are_bounded(recorder, feedback, cb, tmp_path):
+    recorder.prewarm.side_effect = RuntimeError("toujours absent")
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path)
+
+    ctrl._handle_device_changed()
+    for _ in range(10):
+        if ctrl._device_retry_at is None:
+            break
+        ctrl._device_retry_at = time.monotonic() - 0.1
+        ctrl._on_tick()
+
+    assert recorder.prewarm.call_count == 4  # 1 essai + 3 nouvelles tentatives
+    assert ctrl._device_retry_at is None
+    cb.on_error.assert_not_called()
+
+
+def test_rebuild_retry_waits_for_end_of_recording(recorder, feedback, cb, tmp_path):
+    recorder.prewarm.side_effect = RuntimeError("absent")
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path)
+    ctrl._handle_device_changed()
+    ctrl._device_retry_at = time.monotonic() - 0.1
+    ctrl._state = State.RECORDING
+    ctrl._recording_started_at = time.monotonic()
+
+    ctrl._on_tick()
+
+    assert recorder.prewarm.call_count == 1
+
+
+def test_successful_start_cancels_pending_rebuild_retry(
+    recorder, feedback, cb, tmp_path
+):
+    recorder.prewarm.side_effect = RuntimeError("absent")
+    ctrl = _gap_ctrl(recorder, feedback, cb, tmp_path)
+    ctrl._handle_device_changed()
+
+    ctrl._handle_start()
+
+    assert ctrl._device_retry_at is None
