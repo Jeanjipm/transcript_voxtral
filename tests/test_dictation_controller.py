@@ -949,3 +949,62 @@ def test_successful_start_cancels_pending_rebuild_retry(
     ctrl._handle_start()
 
     assert ctrl._device_retry_at is None
+
+
+# ---- Seuil fourni par l'app (détection de parole, cf. speech_detector.py) ----
+
+
+def test_threshold_provider_overrides_the_fixed_threshold(
+    recorder, feedback, cb, tmp_path: Path
+):
+    """L'app abaisse le seuil quand Silero prend le relais : un bruit faible
+    (−64 dBFS), jeté au seuil fixe de −45, doit alors partir à l'analyse. Le
+    seuil est relu à chaque dictée."""
+    seuil = {"dbfs": -70.0}
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec",
+        silence_threshold_provider=lambda: seuil["dbfs"],
+    )
+    recorder.stop.return_value = _make_wav(tmp_path, 2.0, "a.wav", amplitude=30)
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_called_once()
+
+    ctrl._handle_transcription_done()
+    seuil["dbfs"] = -45.0
+    cb.submit_transcription.reset_mock()
+    recorder.stop.return_value = _make_wav(tmp_path, 2.0, "b.wav", amplitude=30)
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_not_called()
+
+
+def test_dead_silence_is_still_discarded_with_a_low_threshold(
+    recorder, feedback, cb, tmp_path: Path
+):
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec",
+        silence_threshold_provider=lambda: -70.0,
+    )
+    recorder.stop.return_value = _make_wav(tmp_path, 2.0, "s.wav", amplitude=0)
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_not_called()
+
+
+def test_failing_threshold_provider_falls_back_to_the_fixed_one(
+    recorder, feedback, cb, tmp_path: Path
+):
+    def boom() -> float:
+        raise RuntimeError("config illisible")
+
+    ctrl = DictationController(
+        recorder=recorder, feedback=feedback, callbacks=cb,
+        recordings_dir=tmp_path / "rec", silence_threshold_provider=boom,
+    )
+    recorder.stop.return_value = _make_wav(tmp_path, 2.0, "s.wav", amplitude=30)
+    ctrl._handle_start()
+    ctrl._handle_stop()
+    cb.submit_transcription.assert_not_called()  # seuil fixe de −45 appliqué

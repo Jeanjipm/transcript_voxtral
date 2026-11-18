@@ -448,3 +448,46 @@ def test_hand_edited_lexicon_never_blocks_startup(tmp_path: Path):
 
     user.write_text("lexicon: n'importe quoi\n", encoding="utf-8")
     assert load_config(user_path=user).lexicon.corrections == {}
+
+
+# ---- Sprint voix : détection de parole, nombres en lettres, prononciations ----
+
+
+def test_voice_sprint_defaults(tmp_path: Path):
+    """Les nouveaux réglages sont actifs par défaut : un utilisateur qui a
+    déjà enregistré ses Préférences les reçoit quand même, puisque son
+    fichier ne contient que ses écarts."""
+    user = tmp_path / "user.yaml"
+    user.write_text("hotkey:\n  combo: f13\n", encoding="utf-8")
+    cfg = load_config(user_path=user)
+    assert cfg.recording.speech_detection is True
+    assert cfg.synthesis.spell_numbers is True
+    assert cfg.synthesis.pronunciations == {}
+
+
+def test_pronunciations_survive_save_and_reload(tmp_path: Path):
+    cfg = load_config(user_path=tmp_path / "absent.yaml")
+    cfg.synthesis.pronunciations = {"enneigement": "en-neigement"}
+    cfg.synthesis.spell_numbers = False
+    cfg.recording.speech_detection = False
+    save_config(cfg, user_path=tmp_path / "saved.yaml")
+
+    cfg2 = load_config(user_path=tmp_path / "saved.yaml")
+    assert cfg2.synthesis.pronunciations == {"enneigement": "en-neigement"}
+    assert cfg2.synthesis.spell_numbers is False
+    assert cfg2.recording.speech_detection is False
+    assert cfg2.synthesis.voice == "fr_female"
+
+
+def test_hand_edited_pronunciations_never_block_startup(tmp_path: Path):
+    user = tmp_path / "user.yaml"
+    user.write_text(
+        "synthesis:\n  voice: fr_male\n  pronunciations:\n    2026: vingt vingt-six\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(user_path=user)
+    assert cfg.synthesis.pronunciations == {"2026": "vingt vingt-six"}
+    assert cfg.synthesis.voice == "fr_male"
+
+    user.write_text("synthesis:\n  pronunciations: nimporte\n", encoding="utf-8")
+    assert load_config(user_path=user).synthesis.pronunciations == {}

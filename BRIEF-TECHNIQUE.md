@@ -1,6 +1,6 @@
 # Brief technique — Voxtral Dictée
 
-**Version :** 0.4 | **Date :** 17 novembre 2026
+**Version :** 0.5 | **Date :** 18 novembre 2026
 
 Ce document décrit le logiciel **tel qu'il est** après les sprints 6a, 6b et
 6c (cf. `ANALYSE-2026-10-26.md` pour le diagnostic qui les a motivés). Les
@@ -44,9 +44,19 @@ touche tenue, sans combinaison, est ce qui s'est avéré le plus naturel.
 - On enregistre `recording.tail_padding_ms` (350 ms) après le relâchement,
   sinon le dernier mot est coupé ; `silence_padding_ms` (250 ms) de silence
   est ajouté de chaque côté avant transcription.
-- **Filtre anti-silence** (`audio_level.py`) : si le moment le plus fort de
-  la dictée reste sous `recording.silence_threshold_dbfs` (−45 dBFS), rien
-  n'est envoyé au modèle — qui inventerait sinon « Merci. ».
+- **Détection de la parole** (`speech_detector.py`, `recording.speech_detection`,
+  activée par défaut) : avant de transcrire, Silero VAD — fourni par
+  `mlx-audio`, 2 Mo de poids téléchargés en arrière-plan au démarrage —
+  vérifie qu'il y a une voix. Sans voix, rien n'est envoyé au modèle, qui
+  inventerait sinon « Merci. ». Il tourne sur l'inference-worker, comme tout
+  modèle MLX. Mesuré : 21 bonnes réponses sur 21, contre 18 pour le seuil de
+  volume (cf. `BENCH-VOIX-2026-11.md`).
+- **Filtre anti-silence** (`audio_level.py`) : le seuil de volume
+  `recording.silence_threshold_dbfs` (−45 dBFS) reste le secours quand le
+  détecteur est coupé, pas encore téléchargé, ou en erreur. Quand le
+  détecteur est en service, ce seuil est abaissé à −70 dBFS : il n'écarte
+  plus que le silence complet, pour qu'une phrase dite bas arrive jusqu'à
+  Silero.
 - Le micro par défaut de macOS est suivi (`audio_device.py`, CoreAudio via
   ctypes) : brancher des AirPods ou un casque reconstruit le flux micro.
 
@@ -181,6 +191,13 @@ phrase, une dictée passe entre deux phrases, le plafond passe de 2 000 à
 arrête tout avec la vraie cause). L'item du menu devient « Arrêter la
 lecture (n/total) » ; démarrer une dictée arrête aussi la lecture.
 
+Avant la synthèse, le texte passe par `oral.py` : prononciations de
+l'utilisateur (`synthesis.pronunciations`, « mot » → « façon de l'écrire pour
+qu'il soit bien dit »), puis nombres en toutes lettres
+(`synthesis.spell_numbers`) — entiers, décimaux, heures, dates, euros,
+pourcentages, ordinaux. Les voix lisent mal les chiffres : mesuré, la même
+phrase sort en charabia de Pocket TTS en chiffres et parfaite en lettres.
+
 ### F11 — Lexique personnel
 
 Préférences → Mes mots, section `lexicon` de la config (`lexique.py`) :
@@ -219,6 +236,8 @@ transcript_voxtral/
 ├── synthese.py              # Texte → son (Voxtral TTS), découpage en phrases, MP3
 ├── lecture.py               # Une lecture à voix haute : synthèse et son, phrase par phrase
 ├── lexique.py               # Lexique personnel : corrections et mots soufflés à Whisper
+├── oral.py                  # De l'écrit à l'oral : nombres en lettres, prononciations
+├── speech_detector.py       # Y a-t-il de la parole ? (Silero VAD, avant de transcrire)
 ├── config.py                # Dataclasses, fusion défauts + overrides, chemins de ~/.voxtral
 ├── housekeeping.py          # Journal borné, purge des vieilles dictées
 ├── updater.py               # Vérification et application des mises à jour (GitHub)
@@ -231,7 +250,7 @@ transcript_voxtral/
 ├── requirements.lock        # Versions figées, installées par install.sh
 ├── ruff.toml                # Lint (règles « bugs » uniquement)
 ├── .github/workflows/tests.yml  # CI : ruff + pytest sur Python 3.12 et 3.13
-├── tests/                   # 689 tests pytest, natif macOS remplacé par des stubs (cf. tests/README.md)
+├── tests/                   # 806 tests pytest, natif macOS remplacé par des stubs (cf. tests/README.md)
 ├── README.md                # Doc utilisateur
 ├── BRIEF-TECHNIQUE.md       # Ce document
 └── ANALYSE-2026-10-26.md    # Revue complète du 26 octobre 2026 et plan des sprints 6a-6c
@@ -286,6 +305,8 @@ recording:
   tail_padding_ms: 350           # on continue d'enregistrer après le relâchement
   silence_padding_ms: 250        # silence ajouté de chaque côté
   silence_threshold_dbfs: -45    # dictée jetée si rien ne dépasse ce niveau
+  min_capture_ratio: 0.7         # dictée non collée si le micro a perdu du son
+  speech_detection: true         # Silero VAD vérifie qu'il y a une voix
 
 file_transcription:
   model: "mlx-community/whisper-large-v3-turbo"
@@ -305,6 +326,8 @@ maintenance:
 synthesis:
   model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
   voice: "fr_female"
+  spell_numbers: true            # nombres dits en toutes lettres
+  pronunciations: {}             # "Kixit": "Kiksit" — avant la lecture
 
 lexicon:
   corrections: {}                # "KickSit": "Kixit" — appliqué après transcription
@@ -405,3 +428,4 @@ Temps : 3 à 5 minutes, dominé par le téléchargement du modèle.
 | 0.2 | 16 avril 2026 | Sons, UI de paramétrage, choix du modèle Voxtral Mini 3B et du raccourci Cmd+Shift+H |
 | 0.3 | 4 novembre 2026 | Réécriture pour décrire le logiciel réel après les sprints 6a–6c : raccourci ⌥ droite capturé au clavier, transcription de fichiers avec horodatages et locuteurs, hors-ligne réel, suivi du micro, filtre anti-silence, mises à jour in-app, entretien, 539 tests et CI |
 | 0.4 | 17 novembre 2026 | Lecture à voix haute phrase par phrase (démarrage immédiat, arrêt, 20 000 caractères) et lexique personnel (corrections automatiques, mots soufflés à Whisper en option expérimentale) |
+| 0.5 | 18 novembre 2026 | Détection de la parole par Silero VAD avant de transcrire (le seuil de volume reste en secours), nombres en toutes lettres et prononciations avant la lecture à voix haute ; suites du banc `BENCH-VOIX-2026-11.md` |

@@ -81,8 +81,11 @@ from inference_worker import (
     InferenceWorker,
 )
 from model_manager import find_model
+import audio_level
 import lecture
 import lexique
+import oral
+import speech_detector
 import synthese
 from transcriber import Transcriber, make_transcriber, repo_for_task
 import updater
@@ -260,6 +263,12 @@ class VoxtralApp(rumps.App):
         self.inference = InferenceWorker()
         self.inference.start()
 
+        # Détection de la parole (Silero VAD, cf. speech_detector.py). Ses
+        # 2 Mo de poids se téléchargent en arrière-plan s'ils manquent ; d'ici
+        # là, le seuil de volume fait le travail.
+        self.speech_detector = speech_detector.SpeechDetector()
+        self._fetch_speech_detector_if_needed()
+
         self.dictation = DictationController(
             recorder=self.recorder,
             feedback=self.feedback,
@@ -275,6 +284,7 @@ class VoxtralApp(rumps.App):
             silence_threshold_dbfs=self.config.recording.silence_threshold_dbfs,
             silence_padding_ms=self.config.recording.silence_padding_ms,
             min_capture_ratio=self.config.recording.min_capture_ratio,
+            silence_threshold_provider=self._silence_threshold,
         )
         self.dictation.start()
 
@@ -516,6 +526,9 @@ class VoxtralApp(rumps.App):
         if new_config.transcription.language != old.transcription.language:
             self.lang_item.title = f"Langue : {self._language_label()}"
 
+        if new_config.recording.speech_detection and not old.recording.speech_detection:
+            self._fetch_speech_detector_if_needed()
+
         if new_config.synthesis.model != old.synthesis.model:
             # Pas de rechargement anticipé : le modèle de lecture se charge
             # au prochain « Lire le texte copié », comme à la première fois.
@@ -646,6 +659,53 @@ class VoxtralApp(rumps.App):
         repo = self.transcriber.repo_for(self.config.transcription.task)
         return not hf_offline.is_model_cached(repo)
 
+    def _fetch_speech_detector_if_needed(self) -> None:
+        """Télécharge le détecteur de parole en arrière-plan s'il manque."""
+        if not self.config.recording.speech_detection:
+            return
+        if self.speech_detector.is_available:
+            return
+        threading.Thread(
+            target=self.speech_detector.ensure_downloaded,
+            name="speech-detector-download",
+            daemon=True,
+        ).start()
+
+    def _silence_threshold(self) -> float:
+        """Seuil de volume appliqué par la dictée, lu à chaque enregistrement.
+
+        Avec la détection de parole, ce seuil n'écarte plus que le silence
+        complet : c'est Silero qui juge le reste, et une phrase chuchotée doit
+        pouvoir arriver jusqu'à lui. Un filtre que l'utilisateur a coupé
+        reste coupé.
+        """
+        rec = self.config.recording
+        if (
+            rec.speech_detection
+            and rec.silence_threshold_dbfs > audio_level.SILENCE_FILTER_OFF_DBFS
+        ):
+            return min(rec.silence_threshold_dbfs, speech_detector.DEAD_SILENCE_DBFS)
+        return rec.silence_threshold_dbfs
+
+    def _dictation_has_speech(self, wav_path: Path) -> bool:
+        """La dictée contient-elle de la parole ? Sur l'inference-worker.
+
+        Silero d'abord. S'il ne peut pas répondre (poids pas encore
+        téléchargés, erreur), le seuil de volume réglé par l'utilisateur
+        reprend la main — exactement le comportement d'avant.
+        """
+        rec = self.config.recording
+        if not rec.speech_detection:
+            return True  # le seuil de volume a déjà été appliqué à l'arrêt
+        verdict = self.speech_detector.has_speech(wav_path)
+        if verdict is not None:
+            return verdict
+        try:
+            level = audio_level.measure_peak_rms_dbfs(wav_path)
+        except Exception:  # noqa: BLE001 — illisible : on transcrit quand même
+            return True
+        return not audio_level.is_silent(level, rec.silence_threshold_dbfs)
+
     def _transcribe_and_paste(self, wav_path: Path) -> None:
         """Transcrit puis colle. Tourne sur l'inference-worker.
 
@@ -657,6 +717,10 @@ class VoxtralApp(rumps.App):
             if self._model_needs_download():
                 self._start_animation(SYMBOL_DOWNLOADING_FRAMES, 0.5)
                 self._set_status_title("État : téléchargement du modèle…")
+            if not self._dictation_has_speech(wav_path):
+                print("[app] pas de parole dans la dictée : rien à transcrire.",
+                      file=sys.stderr)
+                return
             lex = self.config.lexicon
             # Amorce : seulement si l'utilisateur l'a activée (expérimental,
             # cf. lexique.py). Les backends qui n'en veulent pas l'ignorent.
@@ -907,6 +971,12 @@ class VoxtralApp(rumps.App):
             )
             if answer != 1:
                 return
+
+        # De l'écrit à l'oral (cf. oral.py) : prononciations de l'utilisateur,
+        # puis nombres en toutes lettres. Avant la troncature : « 3500 € »
+        # s'allonge en le disant.
+        syn = self.config.synthesis
+        text = oral.preparer(text, syn.pronunciations, nombres=syn.spell_numbers)
 
         text, truncated = synthese.tronquer(text)
         if truncated:

@@ -123,6 +123,10 @@ class RecordingConfig:
     # et le flux micro est reconstruit. Ne s'applique qu'aux dictées de 2 s
     # et plus. 0 désactive le contrôle. Cf. dictation_controller.py.
     min_capture_ratio: float = 0.7
+    # Détection de la parole par Silero VAD avant de transcrire (cf.
+    # speech_detector.py). Plus juste que le seuil de volume, qui reste en
+    # secours tant que le modèle (2 Mo) n'est pas téléchargé.
+    speech_detection: bool = True
 
 
 @dataclass
@@ -172,6 +176,11 @@ class SynthesisConfig:
     # Nom exact d'une voix du modèle (cf. synthese.LIBELLES_VOIX). Deux voix
     # françaises : fr_female et fr_male.
     voice: str = "fr_female"
+    # Avant la lecture (cf. oral.py) : nombres écrits en toutes lettres — les
+    # voix lisent mal les chiffres — et prononciations de l'utilisateur,
+    # « mot écrit » → « façon de l'écrire pour qu'il soit bien dit ».
+    spell_numbers: bool = True
+    pronunciations: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -244,6 +253,30 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def _text_map(value: Any) -> dict[str, str]:
+    """Table « texte → texte » saisie librement : tout est ramené à des
+    chaînes (YAML lit « 3M » comme un texte mais « 2026 » comme un nombre),
+    et ce qui n'est pas une table est ignoré."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(k): "" if v is None else str(v)
+        for k, v in value.items()
+        if str(k).strip()
+    }
+
+
+def _build_synthesis(data: Any) -> SynthesisConfig:
+    """Section `synthesis`, tolérante pour sa table de prononciations."""
+    if not isinstance(data, dict):
+        return SynthesisConfig()
+    cfg = _build(
+        SynthesisConfig, {k: v for k, v in data.items() if k != "pronunciations"}
+    )
+    cfg.pronunciations = _text_map(data.get("pronunciations"))
+    return cfg
+
+
 def _build_lexicon(data: Any) -> LexiconConfig:
     """Section `lexicon`, tolérante : c'est la seule que l'utilisateur
     remplit de texte libre, et un YAML retouché à la main ne doit pas
@@ -254,13 +287,7 @@ def _build_lexicon(data: Any) -> LexiconConfig:
     corrections = data.get("corrections")
     words = data.get("words")
     return LexiconConfig(
-        corrections={
-            str(k): "" if v is None else str(v)
-            for k, v in corrections.items()
-            if str(k).strip()
-        }
-        if isinstance(corrections, dict)
-        else {},
+        corrections=_text_map(corrections),
         words=[str(w) for w in words if str(w).strip()]
         if isinstance(words, list)
         else [],
@@ -284,7 +311,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         ),
         offline=_build(OfflineConfig, data.get("offline", {})),
         maintenance=_build(MaintenanceConfig, data.get("maintenance", {})),
-        synthesis=_build(SynthesisConfig, data.get("synthesis", {})),
+        synthesis=_build_synthesis(data.get("synthesis", {})),
         lexicon=_build_lexicon(data.get("lexicon", {})),
     )
 
