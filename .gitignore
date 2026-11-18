@@ -52,3 +52,5 @@ tools/bench_results/*reel_*.json
 # la transcription des enregistrements réels. Seul summary.md (chiffres, et
 # textes des phrases synthétiques uniquement) a vocation à être partagé.
 tools/bench_voix_results/*.json
+# Rappel du texte lu pendant `bench_voix.py enregistrer`.
+tools/bench_samples/wav/*.prompt

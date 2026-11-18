@@ -37,6 +37,11 @@ ou, une fois les venv créés, partie par partie :
     ~/.voxtral/venv/bin/python tools/bench_voix.py vad
     ~/.voxtral/venv/bin/python tools/bench_voix.py --report   # tableau seul
 
+Pour mesurer sur SA voix (dictée et fin de phrase), un enregistreur guidé fait
+dire douze phrases, puis relance les deux mesures concernées :
+
+    bash tools/bench_voix.sh enregistrer
+
 Résultats : `tools/bench_voix_results/summary.md` (chiffres) et
 `~/Documents/Voxtral/banc-voix/` (sons à écouter).
 """
@@ -63,6 +68,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(TOOLS_DIR))
 
 import bench_models  # noqa: E402 — WER, jeu d'essai et résultats de novembre
+import hf_offline  # noqa: E402 — savoir si un modèle est déjà sur le disque
 
 # Le venv de l'app (mlx, mlx-audio, mlx-whisper) et les deux venv du banc.
 APP_PYTHON = Path.home() / ".voxtral" / "venv" / "bin" / "python"
@@ -129,6 +135,27 @@ TURN_PAIRS: list[tuple[str, str]] = [
      "Écris à Thomas que"),
 ]
 TURN_VOICES = ("Thomas", "Audrey")
+
+# Phrases à dire soi-même (`bench_voix.py enregistrer`). Les complètes servent
+# deux fois : à Smart Turn (« c'est fini »), et à mesurer la dictée sur une
+# vraie voix, puisqu'on sait ce qui a été lu. Elles contiennent donc ce qui
+# fait trébucher les modèles : un nom de société, des sigles, une date.
+RECORD_COMPLETE: list[str] = [
+    "Peux-tu rappeler Kixit Consulting demain matin à neuf heures ?",
+    "La TVA est à envoyer à l'URSSAF avant vendredi.",
+    "Le rendez-vous est fixé au 12 mars à quatorze heures trente.",
+    "Ajoute du lait et des œufs à la liste de courses.",
+    "Écris à Claire que j'arrive dans dix minutes.",
+    "Note que le client préfère être livré le matin.",
+]
+RECORD_SUSPENDED: list[str] = [
+    "Je voudrais réserver une table pour…",
+    "Peux-tu envoyer le devis à Claire et ensuite…",
+    "La réunion est reportée à jeudi parce que…",
+    "Ajoute du lait, des œufs, et aussi…",
+    "Note que le client préfère, euh…",
+    "Rappelle-moi de téléphoner au…",
+]
 
 # Seuil du filtre anti-silence de l'app (config : recording.silence_threshold_dbfs).
 APP_SILENCE_DBFS = -45.0
@@ -201,6 +228,12 @@ def _load_16k(path: Path):
         positions = np.arange(0, audio.shape[0], sr / 16_000)
         audio = np.interp(positions, np.arange(audio.shape[0]), audio).astype(np.float32)
     return audio
+
+
+def _is_dictation_sample(stem: str) -> bool:
+    """Un fichier du jeu d'essai qui est une dictée entière (pas une phrase
+    en suspens ni une phrase du test de fin de tour)."""
+    return not stem.startswith(("tour_", "reel_suspendu_"))
 
 
 def _say(text: str, voice: str, wav: Path) -> None:
@@ -362,7 +395,19 @@ def run_tts() -> None:
 def run_stt(only: list[str] | None = None) -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     bench_models.prepare_synth_samples()
-    wavs = [w for w in bench_models.list_samples(only) if not w.stem.startswith("tour_")]
+    wavs = [w for w in bench_models.list_samples(only) if _is_dictation_sample(w.stem)]
+    # Les modèles déjà dans l'app n'ont pas encore vu les enregistrements
+    # faits avec `enregistrer` : on les y passe, pour comparer à voix égale.
+    for wav in wavs:
+        if wav.stem.startswith("reel_"):
+            for model in STT_REFERENCES:
+                # Seulement les modèles déjà sur le disque : pas question de
+                # télécharger 5 Go pour une ligne de comparaison.
+                if not hf_offline.is_model_cached(bench_models.MODELS[model].repo):
+                    continue
+                if not bench_models.result_path(model, wav.stem, False).exists():
+                    print(f"[voix] {model} × {wav.stem} …", flush=True)
+                    bench_models.run_pair(model, wav, offline=False, force=False)
     result = RESULTS_DIR / "stt__kyutai.json"
     if not STT_PYTHON.exists():
         _write_json(result, {
@@ -396,6 +441,7 @@ def worker_vad(out_path: Path) -> None:
     from mlx_audio.vad import load
 
     out: dict = {"silero": {}, "turns": {}}
+    vad = None
 
     # ---- Silero : parole ou pas ? ----
     try:
@@ -411,7 +457,7 @@ def worker_vad(out_path: Path) -> None:
         }
         bench_models.prepare_synth_samples()
         for wav in bench_models.list_samples(None):
-            if wav.stem.startswith("tour_"):
+            if not _is_dictation_sample(wav.stem):
                 continue
             audio = _load_16k(wav)
             cases[wav.stem] = (audio, True)
@@ -457,16 +503,29 @@ def worker_vad(out_path: Path) -> None:
                 cases_t.append((done.stem, done, True, complete))
                 cases_t.append((open_.stem, open_, False, suspended))
         # Enregistrements de l'utilisateur, s'il en a déposé.
-        for wav in sorted(wav_dir.glob("tour_complet_*.wav")):
-            cases_t.append((wav.stem, wav, True, ""))
-        for wav in sorted(wav_dir.glob("tour_suspendu_*.wav")):
-            cases_t.append((wav.stem, wav, False, ""))
+        for pattern, complete in (
+            ("reel_complet_*.wav", True), ("tour_complet_*.wav", True),
+            ("reel_suspendu_*.wav", False), ("tour_suspendu_*.wav", False),
+        ):
+            for wav in sorted(wav_dir.glob(pattern)):
+                note = wav.with_suffix(".prompt")
+                text = note.read_text(encoding="utf-8").strip() if note.exists() else ""
+                cases_t.append((wav.stem, wav, complete, text))
 
         turn.predict_endpoint(np.zeros(16_000, dtype=np.float32), sample_rate=16_000)  # à froid
         for name, wav, complete, text in cases_t:
             item = {"complete": complete, "text": text, "real": not name.startswith("tour_synth_")}
             try:
                 audio = _load_16k(wav)
+                # Comme en vrai : Smart Turn est interrogé 0,2 s après la fin
+                # de la parole, pas après le silence qui traîne dans le fichier.
+                if vad is not None:
+                    stamps = vad.get_speech_timestamps(
+                        audio, sample_rate=16_000, return_seconds=True
+                    )
+                    if stamps:
+                        end = int((float(stamps[-1]["end"]) + 0.2) * 16_000)
+                        audio = audio[:end]
                 t0 = time.perf_counter()
                 res = turn.predict_endpoint(audio, sample_rate=16_000)
                 item["proc_s"] = time.perf_counter() - t0
@@ -488,6 +547,59 @@ def run_vad() -> None:
     me = str(Path(__file__).resolve())
     _run([str(APP_PYTHON), me, "--worker", "vad", str(RESULTS_DIR / "vad.json")],
          RESULTS_DIR / "vad.json", "Silero VAD et Smart Turn")
+
+
+# ----------------------------------------------------------------------
+# Enregistreur guidé : douze phrases dites par l'utilisateur
+# ----------------------------------------------------------------------
+
+
+def _record_one(path: Path) -> float:
+    """Enregistre le micro entre deux appuis sur Entrée. Rend la durée."""
+    import numpy as np
+    import sounddevice as sd
+    import soundfile as sf
+
+    blocks: list = []
+    input("   Entrée pour commencer… ")
+    with sd.InputStream(samplerate=16_000, channels=1, dtype="int16",
+                        callback=lambda data, *_: blocks.append(data.copy())):
+        input("   ● ça enregistre. Parle, puis Entrée pour arrêter… ")
+    audio = np.concatenate(blocks) if blocks else np.zeros((0, 1), dtype="int16")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(path), audio, 16_000, subtype="PCM_16")
+    return audio.shape[0] / 16_000
+
+
+def run_record() -> None:
+    """Fait dire douze phrases : six finies, six laissées en suspens."""
+    wav_dir = bench_models.WAV_DIR
+    print(
+        "\nEnregistrement de ta voix : 12 phrases, environ 3 minutes.\n"
+        "Pour chacune : appuie sur Entrée, lis la phrase à voix haute, comme\n"
+        "tu dicterais, puis appuie de nouveau sur Entrée.\n"
+        "(Si macOS demande l'accès au micro pour le Terminal, accepte.)\n"
+    )
+    print("— Première série : des phrases COMPLÈTES. Dis-les jusqu'au bout.\n")
+    for i, text in enumerate(RECORD_COMPLETE, start=1):
+        print(f"{i}/6  « {text} »")
+        stem = f"reel_complet_{i:02d}"
+        seconds = _record_one(wav_dir / f"{stem}.wav")
+        # Référence pour le taux de mots faux, et rappel du texte pour le rapport.
+        (bench_models.SAMPLES_DIR / f"{stem}.txt").write_text(text + "\n", encoding="utf-8")
+        (wav_dir / f"{stem}.prompt").write_text(text, encoding="utf-8")
+        print(f"   ✓ {seconds:.1f} s\n")
+    print(
+        "— Seconde série : des phrases EN SUSPENS. Arrête-toi net aux points\n"
+        "  de suspension, comme quand on cherche la suite, sans baisser la voix.\n"
+    )
+    for i, text in enumerate(RECORD_SUSPENDED, start=1):
+        print(f"{i}/6  « {text} »")
+        stem = f"reel_suspendu_{i:02d}"
+        seconds = _record_one(wav_dir / f"{stem}.wav")
+        (wav_dir / f"{stem}.prompt").write_text(text, encoding="utf-8")
+        print(f"   ✓ {seconds:.1f} s\n")
+    print("Merci. Les mesures sur ta voix démarrent.\n")
 
 
 # ----------------------------------------------------------------------
@@ -732,14 +844,18 @@ def report_vad() -> list[str]:
         said = "finie" if v["says_complete"] else "en suspens"
         expected = "finie" if v["complete"] else "en suspens"
         mark = "" if said == expected else " ✗"
-        text = f"« {v['text']} » ({name.split('_')[3]})" if v["text"] else name
+        if v["text"] and not v["real"]:
+            text = f"« {v['text']} » ({name.split('_')[3]})"
+        elif v["text"]:
+            text = f"« {v['text']} » (ta voix)"
+        else:
+            text = name
         lines.append(f"| {text} | {expected} | {said}{mark} | {_num(v['probability'], '{:.2f}')} |")
     lines += [
         "",
         "Limite : les voix de macOS disent une phrase tronquée d'un ton posé, "
         "sans l'intonation d'une vraie hésitation. Ce test dit ce que les mots "
-        "annoncent ; pour ta voix, dépose `tour_complet_*.wav` et "
-        "`tour_suspendu_*.wav` dans `tools/bench_samples/wav/`.",
+        "annoncent ; pour ta voix : `bash tools/bench_voix.sh enregistrer`.",
         "",
     ]
     return lines
@@ -773,7 +889,8 @@ WORKERS = {
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Banc d'essai « voix » (hors app).")
-    parser.add_argument("parts", nargs="*", help="tts, stt, vad (défaut : tout)")
+    parser.add_argument("parts", nargs="*",
+                        help="tts, stt, vad (défaut : tout), ou enregistrer")
     parser.add_argument("--samples", nargs="*",
                         help="stt : limiter aux fichiers nommés (sans .wav)")
     parser.add_argument("--report", action="store_true", help="n'écrire que le rapport")
@@ -785,12 +902,18 @@ def main(argv: list[str] | None = None) -> int:
         WORKERS[name](Path(out))
         return 0
 
-    unknown = [p for p in args.parts if p not in PARTS]
+    parts = list(args.parts)
+    if "enregistrer" in parts:
+        # Ta voix d'abord, puis les deux mesures qui s'en servent.
+        run_record()
+        parts = [p for p in parts if p != "enregistrer"] or ["stt", "vad"]
+    unknown = [p for p in parts if p not in PARTS]
     if unknown:
-        print(f"[voix] parties inconnues : {unknown} (attendu : tts, stt, vad)", file=sys.stderr)
+        print(f"[voix] parties inconnues : {unknown} "
+              f"(attendu : tts, stt, vad, enregistrer)", file=sys.stderr)
         return 2
     if not args.report:
-        for part in args.parts or list(PARTS):
+        for part in parts or list(PARTS):
             if part == "stt":
                 run_stt(args.samples)
             else:
