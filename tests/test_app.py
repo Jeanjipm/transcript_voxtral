@@ -119,6 +119,22 @@ def deps(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         app_module.hf_offline, "is_model_cached", mocks["is_model_cached"]
     )
+    class FakeDetector:
+        """Détecteur de parole simulé : présent, et qui entend une voix."""
+
+        def __init__(self) -> None:
+            self.is_available = True
+            self.verdict: bool | None = True
+            self.seen: list[Path] = []
+            self.ensure_downloaded = MagicMock(name="ensure_downloaded")
+
+        def has_speech(self, wav_path: Path) -> bool | None:
+            self.seen.append(wav_path)
+            return self.verdict
+
+    mocks["SpeechDetector"] = FakeDetector
+    monkeypatch.setattr(app_module.speech_detector, "SpeechDetector", FakeDetector)
+
     mocks["housekeeping"] = MagicMock(name="run_startup_housekeeping")
     monkeypatch.setattr(
         app_module.housekeeping, "run_startup_housekeeping", mocks["housekeeping"]
@@ -791,6 +807,141 @@ def test_quit_stops_workers_without_blocking(
     rumps.quit_application.assert_called_once()
 
 
+# ---- Détection de la parole (cf. speech_detector.py) ----
+
+
+def _voice_wav(tmp_path: Path, amplitude: int = 3000) -> Path:
+    """Un WAV réel d'une seconde ; 3000 ≈ −24 dBFS, 30 ≈ −64 dBFS."""
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / "d.wav"
+    t = np.arange(16_000) / 16_000
+    audio = (amplitude * np.sin(2 * np.pi * 220 * t)).astype("int16")
+    sf.write(path, audio.reshape(-1, 1), 16_000, subtype="PCM_16")
+    return path
+
+
+def test_dictation_without_speech_is_not_transcribed(
+    voxtral_app: VoxtralApp, deps, tmp_path: Path, capsys
+):
+    """Silero n'entend pas de voix : rien n'est envoyé au modèle (qui
+    inventerait « Merci. »), rien n'est collé, et la machine à états est
+    quand même prévenue."""
+    wav = _voice_wav(tmp_path)
+    voxtral_app.speech_detector.verdict = False
+
+    voxtral_app._transcribe_and_paste(wav)
+
+    voxtral_app.transcriber.transcribe.assert_not_called()
+    deps["paste_text"].assert_not_called()
+    assert not wav.exists()
+    voxtral_app.dictation.notify_transcription_done.assert_called_once()
+    assert voxtral_app._last_error is None
+    assert "pas de parole" in capsys.readouterr().err
+
+
+def test_dictation_with_speech_is_transcribed(
+    voxtral_app: VoxtralApp, deps, tmp_path: Path
+):
+    wav = _voice_wav(tmp_path)
+    voxtral_app.transcriber.transcribe.return_value = "bonjour"
+    voxtral_app._transcribe_and_paste(wav)
+    assert voxtral_app.speech_detector.seen == [wav]
+    assert deps["paste_text"].call_args.args[0] == "bonjour"
+
+
+def test_volume_filter_takes_over_when_detector_cannot_answer(
+    voxtral_app: VoxtralApp, deps, tmp_path: Path
+):
+    """Poids pas encore téléchargés, ou erreur : le seuil de volume réglé
+    par l'utilisateur décide, comme avant ce sprint."""
+    voxtral_app.speech_detector.verdict = None
+    voxtral_app.transcriber.transcribe.return_value = "bonjour"
+
+    voxtral_app._transcribe_and_paste(_voice_wav(tmp_path, amplitude=30))
+    voxtral_app.transcriber.transcribe.assert_not_called()
+
+    voxtral_app._transcribe_and_paste(_voice_wav(tmp_path, amplitude=3000))
+    voxtral_app.transcriber.transcribe.assert_called_once()
+
+
+def test_unreadable_recording_is_transcribed_anyway(
+    voxtral_app: VoxtralApp, deps, tmp_path: Path
+):
+    """Détecteur muet ET fichier illisible : perdre une dictée serait pire
+    qu'une phrase inventée."""
+    voxtral_app.speech_detector.verdict = None
+    wav = tmp_path / "d.wav"
+    wav.touch()
+    voxtral_app._transcribe_and_paste(wav)
+    voxtral_app.transcriber.transcribe.assert_called_once()
+
+
+def test_detection_can_be_switched_off(
+    voxtral_app: VoxtralApp, deps, user_config: Path, tmp_path: Path
+):
+    _reload(voxtral_app, user_config, recording={"speech_detection": False})
+    voxtral_app.speech_detector.verdict = False
+    voxtral_app._transcribe_and_paste(_voice_wav(tmp_path))
+    assert voxtral_app.speech_detector.seen == []
+    voxtral_app.transcriber.transcribe.assert_called_once()
+
+
+def test_silence_threshold_drops_to_dead_silence_with_detection(
+    voxtral_app: VoxtralApp, deps, user_config: Path
+):
+    """Avec Silero, le seuil de volume n'écarte plus que le silence complet :
+    une phrase chuchotée doit arriver jusqu'au détecteur. Le réglage est lu
+    à chaque dictée, donc suivi sans redémarrer."""
+    provider = deps["DictationController"].call_args.kwargs["silence_threshold_provider"]
+    assert provider() == app_module.speech_detector.DEAD_SILENCE_DBFS
+
+    _reload(voxtral_app, user_config, recording={"speech_detection": False})
+    assert provider() == -45.0
+
+    _reload(voxtral_app, user_config,
+            recording={"speech_detection": False, "silence_threshold_dbfs": -30})
+    assert provider() == -30.0
+
+    # Un filtre coupé par l'utilisateur reste coupé, détection ou pas.
+    _reload(voxtral_app, user_config, recording={"silence_threshold_dbfs": -120})
+    assert provider() == -120.0
+
+
+def test_detector_weights_are_fetched_in_background_when_missing(
+    user_config: Path, deps, monkeypatch: pytest.MonkeyPatch
+):
+    """2 Mo, une fois, sans rien demander ; et jamais si la détection est
+    coupée ou si les poids sont déjà là."""
+    started: list[str] = []
+
+    class RecordingThread:
+        def __init__(self, target=None, name=None, **kwargs):  # noqa: ANN001
+            self.name = name
+
+        def start(self) -> None:
+            started.append(self.name)
+
+    monkeypatch.setattr(app_module.threading, "Thread", RecordingThread)
+
+    VoxtralApp()
+    assert "speech-detector-download" not in started  # déjà sur le disque
+
+    class Missing(deps["SpeechDetector"]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.is_available = False
+
+    monkeypatch.setattr(app_module.speech_detector, "SpeechDetector", Missing)
+    VoxtralApp()
+    assert started.count("speech-detector-download") == 1
+
+    _write_user_config(user_config, recording={"speech_detection": False})
+    VoxtralApp()
+    assert started.count("speech-detector-download") == 1
+
+
 # ---- Lexique personnel (cf. lexique.py) ----
 
 
@@ -995,6 +1146,35 @@ def test_a_long_article_is_read_without_truncation(voxtral_app: VoxtralApp, spee
     voxtral_app.read_clipboard_aloud(None)
     rumps.alert.assert_not_called()
     assert len(speech["lectures"][0].phrases) == 100
+
+
+def test_numbers_are_spelled_out_before_reading(
+    voxtral_app: VoxtralApp, speech: dict, user_config: Path
+):
+    """Les voix lisent mal les chiffres (cf. oral.py)."""
+    speech["clipboard"] = "Rendez-vous le 12 mars à 14h30 avec un budget de 3500 euros."
+    voxtral_app.read_clipboard_aloud(None)
+    assert speech["lectures"][0].phrases == [
+        "Rendez-vous le douze mars à quatorze heures trente avec un budget "
+        "de trois mille cinq cents euros.",
+    ]
+
+    voxtral_app._on_speech_done(None)
+    _reload(voxtral_app, user_config, synthesis={"spell_numbers": False})
+    voxtral_app.read_clipboard_aloud(None)
+    assert speech["lectures"][1].phrases == [speech["clipboard"]]
+
+
+def test_user_pronunciations_are_applied_before_reading(
+    voxtral_app: VoxtralApp, speech: dict, user_config: Path
+):
+    _reload(voxtral_app, user_config,
+            synthesis={"pronunciations": {"enneigement": "en-neigement"}})
+    speech["clipboard"] = "Les stations voient leur Enneigement reculer d'année en année."
+    voxtral_app.read_clipboard_aloud(None)
+    assert speech["lectures"][0].phrases == [
+        "Les stations voient leur en-neigement reculer d'année en année.",
+    ]
 
 
 def test_menu_item_stops_the_reading(voxtral_app: VoxtralApp, speech: dict):

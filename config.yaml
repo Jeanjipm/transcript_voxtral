@@ -92,6 +92,13 @@ recording:
   # la liaison avec le micro est reconstruite. Ne concerne que les dictées de
   # 2 secondes et plus. Mets 0 pour désactiver.
   min_capture_ratio: 0.7
+  # Détection de la parole. Avant de transcrire, un petit modèle (Silero VAD,
+  # 2 Mo, téléchargé tout seul au premier lancement) vérifie qu'il y a bien
+  # une voix dans l'enregistrement. Plus juste que le seuil de volume
+  # ci-dessus : il ne prend pas un bruit pour de la parole, et il ne jette
+  # pas une phrase chuchotée. Tant que le modèle n'est pas là, le seuil de
+  # volume fait le travail comme avant. Mets false pour revenir au seuil seul.
+  speech_detection: true
 
 file_transcription:
   # Transcription d'un fichier audio déjà enregistré, via
@@ -155,6 +162,16 @@ synthesis:
   # Réglable dans Préférences → Lecture, où les 20 voix du modèle sont
   # listées avec leur langue.
   voice: "fr_female"
+  # Les voix lisent mal les chiffres : avant la lecture, les nombres sont
+  # écrits en toutes lettres (« 14h30 » → « quatorze heures trente »,
+  # « 3500 € » → « trois mille cinq cents euros »). Mets false pour lire le
+  # texte tel quel.
+  spell_numbers: true
+  # Prononciations : pour un mot que la voix écorche, la façon de l'écrire
+  # pour qu'il soit bien dit. Se remplit dans Préférences → Lecture. Exemple :
+  #   pronunciations:
+  #     Kixit: Kiksit
+  pronunciations: {}
 
 lexicon:
   # Lexique personnel : les noms propres et sigles que les modèles écorchent.

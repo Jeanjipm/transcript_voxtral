@@ -148,11 +148,24 @@ Onglets :
   ceux qui ne servent plus. Choisir un modèle absent propose son
   téléchargement immédiat, avec une barre de progression.
 - **Avancé** : réglages fins (fin de phrase conservée, durée maximale d'une
-  dictée, longueur du texte, seuil de silence, délai avant de rendre le
-  presse-papier, vérification des mises à jour).
+  dictée, longueur du texte, détection de la parole, seuil de silence, délai
+  avant de rendre le presse-papier, vérification des mises à jour).
+
+  **Détecter la parole** (coché par défaut) : avant de transcrire, un petit
+  modèle (Silero VAD, 2 Mo, téléchargé tout seul au premier lancement)
+  vérifie qu'il y a bien une voix dans l'enregistrement. Un bruit n'est plus
+  pris pour une dictée (le modèle inventait alors « Merci. »), et une phrase
+  dite bas n'est plus jetée. Tant que ce modèle n'est pas là, et si tu
+  décoches la case, c'est le seuil de silence qui décide, comme avant.
 - **Lecture** : la voix qui lit le texte copié (les 20 voix du modèle, avec
   leur langue), et l'état du modèle de lecture avec un bouton pour le
-  télécharger tout de suite.
+  télécharger tout de suite. Deux aides à la diction :
+  - *Lire les nombres en toutes lettres* (coché par défaut) : les voix
+    butent sur les chiffres. « 14h30 » est dit « quatorze heures trente »,
+    « 3500 € » « trois mille cinq cents euros », « 18 % » « dix-huit pour
+    cent », « le 1er » « le premier ».
+  - *Prononciations* : pour un mot que la voix écorche, une ligne
+    `le mot = comment l'écrire pour qu'il sonne juste` (`Kixit = Kiksit`).
 - **Mes mots** : ton lexique personnel, pour les noms propres et les sigles
   que les modèles écorchent.
   - *Corrections automatiques* : une par ligne, `ce que l'app écrit = ce que

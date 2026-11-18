@@ -270,6 +270,7 @@ def models_in_use(
     file_repo: str,
     diarization: bool = False,
     synthesis_repo: str | None = None,
+    speech_detection: bool = False,
 ) -> set[str]:
     """Les modèles qu'il ne faut pas proposer à la suppression.
 
@@ -290,6 +291,11 @@ def models_in_use(
         from diarizer import DEFAULT_MODEL as DIARIZATION_REPO
 
         in_use.add(DIARIZATION_REPO)
+    if speech_detection:
+        # Même raison : le détecteur de parole n'est dans aucune liste.
+        from speech_detector import REPO as SPEECH_DETECTION_REPO
+
+        in_use.add(SPEECH_DETECTION_REPO)
     return in_use
 
 

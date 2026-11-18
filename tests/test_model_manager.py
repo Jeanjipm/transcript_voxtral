@@ -139,6 +139,15 @@ def test_models_in_use_protects_the_synthesis_model_when_given():
     assert "org/tts" not in models_in_use("a/b", "c/d")
 
 
+def test_models_in_use_protects_the_speech_detector_when_enabled():
+    """Le détecteur de parole n'est dans aucune liste non plus : coché, ses
+    2 Mo ne doivent pas être proposés à la suppression."""
+    from speech_detector import REPO
+
+    assert REPO in models_in_use("a/b", "c/d", speech_detection=True)
+    assert REPO not in models_in_use("a/b", "c/d")
+
+
 # ---- scan_cached_models ----
 
 

@@ -187,6 +187,7 @@ class DictationController:
         silence_threshold_dbfs: float = audio_level.DEFAULT_SILENCE_THRESHOLD_DBFS,
         silence_padding_ms: int = 0,
         min_capture_ratio: float = DEFAULT_MIN_CAPTURE_RATIO,
+        silence_threshold_provider: Callable[[], float] | None = None,
     ) -> None:
         self._recorder = recorder
         self._feedback = feedback
@@ -194,6 +195,11 @@ class DictationController:
         self._max_duration_s = max_duration_s
         self._tail_padding_ms = tail_padding_ms
         self._silence_threshold_dbfs = silence_threshold_dbfs
+        # Si fourni, c'est lui qui dit le seuil à chaque dictée : l'app s'en
+        # sert pour l'abaisser quand la détection de parole (Silero) prend
+        # le relais, et pour qu'un changement de réglage soit suivi sans
+        # redémarrer.
+        self._silence_threshold_provider = silence_threshold_provider
         # Silence que l'enregistreur ajoute de chaque côté du WAV : à
         # retrancher pour connaître la durée réellement captée.
         self._silence_padding_ms = silence_padding_ms
@@ -457,13 +463,12 @@ class DictationController:
         # Du silence envoyé au modèle revient en phrase inventée (« Merci. »)
         # collée au curseur. On mesure donc le niveau du moment le plus fort
         # de l'enregistrement ; sans voix, on jette, en le journalisant.
-        level = self._safe_level(wav_path)
-        if level is not None and audio_level.is_silent(
-            level, self._silence_threshold_dbfs
-        ):
+        threshold = self._silence_threshold()
+        level = self._safe_level(wav_path, threshold)
+        if level is not None and audio_level.is_silent(level, threshold):
             self._trace(
                 f"niveau {level:.0f} dBFS sous le seuil "
-                f"{self._silence_threshold_dbfs:.0f} dBFS, silence jeté"
+                f"{threshold:.0f} dBFS, silence jeté"
             )
             self._unlink(wav_path)
             self._settle()
@@ -715,11 +720,20 @@ class DictationController:
         except Exception:  # noqa: BLE001
             return 0.0
 
-    def _safe_level(self, wav_path: Path) -> float | None:
+    def _silence_threshold(self) -> float:
+        """Seuil de silence en vigueur pour cette dictée."""
+        if self._silence_threshold_provider is not None:
+            try:
+                return float(self._silence_threshold_provider())
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+        return self._silence_threshold_dbfs
+
+    def _safe_level(self, wav_path: Path, threshold: float) -> float | None:
         """Niveau sonore du WAV (dBFS), ou None s'il est illisible — on
         transcrit alors quand même : perdre une dictée serait pire qu'une
         hallucination. Pas de lecture inutile quand le filtre est coupé."""
-        if self._silence_threshold_dbfs <= audio_level.SILENCE_FILTER_OFF_DBFS:
+        if threshold <= audio_level.SILENCE_FILTER_OFF_DBFS:
             return None
         try:
             return audio_level.measure_peak_rms_dbfs(wav_path)

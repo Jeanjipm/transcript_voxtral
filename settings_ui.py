@@ -40,6 +40,7 @@ import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
 import lexique
+import speech_detector
 from config import Config, load_config, save_config
 from hotkey_capture import HotkeyCapture, Outcome
 from hotkey_manager import display_combo, generic_combo, validate_combo
@@ -240,8 +241,8 @@ class SettingsWindow:
         self.root.title("Voxtral — Préférences")
         # Plus grand qu'avant : l'onglet Modèles liste plusieurs modèles avec
         # leur description, et l'ancienne taille les tronquait.
-        self.root.geometry("640x600")
-        self.root.minsize(600, 520)
+        self.root.geometry("640x760")
+        self.root.minsize(600, 660)
 
         self.config: Config = load_config()
 
@@ -782,6 +783,7 @@ class SettingsWindow:
             self.file_model_var.get(),
             diarization=bool(self.diarization_var.get()),
             synthesis_repo=self.config.synthesis.model,
+            speech_detection=self.config.recording.speech_detection,
         )
         total = sum(c.size_bytes for c in cached)
 
@@ -904,8 +906,29 @@ class SettingsWindow:
             justify=tk.LEFT,
         ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
+        self.speech_detection_var = tk.BooleanVar(
+            value=self.config.recording.speech_detection
+        )
+        ttk.Checkbutton(
+            frame,
+            text="Détecter la parole avant de transcrire (recommandé)",
+            variable=self.speech_detection_var,
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
+        ttk.Label(
+            frame,
+            text="Un petit modèle vérifie qu'il y a bien une voix : un bruit n'est\n"
+                 "plus pris pour une dictée, une phrase chuchotée n'est plus jetée.",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 2))
+        self._detector_status = ttk.Label(frame, foreground="gray", justify=tk.LEFT)
+        self._detector_status.grid(
+            row=9, column=0, columnspan=2, sticky="w", pady=(0, 14)
+        )
+        self._render_detector_status()
+
         ttk.Label(frame, text="Seuil de silence (dBFS) :").grid(
-            row=7, column=0, sticky="w"
+            row=10, column=0, sticky="w"
         )
         self.silence_var = tk.IntVar(
             value=int(round(self.config.recording.silence_threshold_dbfs))
@@ -913,19 +936,18 @@ class SettingsWindow:
         ttk.Spinbox(
             frame, from_=-120, to=0, increment=5,
             textvariable=self.silence_var, width=8,
-        ).grid(row=7, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=10, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
-            text="Une dictée dont le moment le plus fort reste sous ce niveau\n"
-                 "est jetée au lieu d'être transcrite (le modèle inventerait\n"
-                 "« Merci. »). Baisse à -55 si tes dictées douces sont ignorées ;\n"
-                 "-120 désactive le filtre.",
+            text="Sert quand la détection de parole est décochée ou pas encore\n"
+                 "téléchargée : une dictée qui reste sous ce niveau est jetée\n"
+                 "(le modèle inventerait « Merci. »). -120 désactive le filtre.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         ttk.Label(frame, text="Délai avant de rendre le presse-papier (ms) :").grid(
-            row=9, column=0, sticky="w"
+            row=12, column=0, sticky="w"
         )
         self.clipboard_delay_var = tk.IntVar(
             value=self.config.ui.clipboard_restore_delay_ms
@@ -933,7 +955,7 @@ class SettingsWindow:
         ttk.Spinbox(
             frame, from_=0, to=2000, increment=100,
             textvariable=self.clipboard_delay_var, width=8,
-        ).grid(row=9, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=12, column=1, sticky="w", padx=(10, 0))
         ttk.Label(
             frame,
             text="Après le collage, ce que tu avais copié avant est remis dans\n"
@@ -941,13 +963,23 @@ class SettingsWindow:
                  "(bureau distant, Electron) colle l'ancien contenu.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=10, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
         self.autocheck_var = tk.BooleanVar(value=self.config.updates.auto_check)
         ttk.Checkbutton(
             frame, text="Vérifier les mises à jour au démarrage",
             variable=self.autocheck_var,
-        ).grid(row=11, column=0, columnspan=2, sticky="w")
+        ).grid(row=14, column=0, columnspan=2, sticky="w")
+
+    def _render_detector_status(self) -> None:
+        """Où en est le modèle de détection (2 Mo, téléchargé tout seul)."""
+        if is_downloaded(speech_detector.REPO):
+            text = "Modèle de détection : ✓ sur ton Mac."
+        else:
+            text = ("Modèle de détection : il se télécharge tout seul (2 Mo) au "
+                    "prochain lancement\nde l'app. D'ici là, le seuil ci-dessous "
+                    "fait le travail.")
+        self._detector_status.configure(text=text)
 
     # ------------------------------------------------------------------
     # Onglet Lecture
@@ -978,20 +1010,52 @@ class SettingsWindow:
                  "lisent le français avec l'accent de leur langue.",
             foreground="gray",
             justify=tk.LEFT,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 14))
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 10))
+
+        self.spell_numbers_var = tk.BooleanVar(
+            value=self.config.synthesis.spell_numbers
+        )
+        ttk.Checkbutton(
+            frame,
+            text="Lire les nombres en toutes lettres (recommandé)",
+            variable=self.spell_numbers_var,
+        ).grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(
+            frame,
+            text="Les voix butent sur les chiffres : « 14h30 » est dit « quatorze\n"
+                 "heures trente », « 3500 € » « trois mille cinq cents euros ».",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 10))
+
+        ttk.Label(frame, text="Prononciations").grid(
+            row=6, column=0, columnspan=2, sticky="w"
+        )
+        self.pronunciations_text = tk.Text(frame, height=4, width=60, wrap="none")
+        self.pronunciations_text.grid(row=7, column=0, columnspan=2, sticky="ew")
+        self.pronunciations_text.insert(
+            "1.0", lexique.formater_corrections(self.config.synthesis.pronunciations)
+        )
+        ttk.Label(
+            frame,
+            text="Un mot mal dit ? Une ligne par mot :  le mot = comment l'écrire\n"
+                 "pour qu'il sonne juste.   Exemple :   Kixit = Kiksit",
+            foreground="gray",
+            justify=tk.LEFT,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 12))
 
         ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
-            row=4, column=0, columnspan=2, sticky="ew", pady=(0, 12)
+            row=9, column=0, columnspan=2, sticky="ew", pady=(0, 12)
         )
         ttk.Label(frame, text="Modèle de lecture", font=("", 12, "bold")).grid(
-            row=5, column=0, columnspan=2, sticky="w", pady=(0, 4)
+            row=10, column=0, columnspan=2, sticky="w", pady=(0, 4)
         )
         self._speech_status = ttk.Label(frame, justify=tk.LEFT)
-        self._speech_status.grid(row=6, column=0, columnspan=2, sticky="w")
+        self._speech_status.grid(row=11, column=0, columnspan=2, sticky="w")
         self._speech_download_btn = ttk.Button(
             frame, text="Télécharger maintenant…", command=self._download_speech_model
         )
-        self._speech_download_btn.grid(row=7, column=0, sticky="w", pady=(8, 0))
+        self._speech_download_btn.grid(row=12, column=0, sticky="w", pady=(8, 0))
         self._render_speech_model()
 
     def _voice_options(self) -> list[tuple[str, str]]:
@@ -1210,6 +1274,11 @@ class SettingsWindow:
             float(self.file_max_hours_var.get()) * 3600
         )
         cfg.synthesis.voice = self.voice.get_code()
+        cfg.synthesis.spell_numbers = bool(self.spell_numbers_var.get())
+        cfg.synthesis.pronunciations = lexique.analyser_corrections(
+            self.pronunciations_text.get("1.0", tk.END)
+        )
+        cfg.recording.speech_detection = bool(self.speech_detection_var.get())
         cfg.lexicon.corrections = lexique.analyser_corrections(
             self.corrections_text.get("1.0", tk.END)
         )
