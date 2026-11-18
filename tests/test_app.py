@@ -176,7 +176,7 @@ def test_init_passes_recording_settings_to_components(
         recording={
             "max_duration_s": 120, "tail_padding_ms": 500,
             "silence_padding_ms": 100, "start_retries": 2,
-            "silence_threshold_dbfs": -55,
+            "silence_threshold_dbfs": -55, "min_capture_ratio": 0.5,
         },
     )
     VoxtralApp()
@@ -187,6 +187,8 @@ def test_init_passes_recording_settings_to_components(
     assert ctrl_kwargs["max_duration_s"] == 120
     assert ctrl_kwargs["tail_padding_ms"] == 500
     assert ctrl_kwargs["silence_threshold_dbfs"] == -55
+    assert ctrl_kwargs["silence_padding_ms"] == 100
+    assert ctrl_kwargs["min_capture_ratio"] == 0.5
 
 
 def test_init_refreshes_offline_mode_for_configured_model(

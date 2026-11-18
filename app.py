@@ -273,6 +273,8 @@ class VoxtralApp(rumps.App):
             max_duration_s=self.config.recording.max_duration_s,
             tail_padding_ms=self.config.recording.tail_padding_ms,
             silence_threshold_dbfs=self.config.recording.silence_threshold_dbfs,
+            silence_padding_ms=self.config.recording.silence_padding_ms,
+            min_capture_ratio=self.config.recording.min_capture_ratio,
         )
         self.dictation.start()
 
@@ -622,6 +624,7 @@ class VoxtralApp(rumps.App):
     def _on_recording_kept(self, wav_path: Path) -> None:
         """Un enregistrement coupé pour dépassement a été conservé.
 
+        Vaut aussi pour une dictée à laquelle le micro a fait perdre du son.
         On se contente de le tracer : l'utilisateur a déjà l'information et le
         chemin via `_show_error`, et ouvrir une fenêtre à ce moment-là serait
         intrusif (il est probablement en train de taper).

@@ -83,6 +83,10 @@ class AudioRecorder:
         self._chunks: list[np.ndarray] = []
         self._state_lock = threading.Lock()
         self._recording = False
+        # Signalements du pilote audio (échantillons perdus…) pendant la
+        # dictée en cours. Écrits par le thread temps-réel, lus par `stop()`.
+        self._status_events = 0
+        self._last_status: Any = None
 
     # ---- API publique ----
 
@@ -108,6 +112,8 @@ class AudioRecorder:
             # peut encore détenir une référence à l'ancienne liste. Il y
             # écrira sans polluer l'enregistrement qui commence.
             self._chunks = []
+            self._status_events = 0
+            self._last_status = None
             self._recording = True
 
         try:
@@ -146,6 +152,17 @@ class AudioRecorder:
 
         chunks = self._chunks
         self._chunks = []
+
+        if self._status_events:
+            # Trace de diagnostic : le pilote a signalé un incident (le plus
+            # souvent des échantillons perdus). Sans elle, une dictée trouée
+            # ne laissait aucun indice sur ce qui s'était passé côté micro.
+            print(
+                f"[audio_capture] {self._status_events} signalement(s) du "
+                f"pilote audio pendant la dictée (dernier : "
+                f"{self._last_status}).",
+                file=sys.stderr,
+            )
 
         if not chunks:
             # Cas où l'utilisateur a relâché immédiatement : on écrit
@@ -338,9 +355,13 @@ class AudioRecorder:
         `_chunks` à une liste neuve, un callback vraiment retardataire écrit
         dans l'ancienne liste, sans polluer la dictée suivante.
 
-        `status` peut signaler un overflow ; on l'ignore en v0 (rare en
-        capture micro, et non bloquant).
+        `status` signale les incidents du pilote (overflow = échantillons
+        perdus). On se contente de les compter et de garder le dernier : ni
+        verrou ni écriture ici, c'est `stop()` qui les journalise.
         """
         if not self._recording:
             return
+        if status:
+            self._status_events += 1
+            self._last_status = status
         self._chunks.append(indata.copy())

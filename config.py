@@ -117,6 +117,12 @@ class RecordingConfig:
     # (« Merci. », « Sous-titres… »). -120 désactive le filtre.
     # Cf. audio_level.py pour les repères.
     silence_threshold_dbfs: float = -45.0
+    # Contrôle « dictée trouée ». Si le micro a rendu moins de cette part du
+    # son attendu (durée captée / durée d'enregistrement), la dictée n'est
+    # PAS collée : elle est conservée dans ~/.voxtral/recordings/, signalée,
+    # et le flux micro est reconstruit. Ne s'applique qu'aux dictées de 2 s
+    # et plus. 0 désactive le contrôle. Cf. dictation_controller.py.
+    min_capture_ratio: float = 0.7
 
 
 @dataclass
