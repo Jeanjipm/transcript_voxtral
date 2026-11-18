@@ -84,6 +84,14 @@ recording:
   # ignorées (voix très douce, micro lointain), baisse à -55. Mets -120 pour
   # désactiver le filtre. Le journal indique chaque dictée jetée.
   silence_threshold_dbfs: -45
+  # Contrôle « dictée trouée ». Un micro mal branché (carte son USB qui
+  # décroche, hub capricieux) peut ne rendre qu'une partie du son. Si moins
+  # de cette part du son attendu a été captée (0.7 = 70 %), la dictée n'est
+  # pas collée — le texte serait amputé sans que tu le saches. Elle est
+  # gardée dans ~/.voxtral/recordings/, une alerte s'affiche dans le menu, et
+  # la liaison avec le micro est reconstruite. Ne concerne que les dictées de
+  # 2 secondes et plus. Mets 0 pour désactiver.
+  min_capture_ratio: 0.7
 
 file_transcription:
   # Transcription d'un fichier audio déjà enregistré, via

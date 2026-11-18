@@ -210,6 +210,7 @@ voxtral
 | Le raccourci ne répond plus (souvent après une veille) | macOS a coupé la surveillance clavier | Menu 🎤 → **Réactiver le raccourci** |
 | Ce qui est collé est l'ANCIEN contenu du presse-papier | Application lente à lire le presse-papier (bureau distant, Electron) | Préférences → Avancé → monter le « délai avant de rendre le presse-papier » à 800–1000 ms |
 | Dictée coupée après 5 minutes, rien de collé | Relâchement du raccourci jamais reçu : coupe-circuit | L'audio est gardé dans `~/.voxtral/recordings/` (30 jours) ; menu 🎤 → Transcrire un fichier audio… |
+| Icône d'alerte, « Son perdu par le micro », rien de collé | Le micro n'a rendu qu'une partie du son (carte son USB qui décroche, hub capricieux) | Répéter la dictée ; si ça revient, vérifier le câble ou brancher le micro directement sur le Mac. L'enregistrement incomplet est gardé dans `~/.voxtral/recordings/` (30 jours) |
 
 ### Logs
 
